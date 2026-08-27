@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+dist/
+node_modules/
+.deno/
+
+findings.md
+progress.md
+task_plan.md
