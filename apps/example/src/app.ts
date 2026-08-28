@@ -1,6 +1,6 @@
 import { type AppConfig, createApp, type HyApiApp, jwtPlugin } from "@hyapi/core";
-import { healthRoutes } from "./routes/health.ts";
-import { userRoutes } from "./routes/users.ts";
+import { registerHealthRoutes } from "./routes/health.ts";
+import { registerUserRoutes } from "./routes/users.ts";
 import { InMemoryUserRepository } from "./repositories/user-repository.ts";
 import { UserService } from "./services/user-service.ts";
 
@@ -41,8 +41,8 @@ export async function buildExampleApp(
 
   const repository = new InMemoryUserRepository();
   const service = new UserService(repository);
-  for (const route of healthRoutes(config.name)) app.route(route);
-  for (const route of userRoutes(service)) app.route(route);
+  registerHealthRoutes(app, config.name);
+  registerUserRoutes(app, service);
   await app.ready();
   return app;
 }

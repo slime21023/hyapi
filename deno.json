@@ -5,7 +5,9 @@
     "@hono/hono": "jsr:@hono/hono@4",
     "@std/assert": "jsr:@std/assert@1",
     "typebox": "npm:typebox@1",
-    "ajv": "npm:ajv@8"
+    "typebox/compile": "npm:typebox@1/compile",
+    "typebox/format": "npm:typebox@1/format",
+    "typebox/value": "npm:typebox@1/value"
   },
   "tasks": {
     "dev": "deno run --watch --allow-net --allow-env apps/example/src/main.ts",
@@ -21,7 +23,8 @@
     "lineWidth": 100,
     "useTabs": false,
     "semiColons": true,
-    "singleQuote": false
+    "singleQuote": false,
+    "exclude": [".agents/"]
   },
   "compilerOptions": {
     "strict": true,

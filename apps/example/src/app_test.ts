@@ -128,8 +128,13 @@ Deno.test("example application exposes health, JWT-protected CRUD, and OpenAPI",
   assertEquals(document.openapi, "3.1.0");
   assertEquals(document.info.path, undefined);
   assert(document.paths["/v1/users"]);
+  assertEquals(document.paths["/v1/users"].get.security, [{ bearerAuth: ["users:read"] }]);
+  assertEquals(document.paths["/v1/users"].post.security, [{ bearerAuth: ["users:write"] }]);
+  assert(document.paths["/v1/users"].get.responses["401"]);
+  assert(document.paths["/v1/users"].get.responses["403"]);
   assert(document.paths["/v1/users/{id}"].delete.responses["204"]);
   assert(document.components.securitySchemes.bearerAuth);
+  assert(document.components.schemas.ProblemDetails);
 });
 
 async function createToken(

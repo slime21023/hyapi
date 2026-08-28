@@ -1,4 +1,9 @@
-import { type AnyRouteDefinition, isProtectedAuth, type OpenApiOptions } from "./types.ts";
+import {
+  type AnyRouteDefinition,
+  extractResponseSchemas,
+  isProtectedAuth,
+  type OpenApiOptions,
+} from "./types.ts";
 import type { SchemaValidator } from "./validation.ts";
 
 interface OpenApiOperation {
@@ -21,28 +26,70 @@ export function buildOpenApiDocument(
   const paths: Record<string, Record<string, OpenApiOperation>> = {};
 
   for (const route of routes) {
-    const status = route.responseStatus ?? 200;
-    const isNoContent = status === 204;
     const { operationId, summary, description, tags, deprecated } = route.metadata ?? {};
+    const responses: Record<string, unknown> = {};
+
+    const responseSchemas = extractResponseSchemas(route);
+    for (const [statusCode, schema] of Object.entries(responseSchemas)) {
+      const statusNum = Number(statusCode);
+      const isNoContent = statusNum === 204;
+      responses[String(statusNum)] = {
+        description: isNoContent ? "No content" : `Status ${statusNum} response`,
+        ...(!isNoContent && schema
+          ? {
+            content: {
+              "application/json": { schema: schemaValidator.toJsonSchema(schema) },
+            },
+          }
+          : {}),
+      };
+    }
+
+    if (
+      !responses["400"] &&
+      (route.request?.params || route.request?.query || route.request?.body ||
+        route.request?.headers)
+    ) {
+      responses["400"] = {
+        description: "Bad request / validation failure",
+        content: {
+          "application/problem+json": {
+            schema: { $ref: "#/components/schemas/ProblemDetails" },
+          },
+        },
+      };
+    }
+
+    if (isProtectedAuth(route.auth)) {
+      if (route.auth.required !== false && !responses["401"]) {
+        responses["401"] = {
+          description: "Authentication required or invalid token",
+          content: {
+            "application/problem+json": {
+              schema: { $ref: "#/components/schemas/ProblemDetails" },
+            },
+          },
+        };
+      }
+      if (route.auth.scopes && route.auth.scopes.length > 0 && !responses["403"]) {
+        responses["403"] = {
+          description: "Forbidden / insufficient scope",
+          content: {
+            "application/problem+json": {
+              schema: { $ref: "#/components/schemas/ProblemDetails" },
+            },
+          },
+        };
+      }
+    }
 
     const operation: OpenApiOperation = {
       ...(operationId ? { operationId } : {}),
       ...(summary ? { summary } : {}),
       ...(description ? { description } : {}),
-      ...(tags ? { tags } : {}),
+      ...(tags && tags.length > 0 ? { tags } : {}),
       ...(deprecated !== undefined ? { deprecated } : {}),
-      responses: {
-        [String(status)]: {
-          description: isNoContent ? "No content" : "Successful response",
-          ...(route.response && !isNoContent
-            ? {
-              content: {
-                "application/json": { schema: schemaValidator.toJsonSchema(route.response) },
-              },
-            }
-            : {}),
-        },
-      },
+      responses,
     };
 
     const parameters: Record<string, unknown>[] = [];
@@ -66,18 +113,35 @@ export function buildOpenApiDocument(
         parameters.push({ name, in: "query", required: required.has(name), schema });
       }
     }
+    const headers = route.request?.headers as Record<string, unknown> | undefined;
+    if (headers?.properties && typeof headers.properties === "object") {
+      const required = new Set(Array.isArray(headers.required) ? headers.required : []);
+      for (const [name, schema] of Object.entries(headers.properties as Record<string, unknown>)) {
+        parameters.push({ name, in: "header", required: required.has(name), schema });
+      }
+    }
     if (parameters.length > 0) operation.parameters = parameters;
 
     if (route.request?.body) {
       operation.requestBody = {
-        required: true,
+        required: route.request.bodyRequired !== false,
         content: {
           "application/json": { schema: schemaValidator.toJsonSchema(route.request.body) },
+          "application/x-www-form-urlencoded": {
+            schema: schemaValidator.toJsonSchema(route.request.body),
+          },
+          "multipart/form-data": { schema: schemaValidator.toJsonSchema(route.request.body) },
         },
       };
     }
+
     if (isProtectedAuth(route.auth)) {
-      operation.security = [{ bearerAuth: [] }];
+      const scopes = route.auth.scopes ? [...route.auth.scopes] : [];
+      if (route.auth.required === false) {
+        operation.security = [{ bearerAuth: scopes }, {}];
+      } else {
+        operation.security = [{ bearerAuth: scopes }];
+      }
     }
 
     const pathItem = paths[route.path] ?? {};
@@ -91,7 +155,28 @@ export function buildOpenApiDocument(
     paths,
     components: {
       securitySchemes: {
-        bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+          description: "JSON Web Token with optional permission scopes",
+        },
+      },
+      schemas: {
+        ProblemDetails: {
+          type: "object",
+          required: ["type", "title", "status", "detail", "instance", "code", "requestId"],
+          properties: {
+            type: { type: "string" },
+            title: { type: "string" },
+            status: { type: "integer" },
+            detail: { type: "string" },
+            instance: { type: "string" },
+            code: { type: "string" },
+            requestId: { type: "string" },
+            details: {},
+          },
+        },
       },
     },
   };

@@ -86,6 +86,13 @@ export class ResponseValidationError extends AppError {
   }
 }
 
+export class ResponseContractError extends AppError {
+  constructor(message: string, details: unknown = undefined) {
+    super(500, "RESPONSE_CONTRACT_ERROR", message, details, false);
+    this.name = "ResponseContractError";
+  }
+}
+
 export function asAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
   if (error instanceof SyntaxError) {

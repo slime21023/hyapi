@@ -1,10 +1,11 @@
-export { createApp, HyApiApp } from "./src/app.ts";
+export { createApp, HyApiApp, RouterGroup } from "./src/app.ts";
 export {
   AppError,
   ConfigurationError,
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  ResponseContractError,
   ResponseValidationError,
   UnauthorizedError,
   ValidationError,
@@ -24,7 +25,10 @@ export type {
   PluginApi,
   RequestContext,
   ResponseResult,
+  ResponseSchemas,
   RouteDefinition,
+  RouteGroupApi,
+  RouteGroupOptions,
   RouteHandler,
   RouteMetadata,
   RouteRequestSchemas,

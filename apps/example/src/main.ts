@@ -15,7 +15,11 @@ const server = Deno.serve({
 }, app.fetch.bind(app));
 
 console.log(`HyAPI listening on http://${config.host}:${config.port}`);
-await server.finished;
+try {
+  await server.finished;
+} finally {
+  await app.close();
+}
 
 function loadConfig(): AppConfig & { host: string; port: number } {
   const environment = Deno.env.get("DENO_ENV") ?? "development";
