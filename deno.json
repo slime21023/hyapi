@@ -1,5 +1,5 @@
 {
-  "workspace": ["./packages/core", "./apps/example"],
+  "workspace": ["./packages/core", "./packages/cli", "./apps/example"],
   "imports": {
     "@hyapi/core": "./packages/core/mod.ts",
     "@hono/hono": "jsr:@hono/hono@4",
@@ -15,9 +15,9 @@
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno run --allow-read --allow-env --allow-ffi npm:oxlint@1 .",
-    "check": "deno check packages/core/mod.ts apps/example/src/main.ts",
+    "check": "deno check packages/core/mod.ts packages/cli/mod.ts apps/example/src/main.ts",
     "test": "deno test --allow-env",
-    "verify": "deno fmt --check && deno task lint && deno check packages/core/mod.ts apps/example/src/main.ts && deno test --allow-env"
+    "verify": "deno fmt --check && deno task lint && deno task check && deno test --allow-env"
   },
   "fmt": {
     "lineWidth": 100,
