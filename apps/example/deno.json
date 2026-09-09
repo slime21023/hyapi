@@ -1,6 +1,6 @@
 {
   "name": "@hyapi/example",
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "exports": "./src/main.ts",
   "imports": {
     "@hyapi/core": "../../packages/core/mod.ts",

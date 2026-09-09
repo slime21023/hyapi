@@ -44,6 +44,18 @@ export const ReadyResponseSchema = Type.Object({
   timestamp: Type.String({ format: "date-time" }),
 }, { additionalProperties: false });
 
+export const CreateOrderSchema = Type.Object({
+  userId: Type.String({ format: "uuid" }),
+  sku: Type.String({ minLength: 1, maxLength: 120 }),
+}, { additionalProperties: false });
+
+export const OrderSchema = Type.Object({
+  id: Type.String({ format: "uuid" }),
+  userId: Type.String({ format: "uuid" }),
+  sku: Type.String({ minLength: 1, maxLength: 120 }),
+  createdAt: Type.String({ format: "date-time" }),
+}, { additionalProperties: false });
+
 export type User = Type.Static<typeof UserSchema>;
 export type CreateUserInput = Type.Static<typeof CreateUserSchema>;
 export type UpdateUserInput = Type.Static<typeof UpdateUserSchema>;

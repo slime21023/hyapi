@@ -4,18 +4,18 @@ import type { AppConfig } from "@hyapi/core";
 
 const config: AppConfig = {
   name: "example-test",
-  version: "0.1.0",
+  version: "0.2.0",
   environment: "test",
   requestIdHeader: "x-request-id",
   openapi: {
     title: "Example test API",
-    version: "0.1.0",
+    version: "0.2.0",
     path: "/openapi.json",
   },
 };
 const secret = "test-secret-with-at-least-32-characters";
 
-Deno.test("example application exposes health, JWT-protected CRUD, and OpenAPI", async () => {
+Deno.test("example application composes Users and Orders through a public port", async () => {
   const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
 
   const live = await app.request("http://test/health/live");
@@ -28,6 +28,7 @@ Deno.test("example application exposes health, JWT-protected CRUD, and OpenAPI",
   const readToken = await createToken(secret, ["users:read"]);
   const writeToken = await createToken(secret, ["users:write"]);
   const bothToken = await createToken(secret, ["users:read", "users:write"]);
+  const orderToken = await createToken(secret, ["orders:write"]);
 
   const readList = await app.request("http://test/v1/users", {
     headers: { authorization: `Bearer ${readToken}` },
@@ -74,6 +75,27 @@ Deno.test("example application exposes health, JWT-protected CRUD, and OpenAPI",
   assertEquals(created.status, 201);
   const user = await created.json();
   assert(typeof user.id === "string");
+
+  const order = await app.request("http://test/v1/orders", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${orderToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ userId: user.id, sku: "starter-plan" }),
+  });
+  assertEquals(order.status, 201);
+  assertEquals((await order.json()).userId, user.id);
+
+  const missingOrderOwner = await app.request("http://test/v1/orders", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${orderToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ userId: crypto.randomUUID(), sku: "starter-plan" }),
+  });
+  assertEquals(missingOrderOwner.status, 404);
 
   const duplicate = await app.request("http://test/v1/users", {
     method: "POST",
@@ -128,8 +150,10 @@ Deno.test("example application exposes health, JWT-protected CRUD, and OpenAPI",
   assertEquals(document.openapi, "3.1.0");
   assertEquals(document.info.path, undefined);
   assert(document.paths["/v1/users"]);
+  assert(document.paths["/v1/orders"]);
   assertEquals(document.paths["/v1/users"].get.security, [{ bearerAuth: ["users:read"] }]);
   assertEquals(document.paths["/v1/users"].post.security, [{ bearerAuth: ["users:write"] }]);
+  assertEquals(document.paths["/v1/orders"].post.security, [{ bearerAuth: ["orders:write"] }]);
   assert(document.paths["/v1/users"].get.responses["401"]);
   assert(document.paths["/v1/users"].get.responses["403"]);
   assert(document.paths["/v1/users/{id}"].delete.responses["204"]);
