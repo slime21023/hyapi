@@ -1,0 +1,26 @@
+goal: "Make HyAPI's local and CI quality gate deterministic across supported operating systems."
+keyresults:
+  - kr-1: "Repository text files use LF checkout rules, including on Windows."
+  - kr-2: "deno task verify passes without formatter-only failures."
+  - kr-3: "Contributors have documented release and issue-tracking conventions."
+rules:
+  - id: line-endings-are-reproducible
+    name: repository-text-files-use-lf
+    apply: ".gitattributes"
+    level: error
+    desc:
+      - "Text files are checked out with LF line endings."
+      - "Windows command files remain explicitly exempted."
+  - id: quality-gate-is-green
+    name: deno-verify-passes
+    apply: "deno.json"
+    level: error
+    desc:
+      - "The complete formatter, lint, type-check, and test gate succeeds."
+  - id: roadmap-is-actionable
+    name: roadmap-and-issue-conventions-exist
+    apply: "docs/roadmap.md,.github/ISSUE_TEMPLATE/development.md"
+    level: error
+    desc:
+      - "The roadmap names release gates and implementation tasks."
+      - "Every development issue records a goal, key results, and verification."

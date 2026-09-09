@@ -1,0 +1,6 @@
+# Keep source and documentation files identical across Windows and Unix checkouts.
+* text=auto eol=lf
+
+# Windows command files, if introduced later, retain their native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
