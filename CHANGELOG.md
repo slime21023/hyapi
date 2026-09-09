@@ -24,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Changed
 
 - Text-file checkout rules are standardized on LF for deterministic Deno formatting.
+- Release documentation now records the v1.0.0-rc.1 verification baseline and issue evidence
+  requirements.
+- The core package no longer declares the unused AJV validator dependency.
 - **Breaking:** `createApp`, registration plugins, decorations, and root route registration are
   replaced by `createApplication`, Modules, Plugins, and service references.
 - **Breaking (v0.7):** module startup `imports` is renamed to `dependencies`; `doctor()` now returns

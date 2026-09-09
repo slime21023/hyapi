@@ -14,20 +14,20 @@ provider without changing use case code.
 
 ## Release timeline
 
-| Version     | Capability                                                                        | Status      |
-| ----------- | --------------------------------------------------------------------------------- | ----------- |
-| v0.1.1      | Quality baseline, contribution and release workflow                               | Completed   |
-| v0.2.0      | Function-first Application/Module/Plugin composition and service scopes           | Completed   |
-| v0.3.0      | Deno/JSR CLI, project/module generation, inspect/doctor, starter template         | Completed   |
-| v0.4.0      | Typed Ports, local providers, contract tests, module boundary checks              | Completed   |
-| v0.5.0      | HTTP contracts, typed clients, remote providers, propagation and extraction guide | Completed   |
-| v0.5.1      | Runtime allocation and cleanup reliability optimizations                          | Completed   |
-| v0.6.0      | Removal of the legacy composition bridge                                          | Completed   |
-| v0.7.0      | Config defaults, `dependencies` naming, structured diagnostics and test helpers   | Completed   |
-| v0.8.0      | Provider lifecycle and contract-version compatibility                             | Implemented |
-| v0.9.0      | Distributed resilience and remote-call governance                                 | Implemented |
-| v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Candidate   |
-| v1.0.0      | Production baseline and public API stability                                      | Future      |
+| Version     | Capability                                                                        | Status    |
+| ----------- | --------------------------------------------------------------------------------- | --------- |
+| v0.1.1      | Quality baseline, contribution and release workflow                               | Completed |
+| v0.2.0      | Function-first Application/Module/Plugin composition and service scopes           | Completed |
+| v0.3.0      | Deno/JSR CLI, project/module generation, inspect/doctor, starter template         | Completed |
+| v0.4.0      | Typed Ports, local providers, contract tests, module boundary checks              | Completed |
+| v0.5.0      | HTTP contracts, typed clients, remote providers, propagation and extraction guide | Completed |
+| v0.5.1      | Runtime allocation and cleanup reliability optimizations                          | Completed |
+| v0.6.0      | Removal of the legacy composition bridge                                          | Completed |
+| v0.7.0      | Config defaults, `dependencies` naming, structured diagnostics and test helpers   | Completed |
+| v0.8.0      | Provider lifecycle and contract-version compatibility                             | Completed |
+| v0.9.0      | Distributed resilience and remote-call governance                                 | Completed |
+| v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Candidate |
+| v1.0.0      | Production baseline and public API stability                                      | Future    |
 
 ## v0.8.0 — Provider lifecycle and contract compatibility
 
@@ -99,6 +99,21 @@ breaking existing application code.
 After `v1.0.0-rc.1`, runtime and public API changes are frozen. Follow-up work is limited to test
 coverage, repeatable performance measurements, security regression checks, and documentation or
 example corrections.
+
+## v1.0.0-rc.1 verification record
+
+The release-candidate baseline is verified from the repository root with:
+
+```text
+deno task verify
+git diff --check
+```
+
+The verification gate covers formatting, linting, type checking, and the complete test suite. The
+workspace package metadata and generated CLI dependency are kept on the same `1.0.0-rc.1` line, and
+unused validator dependencies are not part of the published core package. Delivered roadmap issues
+are closed only after their implementation, documentation, and verification evidence are recorded in
+the GitHub issue.
 
 ## Deferred and cancelled
 

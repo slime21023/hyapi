@@ -17,6 +17,11 @@ Create a development issue before implementation. Use the **Development task** i
 record a goal, measurable key results, a `rule.yml` verification outline, and final test evidence.
 Keep an issue focused on one independently reviewable behavior.
 
+When work is complete, record the implementing commit, the relevant source or documentation path,
+and the exact verification command result in the issue before closing it. A roadmap issue may be
+closed only when its behavior is present on `main`, its documentation is current, and
+`deno task verify` passes.
+
 For a public API change, include documentation, example updates, and migration notes in the same
 pull request. Do not expose Hono implementation details through a new HyAPI public API.
 

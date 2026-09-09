@@ -39,7 +39,17 @@ rules:
 
 - [ ] Relevant unit, integration, or end-to-end tests pass.
 - [ ] `deno task verify` passes.
+- [ ] `git diff --check` passes.
 - [ ] Documentation and examples reflect the delivered behavior.
+
+## Completion evidence
+
+<!-- Complete before closing the issue. -->
+
+- Implementing commit(s):
+- Source or documentation paths:
+- Verification command and result:
+- Migration or compatibility notes:
 
 ## Notes
 

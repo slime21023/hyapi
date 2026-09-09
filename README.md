@@ -5,6 +5,16 @@ Hapi (deterministic lifecycle hooks, explicit route contracts, fail-fast configu
 isolation) and Egg.js (layered engineering structure, hierarchical route grouping), built entirely
 on top of Web Standards, Hono, and TypeBox.
 
+## Current status
+
+HyAPI is currently at **v1.0.0-rc.1**. The v0.9 public API is frozen while the release candidate is
+verified for production use; only test coverage, repeatable performance/security evidence, and
+documentation or example corrections are in scope before v1.0.0.
+
+Read the [roadmap](docs/roadmap.md), [v1.0.0 candidate migration guide](docs/migrations/v1.0.0.md),
+[changelog](CHANGELOG.md), and [contribution/release policy](CONTRIBUTING.md) for the current
+baseline and verification requirements.
+
 ## Key Features
 
 - **Schema-Driven Contracts**: TypeBox schemas derive both static TypeScript types and native JIT
