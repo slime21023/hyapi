@@ -1,4 +1,4 @@
-import type { Context, Hono } from "@hono/hono";
+import type { Context } from "@hono/hono";
 import type { Static, TSchema } from "typebox";
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -62,12 +62,14 @@ export interface RequestContext<
   readonly request: Request;
   readonly raw: Context;
   readonly requestId: string;
+  readonly deadline?: number;
   readonly params: InferSchema<TParams>;
   readonly query: InferSchema<TQuery>;
   readonly body: TBodyRequired extends false ? InferSchema<TBody> | undefined : InferSchema<TBody>;
   readonly headers: Headers;
   identity: Identity | null;
   readonly state: Map<string, unknown>;
+  readonly services: ServiceResolver;
   ok<T>(body: T, init?: ResponseInit): ResponseResult<T>;
   created<T>(body: T, init?: ResponseInit): ResponseResult<T>;
   noContent(init?: ResponseInit): ResponseResult<undefined>;
@@ -142,19 +144,108 @@ export interface RouteGroupApi {
   ): void;
 }
 
-export interface PluginApi extends RouteGroupApi {
-  readonly http: Hono;
+export interface PlatformApi {
+  addHook(point: "onRequest" | "onResponse" | "onError", hook: LifecycleHook): void;
   setAuthProvider(provider: AuthProvider): void;
-  decorate<T>(name: string, value: T): void;
-  getDecoration<T>(name: string): T | undefined;
 }
 
-export interface Plugin<Options = unknown> {
+export interface Plugin {
   readonly name: string;
   readonly dependencies?: readonly string[];
-  register(app: PluginApi, options: Options): MaybePromise<void>;
-  onStart?(app: PluginApi): MaybePromise<void>;
-  onClose?(app: PluginApi): MaybePromise<void>;
+  setup(platform: PlatformApi): MaybePromise<void>;
+  onStart?(platform: PlatformApi): MaybePromise<void>;
+  onClose?(platform: PlatformApi): MaybePromise<void>;
+}
+
+export type ServiceScope = "singleton" | "request" | "transient";
+
+export interface ServiceReference<T> {
+  readonly name?: string;
+  readonly scope: ServiceScope;
+  readonly factory: ServiceFactory<T>;
+}
+
+export interface ServiceOverride<T = unknown> {
+  readonly name: string;
+  readonly value: T;
+}
+
+export interface ServiceResolver {
+  get<T>(service: ServiceReference<T>): Promise<T>;
+}
+
+export type ServiceFactory<T> = (services: ServiceResolver) => MaybePromise<T>;
+
+export interface ModuleApi extends RouteGroupApi {
+  singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  use<T>(port: Port<T>): T;
+}
+
+export interface Port<T> {
+  readonly id: string;
+  readonly version: PortVersion;
+  readonly __type?: T;
+}
+
+export interface ContractVersion {
+  readonly major: number;
+  readonly minor: number;
+}
+
+export type PortVersion = number | ContractVersion;
+
+export interface ProviderHealth {
+  readonly status: "healthy" | "degraded" | "unhealthy";
+  readonly provider: string;
+  readonly detail?: string;
+}
+
+export interface ProviderLifecycle {
+  connect?(): MaybePromise<void>;
+  health?(): MaybePromise<ProviderHealth>;
+  close?(): MaybePromise<void>;
+}
+
+export interface PortProvider<T> {
+  readonly port: Port<T>;
+  readonly value: T;
+  readonly lifecycle?: ProviderLifecycle;
+}
+
+export interface Module {
+  readonly name: string;
+  readonly dependencies?: readonly string[];
+  readonly requires?: readonly Port<unknown>[];
+  readonly provides?: readonly PortProvider<unknown>[];
+  setup(module: ModuleApi): MaybePromise<void>;
+  onStart?(module: ModuleApi): MaybePromise<void>;
+  onClose?(module: ModuleApi): MaybePromise<void>;
+}
+
+export interface HyApplication {
+  readonly config: AppConfig;
+  fetch(request: Request): MaybePromise<Response>;
+  request(input: RequestInfo | URL, init?: RequestInit): MaybePromise<Response>;
+  health(): Promise<HealthReport>;
+  close(): Promise<void>;
+}
+
+export interface HealthReport {
+  readonly status: "healthy" | "degraded" | "unhealthy";
+  readonly providers: readonly ProviderHealth[];
+}
+
+export interface ApplicationOptions {
+  readonly config: AppConfig | AppConfigOptions;
+  readonly modules: readonly Module[];
+  readonly plugins?: readonly Plugin[];
+  readonly overrides?: readonly ServiceOverride[];
+  readonly providers?: readonly PortProvider<unknown>[];
 }
 
 export interface AppConfig {
@@ -167,6 +258,19 @@ export interface AppConfig {
     readonly description?: string;
     readonly version: string;
     readonly path: string;
+  };
+}
+
+export interface AppConfigOptions {
+  readonly name: string;
+  readonly version?: string;
+  readonly environment?: AppConfig["environment"];
+  readonly requestIdHeader?: string;
+  readonly openapi?: {
+    readonly title?: string;
+    readonly description?: string;
+    readonly version?: string;
+    readonly path?: string;
   };
 }
 
@@ -200,6 +304,42 @@ export const defineRoute = <
   TResponse extends ResponseSchemas | undefined = undefined,
   TBodyRequired extends boolean = true,
 >(route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>) => route;
+
+export const defineModule = (module: Module): Module => module;
+
+export function defineConfig(options: AppConfigOptions): AppConfig {
+  const version = options.version ?? "0.1.0";
+  return {
+    name: options.name,
+    version,
+    environment: options.environment ?? "development",
+    requestIdHeader: options.requestIdHeader ?? "x-request-id",
+    openapi: {
+      title: options.openapi?.title ?? `${options.name} API`,
+      ...(options.openapi?.description === undefined
+        ? {}
+        : { description: options.openapi.description }),
+      version: options.openapi?.version ?? version,
+      path: options.openapi?.path ?? "/openapi.json",
+    },
+  };
+}
+
+export const definePlugin = (plugin: Plugin): Plugin => plugin;
+
+export const provideValue = <T>(name: string, value: T): ServiceOverride<T> => ({ name, value });
+
+export const definePort = <T>(id: string, version: PortVersion = 1): Port<T> => ({ id, version });
+
+export const providePort = <T>(
+  port: Port<T>,
+  value: T,
+  lifecycle?: ProviderLifecycle,
+): PortProvider<T> => ({
+  port,
+  value,
+  ...(lifecycle ? { lifecycle } : {}),
+});
 
 export function isProtectedAuth(
   auth: AuthRequirement | undefined,

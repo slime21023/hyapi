@@ -2,15 +2,24 @@ import { type Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type AppConfig,
+  type AppConfigOptions,
+  type ApplicationOptions,
   type AuthProvider,
   extractResponseSchemas,
+  type HealthReport,
   type HyApiOptions,
+  type HyApplication,
   type Identity,
   isProtectedAuth,
   type LifecycleContext,
   type LifecycleHook,
+  type MaybePromise,
+  type Module,
+  type ModuleApi,
   type Plugin,
-  type PluginApi,
+  type Port,
+  type PortProvider,
+  type ProviderHealth,
   type RequestContext,
   type ResponseResult,
   type ResponseSchemas,
@@ -18,6 +27,10 @@ import {
   type RouteGroupApi,
   type RouteGroupOptions,
   type Schema,
+  type ServiceFactory,
+  type ServiceOverride,
+  type ServiceReference,
+  type ServiceResolver,
 } from "./types.ts";
 import {
   AppError,
@@ -31,20 +44,22 @@ import {
 } from "./errors.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
 import { headerObject, parseRequestBody, queryObject, SchemaValidator } from "./validation.ts";
+import { formatContractVersion, isCompatibleContractVersion } from "./version.ts";
+
+interface DependencyNode {
+  readonly name: string;
+  readonly dependencies?: readonly string[];
+}
 
 interface RequestRuntime {
   requestId: string;
+  deadline?: number;
   state: Map<string, unknown>;
-  bodyRequest: Request;
   route: AnyRouteDefinition | null;
   identity: Identity | null;
   lifecycle: LifecycleContext;
-}
-
-interface PluginRegistration {
-  plugin: Plugin<unknown>;
-  options: unknown;
-  registered: boolean;
+  services: Map<ServiceReference<unknown>, Promise<unknown>>;
+  cleanups: unknown[];
 }
 
 type AppLifecycleState = "configuring" | "starting" | "ready" | "failed" | "closing" | "closed";
@@ -54,6 +69,22 @@ const RESPONSE_RESULT = "__hyapiResponse" as const;
 function isResponseResult(value: unknown): value is ResponseResult {
   return typeof value === "object" && value !== null &&
     (value as Record<string, unknown>)[RESPONSE_RESULT] === true;
+}
+
+function appendErrors(target: unknown[], source: unknown): void {
+  if (source instanceof AggregateError) target.push(...source.errors);
+  else target.push(source);
+}
+
+function createAggregateError(
+  errors: readonly unknown[],
+  message = "Application shutdown failed.",
+): AggregateError {
+  return new AggregateError([...errors], message);
+}
+
+function flattenError(error: unknown): unknown[] {
+  return error instanceof AggregateError ? [...error.errors] : [error];
 }
 
 function joinPaths(base: string | undefined, path: string): string {
@@ -66,49 +97,78 @@ function joinPaths(base: string | undefined, path: string): string {
   return `${formattedBase}/${cleanPath}`;
 }
 
-function topologicalSort(plugins: PluginRegistration[]): PluginRegistration[] {
-  const byName = new Map<string, PluginRegistration>();
-  for (const item of plugins) {
-    byName.set(item.plugin.name, item);
+function sortByDependencies<T extends DependencyNode>(
+  items: readonly T[],
+  options: {
+    getDependencies?: (item: T) => readonly string[] | undefined;
+    readonly getDuplicateMessage: (name: string) => string;
+    readonly getMissingDependencyMessage: (dependent: string, dependency: string) => string;
+    readonly getCycleMessage: (cycle: readonly string[]) => string;
+  },
+): T[] {
+  const byName = new Map<string, T>();
+  for (const item of items) {
+    if (byName.has(item.name)) {
+      throw new ConfigurationError(options.getDuplicateMessage(item.name));
+    }
+    byName.set(item.name, item);
   }
 
-  for (const item of plugins) {
-    for (const dep of item.plugin.dependencies ?? []) {
+  for (const item of items) {
+    for (const dep of item.dependencies ?? []) {
       if (!byName.has(dep)) {
-        throw new ConfigurationError(
-          `Plugin '${item.plugin.name}' requires '${dep}' to be registered.`,
-        );
+        throw new ConfigurationError(options.getMissingDependencyMessage(item.name, dep));
       }
     }
   }
 
   const visited = new Set<string>();
-  const visiting = new Set<string>();
-  const sorted: PluginRegistration[] = [];
+  const visiting: string[] = [];
+  const sorted: T[] = [];
 
-  function visit(name: string) {
-    if (visiting.has(name)) {
-      throw new ConfigurationError(`Circular dependency detected involving plugin '${name}'.`);
+  const visit = (name: string, dependent?: string): void => {
+    if (visiting.includes(name)) {
+      throw new ConfigurationError(options.getCycleMessage([...visiting, name]));
     }
-    if (!visited.has(name)) {
-      visiting.add(name);
-      const item = byName.get(name)!;
-      for (const dep of item.plugin.dependencies ?? []) {
-        visit(dep);
-      }
-      visiting.delete(name);
-      visited.add(name);
-      sorted.push(item);
-    }
-  }
+    if (visited.has(name)) return;
 
-  for (const item of plugins) {
-    if (!visited.has(item.plugin.name)) {
-      visit(item.plugin.name);
+    const item = byName.get(name);
+    if (!item) {
+      throw new ConfigurationError(options.getMissingDependencyMessage(dependent ?? name, name));
     }
+    visiting.push(name);
+    for (const dep of options.getDependencies?.(item) ?? item.dependencies ?? []) {
+      visit(dep, item.name);
+    }
+    visiting.pop();
+    visited.add(name);
+    sorted.push(item);
+  };
+
+  for (const item of items) {
+    visit(item.name);
   }
 
   return sorted;
+}
+
+function sortModules(modules: readonly Module[]): Module[] {
+  return sortByDependencies(modules, {
+    getDependencies: (module) => module.dependencies,
+    getDuplicateMessage: (name) => `Module '${name}' is already registered.`,
+    getMissingDependencyMessage: (dependent, dependency) =>
+      `Module '${dependent}' requires '${dependency}' to be registered.`,
+    getCycleMessage: (cycle) => `Circular module dependency detected: ${cycle.join(" -> ")}.`,
+  });
+}
+
+function sortPlugins(plugins: readonly Plugin[]): Plugin[] {
+  return sortByDependencies(plugins, {
+    getDuplicateMessage: (name) => `Plugin '${name}' is already registered.`,
+    getMissingDependencyMessage: (dependent, dependency) =>
+      `Plugin '${dependent}' requires '${dependency}' to be registered.`,
+    getCycleMessage: (cycle) => `Circular plugin dependency detected: ${cycle.join(" -> ")}.`,
+  });
 }
 
 function normalizeGroupArgs(
@@ -129,7 +189,7 @@ export class RouterGroup implements RouteGroupApi {
   private readonly hooks: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>;
 
   constructor(
-    private readonly app: HyApiApp,
+    protected readonly app: HyApiApp,
     private readonly options: RouteGroupOptions = {},
     parentHooks?: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>,
   ) {
@@ -215,15 +275,45 @@ export class RouterGroup implements RouteGroupApi {
   }
 }
 
-export class HyApiApp implements PluginApi {
+class ModuleContext extends RouterGroup implements ModuleApi {
+  singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  singleton<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.app.singletonService(nameOrFactory, maybeFactory);
+  }
+
+  request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.app.requestService(nameOrFactory, maybeFactory);
+  }
+
+  transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.app.transientService(nameOrFactory, maybeFactory);
+  }
+
+  use<T>(port: Port<T>): T {
+    return this.app.usePort(port);
+  }
+}
+
+export class HyApiApp {
   readonly http: Hono;
   readonly config: AppConfig;
   readonly validator = new SchemaValidator();
 
   private readonly routes: AnyRouteDefinition[] = [];
-  private readonly pluginRegistrations: PluginRegistration[] = [];
-  private sortedPlugins: PluginRegistration[] = [];
-  private readonly decorations = new Map<string, unknown>();
   private readonly hooks: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]> = {
     onRequest: [],
     onResponse: [],
@@ -234,6 +324,11 @@ export class HyApiApp implements PluginApi {
     Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>
   >();
   private readonly runtimeByRequest = new WeakMap<Request, RequestRuntime>();
+  private readonly singletonServices = new Map<ServiceReference<unknown>, Promise<unknown>>();
+  private readonly singletonCleanups: unknown[] = [];
+  private readonly serviceOverrides = new Map<string, unknown>();
+  private readonly portProviders = new Map<string, PortProvider<unknown>>();
+  private providersConnected = false;
   private authProvider: AuthProvider | null = null;
   private lifecycleState: AppLifecycleState = "configuring";
   private readyPromise: Promise<void> | null = null;
@@ -276,20 +371,6 @@ export class HyApiApp implements PluginApi {
       const requestId = runtime?.requestId ??
         context.req.raw.headers.get(this.config.requestIdHeader) ?? crypto.randomUUID();
       return this.errorResponse(error, context.req.raw, requestId);
-    });
-  }
-
-  async register<Options>(plugin: Plugin<Options>, options: Options): Promise<void> {
-    if (this.lifecycleState !== "configuring") {
-      throw new ConfigurationError("Plugins must be registered before the application is ready.");
-    }
-    if (this.pluginRegistrations.some((reg) => reg.plugin.name === plugin.name)) {
-      throw new ConfigurationError(`Plugin '${plugin.name}' is already registered.`);
-    }
-    this.pluginRegistrations.push({
-      plugin: plugin as unknown as Plugin<unknown>,
-      options,
-      registered: false,
     });
   }
 
@@ -361,15 +442,88 @@ export class HyApiApp implements PluginApi {
     this.authProvider = provider;
   }
 
-  decorate<T>(name: string, value: T): void {
-    if (this.decorations.has(name)) {
-      throw new ConfigurationError(`Decoration '${name}' already exists.`);
+  setOverrides(overrides: readonly ServiceOverride[]): void {
+    for (const override of overrides) {
+      if (this.serviceOverrides.has(override.name)) {
+        throw new ConfigurationError(`Service override '${override.name}' is already registered.`);
+      }
+      this.serviceOverrides.set(override.name, override.value);
     }
-    this.decorations.set(name, value);
   }
 
-  getDecoration<T>(name: string): T | undefined {
-    return this.decorations.get(name) as T | undefined;
+  setPortProviders(providers: readonly PortProvider<unknown>[]): void {
+    for (const provider of providers) {
+      const existing = this.portProviders.get(provider.port.id);
+      if (existing) {
+        throw new ConfigurationError(`Port '${provider.port.id}' is already provided.`);
+      }
+      this.portProviders.set(provider.port.id, provider);
+    }
+  }
+
+  usePort<T>(port: Port<T>): T {
+    const provider = this.portProviders.get(port.id);
+    if (!provider) {
+      throw new ConfigurationError(`Port '${port.id}' is required but no provider is registered.`);
+    }
+    if (!isCompatibleContractVersion(port.version, provider.port.version)) {
+      throw new ConfigurationError(
+        `Port '${port.id}' requires version ${
+          formatContractVersion(port.version)
+        }, but provider has version ${formatContractVersion(provider.port.version)}.`,
+      );
+    }
+    return provider.value as T;
+  }
+
+  singletonService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  singletonService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  singletonService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T>;
+  singletonService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.serviceReference("singleton", nameOrFactory, maybeFactory);
+  }
+
+  requestService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  requestService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  requestService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T>;
+  requestService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.serviceReference("request", nameOrFactory, maybeFactory);
+  }
+
+  transientService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  transientService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  transientService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T>;
+  transientService<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.serviceReference("transient", nameOrFactory, maybeFactory);
+  }
+
+  private serviceReference<T>(
+    scope: ServiceReference<T>["scope"],
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    const name = typeof nameOrFactory === "string" ? nameOrFactory : undefined;
+    const factory = typeof nameOrFactory === "function" ? nameOrFactory : maybeFactory;
+    if (!factory) throw new ConfigurationError("A service factory is required.");
+    return { ...(name ? { name } : {}), scope, factory };
   }
 
   async ready(): Promise<void> {
@@ -406,15 +560,66 @@ export class HyApiApp implements PluginApi {
     return this.http.request(input, init);
   }
 
+  async health(): Promise<HealthReport> {
+    const providers: ProviderHealth[] = [];
+    for (const provider of this.portProviders.values()) {
+      if (!provider.lifecycle?.health) {
+        providers.push({ status: "healthy", provider: provider.port.id });
+        continue;
+      }
+      try {
+        providers.push(await provider.lifecycle.health());
+      } catch (error) {
+        providers.push({
+          status: "unhealthy",
+          provider: provider.port.id,
+          detail: error instanceof Error ? error.message : "Health check failed.",
+        });
+      }
+    }
+    const status = providers.some((provider) => provider.status === "unhealthy")
+      ? "unhealthy"
+      : providers.some((provider) => provider.status === "degraded")
+      ? "degraded"
+      : "healthy";
+    return { status, providers };
+  }
+
+  async connectProviders(): Promise<void> {
+    if (this.providersConnected) return;
+    const connected: PortProvider<unknown>[] = [];
+    try {
+      for (const provider of this.portProviders.values()) {
+        await provider.lifecycle?.connect?.();
+        connected.push(provider);
+      }
+    } catch (error) {
+      const errors: unknown[] = [error];
+      for (const provider of connected.reverse()) {
+        try {
+          await provider.lifecycle?.close?.();
+        } catch (closeError) {
+          appendErrors(errors, closeError);
+        }
+      }
+      throw createAggregateError(errors, "Provider connection failed.");
+    }
+    this.providersConnected = true;
+  }
+
   private mountCoreMiddleware(): void {
     this.http.use("*", async (context, next) => {
       const request = context.req.raw;
       const requestId = request.headers.get(this.config.requestIdHeader) ?? crypto.randomUUID();
+      const deadlineHeader = request.headers.get("x-hyapi-deadline");
+      const deadline = deadlineHeader === null || deadlineHeader.trim() === ""
+        ? undefined
+        : Number(deadlineHeader);
       const state = new Map<string, unknown>();
       const runtime: RequestRuntime = {
         requestId,
+        ...(deadline !== undefined && Number.isFinite(deadline) ? { deadline } : {}),
         state,
-        bodyRequest: request.clone(),
         route: null,
         identity: null,
         lifecycle: {
@@ -427,10 +632,13 @@ export class HyApiApp implements PluginApi {
           response: null,
           error: null,
         },
+        services: new Map(),
+        cleanups: [],
       };
       this.runtimeByRequest.set(request, runtime);
 
       let response: Response | null = null;
+      let requestError: unknown;
       try {
         await this.runHooks("onRequest", runtime.lifecycle);
         await next();
@@ -438,17 +646,41 @@ export class HyApiApp implements PluginApi {
         runtime.lifecycle.response = response;
         await this.runHooks("onResponse", runtime.lifecycle);
       } catch (error) {
-        runtime.lifecycle.error = error;
-        if (runtime.route) {
-          const scoped = this.routeScopedHooks.get(runtime.route);
-          if (scoped?.onError) {
-            await this.runHookList(scoped.onError, runtime.lifecycle, true);
-          }
-        }
-        await this.runHooks("onError", runtime.lifecycle, true);
-        response = this.errorResponse(error, request, requestId);
+        requestError = error;
       } finally {
+        try {
+          await this.dispose(runtime.cleanups);
+        } catch (cleanupError) {
+          const cleanupErrors = requestError === undefined
+            ? [cleanupError]
+            : [...flattenError(requestError), ...flattenError(cleanupError)];
+          requestError = cleanupErrors.length > 1
+            ? createAggregateError(cleanupErrors, "Request cleanup failed.")
+            : cleanupErrors[0];
+        }
         this.runtimeByRequest.delete(request);
+      }
+      if (requestError !== undefined) {
+        runtime.lifecycle.error = requestError;
+        const hookErrors: unknown[] = [];
+        try {
+          if (runtime.route) {
+            const scoped = this.routeScopedHooks.get(runtime.route);
+            if (scoped?.onError) {
+              await this.runHookList(scoped.onError, runtime.lifecycle, true);
+            }
+          }
+          await this.runHooks("onError", runtime.lifecycle, true);
+        } catch (error) {
+          hookErrors.push(...flattenError(error));
+        }
+        if (hookErrors.length > 0) {
+          requestError = createAggregateError(
+            [...flattenError(requestError), ...hookErrors],
+            "Request handling and error hooks failed.",
+          );
+        }
+        response = this.errorResponse(requestError, request, requestId);
       }
 
       if (response) {
@@ -490,7 +722,7 @@ export class HyApiApp implements PluginApi {
       ? this.validator.validate(requestSchemas.query, queryObject(request), "query")
       : queryObject(request);
     const rawBody = requestSchemas?.body && request.method !== "GET" && request.method !== "HEAD"
-      ? await parseRequestBody(runtime.bodyRequest)
+      ? await parseRequestBody(request)
       : undefined;
     if (requestSchemas?.body && rawBody === undefined && requestSchemas.bodyRequired !== false) {
       throw new ValidationError("body", [{
@@ -512,12 +744,14 @@ export class HyApiApp implements PluginApi {
       request,
       raw: context,
       requestId: runtime.requestId,
+      ...(runtime.deadline === undefined ? {} : { deadline: runtime.deadline }),
       params,
       query,
       body,
       headers: new Headers(headers as Record<string, string>),
       identity,
       state: runtime.state,
+      services: this.serviceResolver(runtime),
       ok: <T>(value: T, init?: ResponseInit): ResponseResult<T> => ({
         [RESPONSE_RESULT]: true,
         body: value,
@@ -552,6 +786,66 @@ export class HyApiApp implements PluginApi {
       await this.runHookList(scoped.onResponse, runtime.lifecycle);
     }
     return response;
+  }
+
+  private serviceResolver(runtime?: RequestRuntime): ServiceResolver {
+    return {
+      get: <T>(service: ServiceReference<T>) => this.resolveService(service, runtime),
+    };
+  }
+
+  private resolveService<T>(
+    service: ServiceReference<T>,
+    runtime?: RequestRuntime,
+  ): Promise<T> {
+    if (service.name && this.serviceOverrides.has(service.name)) {
+      return Promise.resolve(this.serviceOverrides.get(service.name) as T);
+    }
+    if (service.scope === "request" && !runtime) {
+      return Promise.reject(
+        new ConfigurationError(
+          "A request-scoped service can only be resolved while handling a request.",
+        ),
+      );
+    }
+    if (service.scope === "transient") {
+      return this.createService(service, runtime);
+    }
+    const services = service.scope === "singleton" ? this.singletonServices : runtime!.services;
+    const existing = services.get(service as ServiceReference<unknown>);
+    if (existing) return existing as Promise<T>;
+    const created = this.createService(service, runtime);
+    services.set(service as ServiceReference<unknown>, created);
+    return created;
+  }
+
+  private async createService<T>(
+    service: ServiceReference<T>,
+    runtime?: RequestRuntime,
+  ): Promise<T> {
+    const value = await service.factory(this.serviceResolver(runtime));
+    if (service.scope === "singleton") this.singletonCleanups.push(value);
+    else if (service.scope === "request") runtime!.cleanups.push(value);
+    return value;
+  }
+
+  private async dispose(values: readonly unknown[]): Promise<void> {
+    const errors: unknown[] = [];
+    for (const value of [...values].reverse()) {
+      if (
+        typeof value === "object" && value !== null &&
+        "close" in value && typeof (value as { close?: unknown }).close === "function"
+      ) {
+        try {
+          await (value as { close(): MaybePromise<void> }).close();
+        } catch (error) {
+          appendErrors(errors, error);
+        }
+      }
+    }
+    if (errors.length > 0) {
+      throw createAggregateError(errors);
+    }
   }
 
   private async authenticate(
@@ -647,19 +941,6 @@ export class HyApiApp implements PluginApi {
   }
 
   private async initialize(): Promise<void> {
-    this.sortedPlugins = topologicalSort(this.pluginRegistrations);
-    for (const item of this.sortedPlugins) {
-      if (!item.registered) {
-        await item.plugin.register(this, item.options);
-        item.registered = true;
-      }
-    }
-    for (const item of this.sortedPlugins) {
-      if (item.plugin.onStart) {
-        await item.plugin.onStart(this);
-      }
-    }
-
     const hasProtectedRoutes = this.routes.some((route) => isProtectedAuth(route.auth));
     if (hasProtectedRoutes && !this.authProvider) {
       throw new ConfigurationError("Protected routes require an auth provider.");
@@ -667,35 +948,31 @@ export class HyApiApp implements PluginApi {
   }
 
   private async closeAfterInitialization(): Promise<void> {
-    let initializationError: unknown;
-    let hasInitializationError = false;
+    const errors: unknown[] = [];
     if (this.readyPromise) {
       try {
         await this.readyPromise;
       } catch (error) {
-        initializationError = error;
-        hasInitializationError = true;
+        appendErrors(errors, error);
       }
     }
 
     this.lifecycleState = "closing";
-    let closeError: unknown;
-    let hasCloseError = false;
-    for (const item of [...this.sortedPlugins].reverse()) {
-      if (!item.registered || !item.plugin.onClose) continue;
+    try {
+      await this.dispose(this.singletonCleanups);
+    } catch (error) {
+      appendErrors(errors, error);
+    }
+    for (const provider of this.portProviders.values()) {
       try {
-        await item.plugin.onClose(this);
+        await provider.lifecycle?.close?.();
       } catch (error) {
-        if (!hasCloseError) {
-          closeError = error;
-          hasCloseError = true;
-        }
+        appendErrors(errors, error);
       }
     }
     this.lifecycleState = "closed";
 
-    if (hasInitializationError) throw initializationError;
-    if (hasCloseError) throw closeError;
+    if (errors.length > 0) throw createAggregateError(errors);
   }
 }
 
@@ -705,4 +982,104 @@ function toHonoPath(path: string): string {
 
 export function createApp(options: HyApiOptions): HyApiApp {
   return new HyApiApp(options);
+}
+
+export async function createApplication(options: ApplicationOptions): Promise<HyApplication> {
+  const app = createApp({ config: normalizeConfig(options.config) });
+  app.setOverrides(options.overrides ?? []);
+  const modules = sortModules(options.modules);
+  const plugins = sortPlugins(options.plugins ?? []);
+  app.setPortProviders([
+    ...(options.providers ?? []),
+    ...modules.flatMap((module) => module.provides ?? []),
+  ]);
+  for (const module of modules) {
+    for (const port of module.requires ?? []) app.usePort(port);
+  }
+  const contexts = new Map<Module, ModuleContext>();
+
+  for (const plugin of plugins) {
+    await plugin.setup(app);
+  }
+
+  for (const module of modules) {
+    const context = new ModuleContext(app);
+    contexts.set(module, context);
+    await module.setup(context);
+  }
+
+  await app.connectProviders();
+  await app.ready();
+  for (const plugin of plugins) {
+    if (plugin.onStart) await plugin.onStart(app);
+  }
+  for (const module of modules) {
+    await module.onStart?.(contexts.get(module)!);
+  }
+  let closePromise: Promise<void> | null = null;
+  return {
+    config: app.config,
+    fetch: (request) => app.fetch(request),
+    request: (input, init) => app.request(input, init),
+    health: () => app.health(),
+    close: () => {
+      closePromise ??= (async () => {
+        const errors: unknown[] = [];
+        for (const module of [...modules].reverse()) {
+          if (!module.onClose) continue;
+          try {
+            await module.onClose(contexts.get(module)!);
+          } catch (error) {
+            appendErrors(errors, error);
+          }
+        }
+        for (const plugin of [...plugins].reverse()) {
+          if (!plugin.onClose) continue;
+          try {
+            await plugin.onClose(app);
+          } catch (error) {
+            appendErrors(errors, error);
+          }
+        }
+        try {
+          await app.close();
+        } catch (error) {
+          if (error instanceof AggregateError) {
+            appendErrors(errors, error);
+          } else {
+            errors.push(error);
+          }
+        }
+        if (errors.length > 0) {
+          throw createAggregateError(errors);
+        }
+      })();
+      return closePromise;
+    },
+  };
+}
+
+function normalizeConfig(config: AppConfig | AppConfigOptions): AppConfig {
+  if ("requestIdHeader" in config && "openapi" in config && config.openapi.path !== undefined) {
+    return config as AppConfig;
+  }
+  const version = config.version ?? "0.1.0";
+  return {
+    name: config.name,
+    version,
+    environment: config.environment ?? "development",
+    requestIdHeader: config.requestIdHeader ?? "x-request-id",
+    openapi: {
+      title: config.openapi?.title ?? `${config.name} API`,
+      ...(config.openapi?.description === undefined
+        ? {}
+        : { description: config.openapi.description }),
+      version: config.openapi?.version ?? version,
+      path: config.openapi?.path ?? "/openapi.json",
+    },
+  };
+}
+
+export async function createTestApplication(options: ApplicationOptions): Promise<HyApplication> {
+  return await createApplication(options);
 }

@@ -1,8 +1,8 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { ConfigurationError, UnauthorizedError } from "../errors.ts";
 import { JwtAuthProvider, jwtPlugin } from "./jwt.ts";
-import { createApp } from "../app.ts";
-import type { AppConfig } from "../types.ts";
+import { createApplication } from "../app.ts";
+import { type AppConfig, defineModule, defineRoute } from "../types.ts";
 
 const VALID_SECRET = "this-is-a-very-secure-secret-key-32-chars";
 const SHORT_SECRET = "short-secret";
@@ -264,7 +264,7 @@ Deno.test("JwtAuthProvider - extracts scopes from string and array claims", asyn
   assertEquals(id2?.scopes, ["users:read", "users:write"]);
 });
 
-Deno.test("jwtPlugin - registers auth provider and decorates app", async () => {
+Deno.test("jwtPlugin - registers an auth provider through the platform API", async () => {
   const config: AppConfig = {
     name: "jwt-plugin-test",
     version: "1.0.0",
@@ -272,10 +272,22 @@ Deno.test("jwtPlugin - registers auth provider and decorates app", async () => {
     requestIdHeader: "x-request-id",
     openapi: { title: "Test", version: "1.0.0", path: "/openapi.json" },
   };
-  const app = createApp({ config });
-  await app.register(jwtPlugin(), { secret: VALID_SECRET });
-  await app.ready();
+  const app = await createApplication({
+    config,
+    plugins: [jwtPlugin({ secret: VALID_SECRET })],
+    modules: [defineModule({
+      name: "private",
+      setup(module) {
+        module.route(defineRoute({
+          method: "get",
+          path: "/private",
+          auth: {},
+          handler: ({ ok }) => ok({ ok: true }),
+        }));
+      },
+    })],
+  });
 
-  const decoration = app.getDecoration<JwtAuthProvider>("jwt");
-  assertEquals(decoration instanceof JwtAuthProvider, true);
+  const response = await app.request("http://test/private");
+  assertEquals(response.status, 401);
 });

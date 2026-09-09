@@ -8,12 +8,23 @@ import {
 import {
   type AppConfig,
   type AuthProvider,
-  createApp,
+  createApplication,
+  createTestApplication,
+  defineConfig,
+  defineModule,
+  definePlugin,
+  definePort,
+  definePortContract,
   defineRoute,
   type Identity,
-  type Plugin,
+  providePort,
+  provideValue,
+  verifyPortContract,
+  verifyPortContracts,
 } from "../mod.ts";
+import { expectStatus, requestJson } from "../mod.ts";
 import { ConfigurationError } from "../mod.ts";
+import { createApp } from "./app.ts";
 import Type from "typebox";
 
 const config: AppConfig = {
@@ -67,12 +78,44 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
   const defaultedQuery = await app.request("http://test/items/abc");
   assertEquals(defaultedQuery.status, 200);
   assertEquals(await defaultedQuery.json(), { id: "abc", limit: 10 });
+  const jsonResult = await requestJson(app, "http://test/items/abc");
+  expectStatus(jsonResult.response, 200);
+  assertEquals(jsonResult.body, { id: "abc", limit: 10 });
 
   const invalid = await app.request("http://test/items/a?limit=0");
   assertEquals(invalid.status, 400);
   const problem = await invalid.json();
   assertEquals(problem.code, "VALIDATION_ERROR");
   assertEquals(invalid.headers.get("content-type"), "application/problem+json");
+});
+
+Deno.test("request context accepts valid deadlines and ignores empty headers", async () => {
+  let deadline: number | undefined;
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/deadline",
+    handler: ({ deadline: value, ok }) => {
+      deadline = value;
+      return ok({ ok: true });
+    },
+  }));
+  await app.ready();
+
+  await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": "123" } });
+  assertEquals(deadline, 123);
+  await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": "" } });
+  assertEquals(deadline, undefined);
+});
+
+Deno.test("defineConfig provides ergonomic application defaults", () => {
+  assertEquals(defineConfig({ name: "orders" }), {
+    name: "orders",
+    version: "0.1.0",
+    environment: "development",
+    requestIdHeader: "x-request-id",
+    openapi: { title: "orders API", version: "0.1.0", path: "/openapi.json" },
+  });
 });
 
 Deno.test("unmatched routes return problem details", async () => {
@@ -85,15 +128,316 @@ Deno.test("unmatched routes return problem details", async () => {
   assertStringIncludes(problem.type, "not_found");
 });
 
-Deno.test("plugins sort topologically, execute onStart and onClose in reverse", async () => {
-  const app = createApp({ config });
+Deno.test("createApplication composes ordered plugins and modules", async () => {
   const log: string[] = [];
+  const app = await createApplication({
+    config,
+    plugins: [
+      definePlugin({
+        name: "logging",
+        setup: () => {
+          log.push("plugin:setup");
+        },
+        onStart: () => {
+          log.push("plugin:start");
+        },
+        onClose: () => {
+          log.push("plugin:close");
+        },
+      }),
+    ],
+    modules: [
+      defineModule({
+        name: "dependent",
+        dependencies: ["base"],
+        setup: (module) => {
+          log.push("module:dependent");
+          module.route(defineRoute({
+            method: "get",
+            path: "/modules",
+            handler: ({ ok }) => ok({ ok: true }),
+          }));
+        },
+        onStart: () => {
+          log.push("module:dependent:start");
+        },
+        onClose: () => {
+          log.push("module:dependent:close");
+        },
+      }),
+      defineModule({
+        name: "base",
+        setup: () => {
+          log.push("module:base");
+        },
+        onStart: () => {
+          log.push("module:base:start");
+        },
+        onClose: () => {
+          log.push("module:base:close");
+        },
+      }),
+    ],
+  });
 
-  const pluginA: Plugin = {
+  assertEquals(log, [
+    "plugin:setup",
+    "module:base",
+    "module:dependent",
+    "plugin:start",
+    "module:base:start",
+    "module:dependent:start",
+  ]);
+  assertEquals((await app.request("http://test/modules")).status, 200);
+  await app.close();
+  await app.close();
+  assertEquals(log.slice(-3), ["module:dependent:close", "module:base:close", "plugin:close"]);
+});
+
+Deno.test("createApplication rejects invalid module and plugin graphs", async () => {
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [
+          defineModule({ name: "orders", dependencies: ["users"], setup: () => undefined }),
+        ],
+      }),
+    ConfigurationError,
+    "orders",
+  );
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [],
+        plugins: [definePlugin({ name: "a", dependencies: ["b"], setup: () => undefined })],
+      }),
+    ConfigurationError,
+    "a",
+  );
+});
+
+Deno.test("module services honor singleton request transient scopes and cleanup", async () => {
+  let nextId = 0;
+  const closed: number[] = [];
+  const app = await createApplication({
+    config,
+    modules: [defineModule({
+      name: "services",
+      setup(module) {
+        const singleton = module.singleton(() => ({ id: ++nextId, close: () => closed.push(1) }));
+        const request = module.request(() => ({ id: ++nextId, close: () => closed.push(2) }));
+        const transient = module.transient(() => ({ id: ++nextId }));
+        module.route(defineRoute({
+          method: "get",
+          path: "/services",
+          handler: async ({ services, ok }) => {
+            const shared = await services.get(singleton);
+            const firstRequest = await services.get(request);
+            const secondRequest = await services.get(request);
+            const firstTransient = await services.get(transient);
+            const secondTransient = await services.get(transient);
+            return ok({
+              singleton: shared.id,
+              request: [firstRequest.id, secondRequest.id],
+              transient: [firstTransient.id, secondTransient.id],
+            });
+          },
+        }));
+      },
+    })],
+  });
+
+  const first = await (await app.request("http://test/services")).json();
+  const second = await (await app.request("http://test/services")).json();
+  assertEquals(first, { singleton: 1, request: [2, 2], transient: [3, 4] });
+  assertEquals(second, { singleton: 1, request: [5, 5], transient: [6, 7] });
+  assertEquals(closed, [2, 2]);
+  await app.close();
+  assertEquals(closed, [2, 2, 1]);
+});
+
+Deno.test("createTestApplication replaces named services before module setup is used", async () => {
+  let factoryCalls = 0;
+  const app = await createTestApplication({
+    config,
+    overrides: [provideValue("clock", { now: () => "test-time" })],
+    modules: [defineModule({
+      name: "clock",
+      setup(module) {
+        const clock = module.singleton("clock", () => {
+          factoryCalls += 1;
+          return { now: () => "production-time" };
+        });
+        module.route(defineRoute({
+          method: "get",
+          path: "/clock",
+          handler: async ({ services, ok }) => ok({ now: (await services.get(clock)).now() }),
+        }));
+      },
+    })],
+  });
+
+  assertEquals(await (await app.request("http://test/clock")).json(), { now: "test-time" });
+  assertEquals(factoryCalls, 0);
+});
+
+Deno.test("modules resolve explicit ports and reject missing or incompatible providers", async () => {
+  const userDirectory = definePort<{ find(id: string): string }>("users.directory");
+  const app = await createApplication({
+    config,
+    providers: [providePort(userDirectory, { find: (id) => `user:${id}` })],
+    modules: [defineModule({
+      name: "orders",
+      requires: [userDirectory],
+      setup(module) {
+        const users = module.use(userDirectory);
+        module.route(defineRoute({
+          method: "get",
+          path: "/orders/{id}",
+          request: { params: Type.Object({ id: Type.String() }) },
+          handler: ({ params, ok }) => ok({ owner: users.find(params.id) }),
+        }));
+      },
+    })],
+  });
+  assertEquals(await (await app.request("http://test/orders/1")).json(), { owner: "user:1" });
+
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [
+          defineModule({ name: "missing", requires: [userDirectory], setup: () => undefined }),
+        ],
+      }),
+    ConfigurationError,
+    "users.directory",
+  );
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        providers: [providePort(definePort("users.directory", 2), { find: () => "" })],
+        modules: [
+          defineModule({ name: "version", requires: [userDirectory], setup: () => undefined }),
+        ],
+      }),
+    ConfigurationError,
+    "version 1",
+  );
+});
+
+Deno.test("providers connect, report health, and close in lifecycle order", async () => {
+  const events: string[] = [];
+  const port = definePort<{ value: string }>("lifecycle.port", { major: 1, minor: 1 });
+  const app = await createApplication({
+    config,
+    modules: [defineModule({
+      name: "consumer",
+      requires: [port],
+      setup: (module) => {
+        assertEquals(module.use(port).value, "ok");
+      },
+    })],
+    providers: [providePort(port, { value: "ok" }, {
+      connect: () => {
+        events.push("connect");
+      },
+      health: () => ({ status: "healthy", provider: "lifecycle.port" }),
+      close: () => {
+        events.push("close");
+      },
+    })],
+  });
+  assertEquals(events, ["connect"]);
+  assertEquals(await app.health(), {
+    status: "healthy",
+    providers: [{ status: "healthy", provider: "lifecycle.port" }],
+  });
+  await app.close();
+  assertEquals(events, ["connect", "close"]);
+});
+
+Deno.test("provider connection failure rolls back already connected providers", async () => {
+  const events: string[] = [];
+  const makeLifecycle = (name: string, fail = false) => ({
+    connect: () => {
+      events.push(`connect:${name}`);
+      if (fail) throw new Error(`connect:${name}`);
+    },
+    close: () => {
+      events.push(`close:${name}`);
+    },
+  });
+  const first = definePort("first", 1);
+  const second = definePort("second", 1);
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [],
+        providers: [
+          providePort(first, {}, makeLifecycle("first")),
+          providePort(second, {}, makeLifecycle("second", true)),
+        ],
+      }),
+    AggregateError,
+    "Provider connection failed",
+  );
+  assertEquals(events, ["connect:first", "connect:second", "close:first"]);
+});
+
+Deno.test("provider minor versions are compatible within the same major", async () => {
+  const required = definePort<{ value: string }>("versioned.port", { major: 1, minor: 1 });
+  const provided = definePort<{ value: string }>("versioned.port", { major: 1, minor: 2 });
+  const app = await createApplication({
+    config,
+    modules: [defineModule({ name: "consumer", requires: [required], setup: () => undefined })],
+    providers: [providePort(provided, { value: "ok" })],
+  });
+  await app.close();
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [defineModule({ name: "consumer", requires: [required], setup: () => undefined })],
+        providers: [
+          providePort(definePort("versioned.port", { major: 2, minor: 0 }), { value: "bad" }),
+        ],
+      }),
+    ConfigurationError,
+    "requires version",
+  );
+});
+
+Deno.test("port contracts verify local and fake providers with named failures", async () => {
+  interface UserDirectory {
+    find(id: string): Promise<{ id: string } | null>;
+  }
+  const contract = definePortContract<UserDirectory>("users.directory", async (provider) => {
+    assertEquals(await provider.find("ada"), { id: "ada" });
+  });
+  const local: UserDirectory = { find: async (id) => id === "ada" ? { id } : null };
+  const fake: UserDirectory = { find: async () => ({ id: "ada" }) };
+  await verifyPortContract(contract, local);
+  await verifyPortContract(contract, fake);
+  await verifyPortContracts(contract, [local, fake]);
+  await assertRejects(
+    () => verifyPortContract(contract, { find: async () => null }),
+    Error,
+    "users.directory",
+  );
+});
+
+Deno.test("plugins sort topologically, execute onStart and onClose in reverse", async () => {
+  const log: string[] = [];
+  const pluginA = definePlugin({
     name: "pluginA",
     dependencies: ["pluginB"],
-    register: () => {
-      log.push("register:A");
+    setup: () => {
+      log.push("setup:A");
     },
     onStart: () => {
       log.push("start:A");
@@ -101,12 +445,11 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
     onClose: () => {
       log.push("close:A");
     },
-  };
-
-  const pluginB: Plugin = {
+  });
+  const pluginB = definePlugin({
     name: "pluginB",
-    register: () => {
-      log.push("register:B");
+    setup: () => {
+      log.push("setup:B");
     },
     onStart: () => {
       log.push("start:B");
@@ -114,21 +457,13 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
     onClose: () => {
       log.push("close:B");
     },
-  };
-
-  // Register out of order: A before B
-  await app.register(pluginA, {});
-  await app.register(pluginB, {});
-  await assertRejects(() => app.register(pluginA, {}), ConfigurationError);
-
-  await app.ready();
-  assertEquals(log, ["register:B", "register:A", "start:B", "start:A"]);
-
-  await app.close();
+  });
+  const app = await createApplication({ config, modules: [], plugins: [pluginA, pluginB] });
+  assertEquals(log, ["setup:B", "setup:A", "start:B", "start:A"]);
   await app.close();
   assertEquals(log, [
-    "register:B",
-    "register:A",
+    "setup:B",
+    "setup:A",
     "start:B",
     "start:A",
     "close:A",
@@ -137,41 +472,37 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
 });
 
 Deno.test("app - serializes concurrent ready calls and rejects late plugins", async () => {
-  const app = createApp({ config });
-  let registerCount = 0;
-  await app.register({
-    name: "slow-plugin",
-    register: async () => {
-      registerCount += 1;
-      await Promise.resolve();
-    },
-  }, {});
+  let setupCount = 0;
+  const app = await createApplication({
+    config,
+    modules: [],
+    plugins: [definePlugin({
+      name: "slow-plugin",
+      setup: async () => {
+        setupCount += 1;
+        await Promise.resolve();
+      },
+    })],
+  });
+  assertEquals(setupCount, 1);
+  await app.close();
+});
 
-  await Promise.all([app.ready(), app.ready()]);
-  assertEquals(registerCount, 1);
-
+Deno.test("circular plugin dependencies throw ConfigurationError", async () => {
+  const p1 = definePlugin({ name: "p1", dependencies: ["p2"], setup: () => undefined });
+  const p2 = definePlugin({ name: "p2", dependencies: ["p1"], setup: () => undefined });
   await assertRejects(
-    () => app.register({ name: "late-plugin", register: () => undefined }, {}),
+    () => createApplication({ config, modules: [], plugins: [p1, p2] }),
     ConfigurationError,
   );
 });
 
-Deno.test("circular plugin dependencies throw ConfigurationError", async () => {
-  const app = createApp({ config });
-  const p1: Plugin = { name: "p1", dependencies: ["p2"], register: () => undefined };
-  const p2: Plugin = { name: "p2", dependencies: ["p1"], register: () => undefined };
-
-  await app.register(p1, {});
-  await app.register(p2, {});
-  await assertRejects(() => app.ready(), ConfigurationError);
-});
-
 Deno.test("missing plugin dependencies throw ConfigurationError", async () => {
-  const app = createApp({ config });
-  const p1: Plugin = { name: "p1", dependencies: ["missingDep"], register: () => undefined };
-
-  await app.register(p1, {});
-  await assertRejects(() => app.ready(), ConfigurationError);
+  const p1 = definePlugin({ name: "p1", dependencies: ["missingDep"], setup: () => undefined });
+  await assertRejects(
+    () => createApplication({ config, modules: [], plugins: [p1] }),
+    ConfigurationError,
+  );
 });
 
 Deno.test("app.group supports nested prefixes, tag and auth inheritance", async () => {
@@ -646,7 +977,7 @@ Deno.test("app - rejects unsupported request media types", async () => {
   assertEquals((await response.json()).code, "UNSUPPORTED_MEDIA_TYPE");
 });
 
-Deno.test("app - rejects duplicate routes and duplicate decorations", () => {
+Deno.test("app - rejects duplicate routes", () => {
   const app = createApp({ config });
   const dummyRoute = defineRoute({
     method: "get",
@@ -656,10 +987,6 @@ Deno.test("app - rejects duplicate routes and duplicate decorations", () => {
 
   app.route(dummyRoute);
   assertThrows(() => app.route(dummyRoute), ConfigurationError);
-
-  app.decorate("myService", { value: 123 });
-  assertEquals(app.getDecoration<{ value: number }>("myService")?.value, 123);
-  assertThrows(() => app.decorate("myService", { value: 456 }), ConfigurationError);
 });
 
 Deno.test("app - shares request state across hooks and handler", async () => {
