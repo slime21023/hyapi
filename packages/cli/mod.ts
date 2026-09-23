@@ -13,6 +13,7 @@ export {
 export type {
   CrossModuleImport,
   Diagnostic,
+  FileSystem,
   ModuleBoundaryInspection,
   ModuleSource,
   PortProvision,
@@ -21,5 +22,11 @@ export type {
 } from "./src/cli.ts";
 
 if (import.meta.main) {
-  await main(Deno.args);
+  try {
+    await main(Deno.args);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`error: ${message}`);
+    Deno.exit(1);
+  }
 }

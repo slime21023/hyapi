@@ -1,5 +1,5 @@
-import type { Context } from "@hono/hono";
 import type { Static, TSchema } from "typebox";
+import { validateContractVersion } from "./version.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 export type Schema = TSchema;
@@ -60,9 +60,12 @@ export interface RequestContext<
   TBodyRequired extends boolean = true,
 > {
   readonly request: Request;
-  readonly raw: Context;
   readonly requestId: string;
-  readonly deadline?: number;
+  readonly requestIdHeader: string;
+  /** Epoch-ms deadline: the earlier of `x-hyapi-deadline` and now + `requestTimeoutMs`. */
+  readonly deadline: number;
+  /** Aborted when the effective deadline passes; long-running handlers should observe it. */
+  readonly signal: AbortSignal;
   readonly params: InferSchema<TParams>;
   readonly query: InferSchema<TQuery>;
   readonly body: TBodyRequired extends false ? InferSchema<TBody> | undefined : InferSchema<TBody>;
@@ -79,7 +82,6 @@ export interface RequestContext<
 
 export interface LifecycleContext {
   readonly request: Request;
-  readonly raw: Context;
   readonly requestId: string;
   readonly state: Map<string, unknown>;
   route: AnyRouteDefinition | null;
@@ -188,7 +190,7 @@ export interface ModuleApi extends RouteGroupApi {
 
 export interface Port<T> {
   readonly id: string;
-  readonly version: PortVersion;
+  readonly version: ContractVersion;
   readonly __type?: T;
 }
 
@@ -196,8 +198,6 @@ export interface ContractVersion {
   readonly major: number;
   readonly minor: number;
 }
-
-export type PortVersion = number | ContractVersion;
 
 export interface ProviderHealth {
   readonly status: "healthy" | "degraded" | "unhealthy";
@@ -248,12 +248,18 @@ export interface ApplicationOptions {
   readonly providers?: readonly PortProvider<unknown>[];
 }
 
+export const DEFAULT_BODY_LIMIT_BYTES = 10_485_760;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
+
 export interface AppConfig {
   readonly name: string;
   readonly version: string;
   readonly environment: "development" | "test" | "production";
   readonly requestIdHeader: string;
+  readonly bodyLimitBytes?: number;
+  readonly requestTimeoutMs?: number;
   readonly openapi: {
+    readonly enabled?: boolean;
     readonly title: string;
     readonly description?: string;
     readonly version: string;
@@ -266,7 +272,10 @@ export interface AppConfigOptions {
   readonly version?: string;
   readonly environment?: AppConfig["environment"];
   readonly requestIdHeader?: string;
+  readonly bodyLimitBytes?: number;
+  readonly requestTimeoutMs?: number;
   readonly openapi?: {
+    readonly enabled?: boolean;
     readonly title?: string;
     readonly description?: string;
     readonly version?: string;
@@ -314,7 +323,10 @@ export function defineConfig(options: AppConfigOptions): AppConfig {
     version,
     environment: options.environment ?? "development",
     requestIdHeader: options.requestIdHeader ?? "x-request-id",
+    bodyLimitBytes: options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES,
+    requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     openapi: {
+      ...(options.openapi?.enabled === undefined ? {} : { enabled: options.openapi.enabled }),
       title: options.openapi?.title ?? `${options.name} API`,
       ...(options.openapi?.description === undefined
         ? {}
@@ -329,7 +341,13 @@ export const definePlugin = (plugin: Plugin): Plugin => plugin;
 
 export const provideValue = <T>(name: string, value: T): ServiceOverride<T> => ({ name, value });
 
-export const definePort = <T>(id: string, version: PortVersion = 1): Port<T> => ({ id, version });
+export function definePort<T>(
+  id: string,
+  version: ContractVersion = { major: 1, minor: 0 },
+): Port<T> {
+  validateContractVersion(version);
+  return { id, version };
+}
 
 export const providePort = <T>(
   port: Port<T>,

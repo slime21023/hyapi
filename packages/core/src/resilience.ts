@@ -1,5 +1,7 @@
 import type { MaybePromise } from "./types.ts";
 
+export const MAX_TIMER_MS = 2_147_483_647;
+
 export interface RetryPolicy {
   readonly maxAttempts: number;
   readonly initialDelayMs: number;
@@ -28,116 +30,231 @@ export interface ResiliencePolicy {
 }
 
 export class ResilienceError extends Error {
-  constructor(readonly reason: "timeout" | "circuit_open" | "bulkhead_rejected", message: string) {
-    super(message);
+  constructor(
+    readonly reason: "timeout" | "circuit_open" | "bulkhead_rejected",
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
     this.name = "ResilienceError";
   }
 }
+
+const NON_BREAKER_FAILURE_REASONS: Readonly<Record<string, true>> = {
+  client: true,
+  contract: true,
+  validation: true,
+  business: true,
+  deadline: true,
+  aborted: true,
+};
 
 export function withResilience<TArgs extends readonly unknown[], TResult>(
   operation: (...args: TArgs) => MaybePromise<TResult>,
   policy: ResiliencePolicy,
 ): (...args: TArgs) => Promise<TResult> {
+  return createGuard<TArgs, TResult>((_signal, ...args) => operation(...args), policy);
+}
+
+export function createGuard<TArgs extends readonly unknown[], TResult>(
+  operation: (signal: AbortSignal, ...args: TArgs) => MaybePromise<TResult>,
+  policy: ResiliencePolicy,
+): (...args: TArgs) => Promise<TResult> {
   validatePolicy(policy);
   const breaker = policy.circuitBreaker ? new CircuitBreaker(policy.circuitBreaker) : undefined;
   const bulkhead = policy.bulkhead ? new Bulkhead(policy.bulkhead) : undefined;
-  return async (...args: TArgs): Promise<TResult> => {
-    const execute = async (): Promise<TResult> => {
-      if (breaker) return await breaker.execute(() => operation(...args));
-      return await operation(...args);
+  return (...args: TArgs): Promise<TResult> => {
+    const exec = async (signal: AbortSignal): Promise<TResult> => {
+      if (breaker) return await breaker.execute(() => operation(signal, ...args));
+      return await operation(signal, ...args);
     };
-    const guarded = bulkhead ? () => bulkhead.execute(execute) : execute;
-    return await runWithRetry(guarded, policy.retry, policy.timeoutMs);
+    return runWithRetry(
+      (signal) => bulkhead ? bulkhead.execute(exec, signal) : exec(signal),
+      policy.retry,
+      policy.timeoutMs,
+    );
   };
 }
 
+export function validateRetryPolicy(policy: RetryPolicy | undefined): void {
+  if (!policy) return;
+  if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1) {
+    throw new Error("Resilience retry maxAttempts must be a positive integer.");
+  }
+  if (
+    !Number.isFinite(policy.initialDelayMs) || policy.initialDelayMs < 0 ||
+    policy.initialDelayMs > MAX_TIMER_MS
+  ) {
+    throw new Error(
+      "Resilience retry initialDelayMs must be non-negative and at most 2147483647.",
+    );
+  }
+  if (
+    policy.maxDelayMs !== undefined &&
+    (!Number.isFinite(policy.maxDelayMs) || policy.maxDelayMs < 0 ||
+      policy.maxDelayMs > MAX_TIMER_MS)
+  ) {
+    throw new Error("Resilience retry maxDelayMs must be non-negative and at most 2147483647.");
+  }
+}
+
+export function computeRetryDelay(policy: RetryPolicy, attempt: number): number {
+  const base = policy.backoff === "exponential"
+    ? policy.initialDelayMs * 2 ** (attempt - 1)
+    : policy.initialDelayMs;
+  const capped = Math.min(base, policy.maxDelayMs ?? MAX_TIMER_MS, MAX_TIMER_MS);
+  return policy.jitter ? Math.floor(Math.random() * (capped + 1)) : capped;
+}
+
 async function runWithRetry<T>(
-  operation: () => Promise<T>,
+  operation: (signal: AbortSignal) => Promise<T>,
   policy: RetryPolicy | undefined,
   timeoutMs: number | undefined,
 ): Promise<T> {
-  const retry = policy ?? { maxAttempts: 1, initialDelayMs: 0 };
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= retry.maxAttempts; attempt += 1) {
+  const maxAttempts = policy?.maxAttempts ?? 1;
+  for (let attempt = 1;; attempt += 1) {
     try {
-      const result = operation();
-      return timeoutMs === undefined ? await result : await timeout(result, timeoutMs);
+      return await runAttempt(operation, timeoutMs);
     } catch (error) {
-      lastError = error;
-      if (attempt === retry.maxAttempts || (retry.retryOn && !retry.retryOn(error))) throw error;
-      const base = retry.backoff === "exponential"
-        ? retry.initialDelayMs * 2 ** (attempt - 1)
-        : retry.initialDelayMs;
-      const capped = Math.min(base, retry.maxDelayMs ?? base);
-      const delayMs = retry.jitter ? Math.floor(Math.random() * (capped + 1)) : capped;
+      if (!policy || attempt >= maxAttempts || (policy.retryOn && !policy.retryOn(error))) {
+        throw error;
+      }
+      const delayMs = computeRetryDelay(policy, attempt);
       if (delayMs > 0) await delay(delayMs);
     }
   }
-  throw lastError;
+}
+
+function runAttempt<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number | undefined,
+): Promise<T> {
+  const controller = new AbortController();
+  if (timeoutMs === undefined) return operation(controller.signal);
+  const { promise, resolve, reject } = Promise.withResolvers<T>();
+  const timer = setTimeout(() => {
+    const error = new ResilienceError("timeout", "Operation timed out.");
+    controller.abort(error);
+    reject(error);
+  }, timeoutMs);
+  operation(controller.signal).then(resolve, reject).finally(() => clearTimeout(timer));
+  return promise;
 }
 
 class CircuitBreaker {
+  private state: "closed" | "open" | "half-open" = "closed";
   private failures = 0;
   private openedAt = 0;
   private probes = 0;
+  private generation = 0;
+  private lastFailure: unknown = undefined;
   constructor(private readonly policy: CircuitBreakerPolicy) {}
 
-  async execute<T>(operation: () => Promise<T> | T): Promise<T> {
-    const now = Date.now();
-    if (this.openedAt > 0 && now - this.openedAt < this.policy.resetTimeoutMs) {
-      throw new ResilienceError("circuit_open", "Circuit breaker is open.");
+  async execute<T>(operation: () => MaybePromise<T>): Promise<T> {
+    if (this.state === "open") {
+      if (Date.now() - this.openedAt < this.policy.resetTimeoutMs) {
+        throw new ResilienceError("circuit_open", "Circuit breaker is open.", {
+          cause: this.lastFailure,
+        });
+      }
+      this.state = "half-open";
+      this.generation += 1;
+      this.probes = 0;
     }
-    if (this.openedAt > 0) {
-      const maxProbes = this.policy.halfOpenMaxAttempts ?? 1;
-      if (this.probes >= maxProbes) {
-        throw new ResilienceError("circuit_open", "Circuit breaker is half-open.");
+    let probe = false;
+    if (this.state === "half-open") {
+      if (this.probes >= (this.policy.halfOpenMaxAttempts ?? 1)) {
+        throw new ResilienceError("circuit_open", "Circuit breaker is half-open.", {
+          cause: this.lastFailure,
+        });
       }
       this.probes += 1;
+      probe = true;
     }
+    const generation = this.generation;
+    let result: T;
     try {
-      const result = await operation();
-      this.failures = 0;
-      this.openedAt = 0;
-      this.probes = 0;
-      return result;
+      result = await operation();
     } catch (error) {
-      this.probes = Math.max(0, this.probes - 1);
-      if (countsAsBreakerFailure(error)) {
-        this.failures += 1;
-        if (this.failures >= this.policy.failureThreshold) this.openedAt = Date.now();
-      }
+      this.recordFailure(generation, probe, error);
       throw error;
     }
+    this.recordSuccess(generation, probe);
+    return result;
+  }
+
+  private recordSuccess(generation: number, probe: boolean): void {
+    if (generation !== this.generation) return;
+    if (probe) {
+      this.state = "closed";
+      this.generation += 1;
+      this.probes = 0;
+    }
+    this.failures = 0;
+  }
+
+  private recordFailure(generation: number, probe: boolean, error: unknown): void {
+    if (generation !== this.generation) return;
+    const counts = countsAsBreakerFailure(error);
+    if (probe) {
+      if (counts) {
+        this.open(error);
+      } else {
+        this.probes -= 1;
+      }
+      return;
+    }
+    if (!counts) return;
+    this.failures += 1;
+    this.lastFailure = error;
+    if (this.failures >= this.policy.failureThreshold) this.open(error);
+  }
+
+  private open(error: unknown): void {
+    this.state = "open";
+    this.generation += 1;
+    this.openedAt = Date.now();
+    this.lastFailure = error;
   }
 }
 
 class Bulkhead {
   private active = 0;
-  private readonly waiters: Array<{
-    resolve: () => void;
-  }> = [];
+  private readonly waiters: Array<{ resolve: () => void }> = [];
   constructor(private readonly policy: BulkheadPolicy) {}
 
-  async execute<T>(operation: () => Promise<T>): Promise<T> {
-    let granted = false;
+  async execute<T>(
+    operation: (signal: AbortSignal) => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T> {
+    if (signal.aborted) throw signal.reason;
     if (this.active >= this.policy.maxConcurrent) {
       if (this.waiters.length >= (this.policy.queueSize ?? 0)) {
         throw new ResilienceError("bulkhead_rejected", "Bulkhead queue is full.");
       }
-      await new Promise<void>((resolve) => {
-        this.waiters.push({
-          resolve: () => {
-            granted = true;
-            resolve();
-          },
-        });
-      });
+      const { promise, resolve, reject } = Promise.withResolvers<void>();
+      const waiter = {
+        resolve: () => {
+          signal.removeEventListener("abort", onAbort);
+          resolve();
+        },
+      };
+      const onAbort = () => {
+        const index = this.waiters.indexOf(waiter);
+        if (index === -1) return;
+        this.waiters.splice(index, 1);
+        reject(signal.reason);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.waiters.push(waiter);
+      await promise;
+    } else {
+      this.active += 1;
     }
-    if (!granted) this.active += 1;
     try {
-      return await operation();
+      return await operation(signal);
     } finally {
-      this.active = Math.max(0, this.active - 1);
+      this.active -= 1;
       this.releaseNext();
     }
   }
@@ -155,33 +272,18 @@ function countsAsBreakerFailure(error: unknown): boolean {
   if (error instanceof ResilienceError) return false;
   if (typeof error !== "object" || error === null) return true;
   const reason = (error as { reason?: unknown }).reason;
-  return reason !== "client" && reason !== "contract" && reason !== "validation" &&
-    reason !== "business";
+  return typeof reason !== "string" || NON_BREAKER_FAILURE_REASONS[reason] !== true;
 }
 
 function validatePolicy(policy: ResiliencePolicy): void {
   if (
-    policy.timeoutMs !== undefined && (!Number.isFinite(policy.timeoutMs) || policy.timeoutMs < 1)
+    policy.timeoutMs !== undefined &&
+    (!Number.isFinite(policy.timeoutMs) || policy.timeoutMs < 1 ||
+      policy.timeoutMs > MAX_TIMER_MS)
   ) {
-    throw new Error("Resilience timeoutMs must be positive.");
+    throw new Error("Resilience timeoutMs must be positive and at most 2147483647.");
   }
-  if (
-    policy.retry && (!Number.isInteger(policy.retry.maxAttempts) || policy.retry.maxAttempts < 1)
-  ) {
-    throw new Error("Resilience retry maxAttempts must be a positive integer.");
-  }
-  if (
-    policy.retry &&
-    (!Number.isFinite(policy.retry.initialDelayMs) || policy.retry.initialDelayMs < 0)
-  ) {
-    throw new Error("Resilience retry initialDelayMs must be non-negative.");
-  }
-  if (
-    policy.retry?.maxDelayMs !== undefined &&
-    (!Number.isFinite(policy.retry.maxDelayMs) || policy.retry.maxDelayMs < 0)
-  ) {
-    throw new Error("Resilience retry maxDelayMs must be non-negative.");
-  }
+  validateRetryPolicy(policy.retry);
   if (
     policy.circuitBreaker &&
     (!Number.isInteger(policy.circuitBreaker.failureThreshold) ||
@@ -192,9 +294,10 @@ function validatePolicy(policy: ResiliencePolicy): void {
   if (
     policy.circuitBreaker &&
     (!Number.isFinite(policy.circuitBreaker.resetTimeoutMs) ||
-      policy.circuitBreaker.resetTimeoutMs < 1)
+      policy.circuitBreaker.resetTimeoutMs < 1 ||
+      policy.circuitBreaker.resetTimeoutMs > MAX_TIMER_MS)
   ) {
-    throw new Error("Circuit breaker resetTimeoutMs must be positive.");
+    throw new Error("Circuit breaker resetTimeoutMs must be positive and at most 2147483647.");
   }
   if (
     policy.circuitBreaker?.halfOpenMaxAttempts !== undefined &&
@@ -217,25 +320,8 @@ function validatePolicy(policy: ResiliencePolicy): void {
   }
 }
 
-function timeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new ResilienceError("timeout", "Operation timed out.")),
-      milliseconds,
-    );
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
 function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, milliseconds);
+  return promise;
 }

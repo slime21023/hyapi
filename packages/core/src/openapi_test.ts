@@ -133,7 +133,7 @@ Deno.test("OpenAPI - maps security scopes and optional auth with 401/403 respons
   const optionalOp = paths["/optional-auth"]?.get;
   assert(optionalOp);
   assertEquals(optionalOp.security, [{ bearerAuth: [] }, {}]);
-  assertEquals(optionalOp.responses["401"], undefined);
+  assert(optionalOp.responses["401"]);
 
   // Public route
   const publicOp = paths["/public"]?.get;
@@ -147,4 +147,43 @@ Deno.test("OpenAPI - maps security scopes and optional auth with 401/403 respons
   assert(optionalBodyOp.requestBody.content["application/json"]);
   assert(optionalBodyOp.requestBody.content["application/x-www-form-urlencoded"]);
   assert(optionalBodyOp.requestBody.content["multipart/form-data"]);
+});
+
+Deno.test("OpenAPI - documents 413 and 415 problems for routes with request bodies", () => {
+  const validator = new SchemaValidator();
+  const routes: AnyRouteDefinition[] = [
+    {
+      method: "post",
+      path: "/items",
+      request: { body: Type.Object({ name: Type.String() }) },
+      responses: { 201: Type.Object({ id: Type.String() }) },
+      handler: () => undefined,
+    },
+    {
+      method: "get",
+      path: "/items",
+      responses: { 200: Type.Array(Type.Object({ id: Type.String() })) },
+      handler: () => undefined,
+    },
+  ];
+
+  const doc = buildOpenApiDocument(routes, validator, {
+    info: { title: "Test", version: "1.0.0" },
+    path: "/openapi.json",
+  }) as {
+    paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
+  };
+
+  const problem = {
+    content: {
+      "application/problem+json": { schema: { $ref: "#/components/schemas/ProblemDetails" } },
+    },
+  };
+  const create = doc.paths["/items"]?.post;
+  assertEquals(create?.responses["413"], { description: "Payload too large", ...problem });
+  assertEquals(create?.responses["415"], { description: "Unsupported media type", ...problem });
+  const list = doc.paths["/items"]?.get;
+  assert(list);
+  assertEquals(list.responses["413"], undefined);
+  assertEquals(list.responses["415"], undefined);
 });

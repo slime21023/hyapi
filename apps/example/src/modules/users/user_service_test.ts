@@ -1,7 +1,7 @@
 import { assertEquals, assertThrows } from "@std/assert";
 import { ConflictError, NotFoundError } from "@hyapi/core";
 import { UserService } from "./user-service.ts";
-import { InMemoryUserRepository } from "../repositories/user-repository.ts";
+import { InMemoryUserRepository } from "./user-repository.ts";
 
 Deno.test("UserService - CRUD operations and business rules", () => {
   const repository = new InMemoryUserRepository();

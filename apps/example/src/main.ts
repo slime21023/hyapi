@@ -32,13 +32,13 @@ function loadConfig(): AppConfig & { host: string; port: number } {
   }
   return {
     name: "hyapi-example",
-    version: "0.2.0",
+    version: "1.0.0-rc.2",
     environment,
     requestIdHeader: "x-request-id",
     openapi: {
       title: "HyAPI Example API",
       description: "A structured TypeScript API running on Deno.",
-      version: "0.2.0",
+      version: "1.0.0-rc.2",
       path: "/openapi.json",
     },
     host: Deno.env.get("HOST") ?? "127.0.0.1",

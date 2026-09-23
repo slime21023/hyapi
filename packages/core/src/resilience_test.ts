@@ -75,24 +75,126 @@ Deno.test("withResilience releases bulkhead work in FIFO order", async () => {
   assertEquals(started, [1, 2, 3]);
 });
 
-Deno.test("circuit breakers ignore client-classified failures", async () => {
-  class ClientError extends Error {
-    readonly reason = "client" as const;
+Deno.test("circuit breakers ignore caller-classified failures", async () => {
+  class ClassifiedError extends Error {
+    constructor(readonly reason: string) {
+      super(reason);
+    }
   }
+  const reasons = ["client", "contract", "deadline", "aborted"];
   let attempts = 0;
   const operation = withResilience(
     async () => {
+      const reason = reasons[attempts];
       attempts += 1;
-      if (attempts === 1) throw new ClientError("bad request");
+      if (reason) throw new ClassifiedError(reason);
       throw new Error("down");
     },
     { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1000 } },
   );
 
-  await assertRejects(() => operation(), ClientError);
+  for (const reason of reasons) {
+    await assertRejects(() => operation(), ClassifiedError, reason);
+  }
   await assertRejects(() => operation(), Error, "down");
   await assertRejects(() => operation(), ResilienceError, "Circuit breaker is open");
-  assertEquals(attempts, 2);
+  assertEquals(attempts, reasons.length + 1);
+});
+
+Deno.test("circuit breakers close after a successful half-open probe", async () => {
+  let failing = true;
+  const operation = withResilience(
+    async () => {
+      if (failing) throw new Error("down");
+      return "ok";
+    },
+    { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 20 } },
+  );
+
+  await assertRejects(() => operation(), Error, "down");
+  const open = await assertRejects(() => operation(), ResilienceError, "Circuit breaker is open");
+  assertEquals((open.cause as Error).message, "down");
+  await delay(30);
+  failing = false;
+  assertEquals(await operation(), "ok");
+  assertEquals(await Promise.all([operation(), operation()]), ["ok", "ok"]);
+});
+
+Deno.test("circuit breakers limit concurrent half-open probes", async () => {
+  let releaseProbe: (() => void) | undefined;
+  const probePending = new Promise<void>((resolve) => releaseProbe = resolve);
+  let failing = true;
+  const operation = withResilience(
+    async () => {
+      if (failing) throw new Error("down");
+      await probePending;
+      return "ok";
+    },
+    { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 20, halfOpenMaxAttempts: 1 } },
+  );
+
+  await assertRejects(() => operation(), Error, "down");
+  await delay(30);
+  failing = false;
+  const probe = operation();
+  const rejected = await assertRejects(
+    () => operation(),
+    ResilienceError,
+    "Circuit breaker is half-open",
+  );
+  assertEquals(rejected.reason, "circuit_open");
+  releaseProbe?.();
+  assertEquals(await probe, "ok");
+});
+
+Deno.test("circuit breakers ignore late successes from calls started before opening", async () => {
+  let releaseSlow: (() => void) | undefined;
+  const slowPending = new Promise<void>((resolve) => releaseSlow = resolve);
+  let calls = 0;
+  const operation = withResilience(
+    async () => {
+      calls += 1;
+      if (calls === 1) {
+        await slowPending;
+        return "slow";
+      }
+      throw new Error("down");
+    },
+    { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1000 } },
+  );
+
+  const slow = operation();
+  await assertRejects(() => operation(), Error, "down");
+  releaseSlow?.();
+  assertEquals(await slow, "slow");
+  await assertRejects(() => operation(), ResilienceError, "Circuit breaker is open");
+});
+
+Deno.test("timed-out bulkhead waiters never run and release their queue slot", async () => {
+  let releaseFirst: (() => void) | undefined;
+  const firstPending = new Promise<void>((resolve) => releaseFirst = resolve);
+  const started: number[] = [];
+  let calls = 0;
+  const operation = withResilience(
+    async () => {
+      const call = ++calls;
+      started.push(call);
+      if (call === 1) await firstPending;
+      return call;
+    },
+    { timeoutMs: 20, bulkhead: { maxConcurrent: 1, queueSize: 1 } },
+  );
+
+  const first = operation();
+  const queued = operation();
+  await Promise.all([
+    assertRejects(() => first, ResilienceError, "Operation timed out"),
+    assertRejects(() => queued, ResilienceError, "Operation timed out"),
+  ]);
+  const next = operation();
+  releaseFirst?.();
+  assertEquals(await next, 2);
+  assertEquals(started, [1, 2]);
 });
 
 Deno.test("withResilience enforces an operation timeout", async () => {
@@ -117,4 +219,15 @@ Deno.test("withResilience rejects invalid policy budgets early", () => {
     Error,
     "initialDelayMs",
   );
+  assertThrows(
+    () => withResilience(async () => "ok", { timeoutMs: 2_147_483_648 }),
+    Error,
+    "timeoutMs",
+  );
 });
+
+function delay(milliseconds: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, milliseconds);
+  return promise;
+}

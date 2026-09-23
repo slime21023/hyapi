@@ -1,4 +1,5 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import cliConfig from "../deno.json" with { type: "json" };
 import {
   createModule,
   createProject,
@@ -19,10 +20,16 @@ class MemoryFileSystem implements FileSystem {
   }
 
   async mkdir(path: string): Promise<void> {
-    this.directories.add(path);
+    const segments = path.split("/");
+    for (let index = 1; index <= segments.length; index += 1) {
+      this.directories.add(segments.slice(0, index).join("/"));
+    }
   }
 
   async writeTextFile(path: string, content: string): Promise<void> {
+    if (!this.directories.has(path.slice(0, path.lastIndexOf("/")))) {
+      throw new Deno.errors.NotFound(path);
+    }
     this.files.set(path, content);
   }
 }
@@ -186,7 +193,7 @@ Deno.test("project and module generators create a minimal structure without over
   assertEquals(fileSystem.files.has("store-api/src/app_test.ts"), true);
   await assertRejects(() => createProject("store-api", fileSystem), Error, "already exists");
 
-  await createModule("store-api", "Order Items", fileSystem);
+  assertEquals(await createModule("store-api", "Order Items", fileSystem), "order-items");
   assertEquals(
     fileSystem.files.has("store-api/src/modules/order-items/order-items.module.ts"),
     true,
@@ -197,4 +204,66 @@ Deno.test("project and module generators create a minimal structure without over
     Error,
     "already exists",
   );
+});
+
+Deno.test("CLI version matches the published package version", () => {
+  assertEquals(cliConfig.version, VERSION);
+});
+
+Deno.test("new writes the starter project to a real directory", async () => {
+  const root = await Deno.makeTempDir({ prefix: "hyapi-cli-" });
+  try {
+    const directory = `${root}/app`;
+    await main(["new", directory], () => undefined);
+    const stat = await Deno.stat(`${directory}/src/modules/users/users.module.ts`);
+    assertEquals(stat.isFile, true);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test("module generator rejects names that do not start with a letter", async () => {
+  await assertRejects(
+    () => main(["generate", "module", "2fa"], () => undefined),
+    Error,
+    "Module names must start with a letter.",
+  );
+});
+
+Deno.test("boundary inspection resolves ports declared in shared contracts", () => {
+  const boundaries = inspectModuleBoundaries(
+    [{
+      module: "orders",
+      path: "src/modules/orders/orders.module.ts",
+      text: [
+        'import { userDirectoryPort } from "../../contracts/user-directory.ts";',
+        "// defineModule({ requires: [ghostPort] });",
+        "export const orders = defineModule({ requires: [userDirectoryPort] });",
+      ].join("\n"),
+    }],
+    [
+      {
+        module: "contracts",
+        path: "src/contracts/user-directory.ts",
+        text: 'export const userDirectoryPort = definePort<UserDirectory>("users.directory");',
+      },
+      {
+        module: "app",
+        path: "src/app.ts",
+        text: "provideHttp(userDirectoryPort, { baseUrl, contract });",
+      },
+    ],
+  );
+  assertEquals(boundaries.crossModuleImports, []);
+  assertEquals(boundaries.unresolvedReferences, []);
+  assertEquals(boundaries.requiredPorts, [{
+    module: "orders",
+    port: "users.directory",
+    path: "src/modules/orders/orders.module.ts",
+  }]);
+  assertEquals(boundaries.providedPorts, [{
+    module: "app",
+    port: "users.directory",
+    path: "src/app.ts",
+  }]);
 });

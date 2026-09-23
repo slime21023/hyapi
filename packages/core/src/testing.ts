@@ -6,7 +6,8 @@ export async function requestJson(
   init?: RequestInit,
 ): Promise<{ response: Response; body: unknown }> {
   const response = await app.request(input, init);
-  const body = response.status === 204 ? undefined : await response.json();
+  const text = await response.text();
+  const body = text === "" ? undefined : JSON.parse(text);
   return { response, body };
 }
 

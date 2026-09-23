@@ -1,4 +1,4 @@
-export { createApplication, createTestApplication } from "./src/app.ts";
+export { createApplication } from "./src/app.ts";
 export {
   AppError,
   ConfigurationError,
@@ -20,11 +20,7 @@ export {
   withHttpContext,
 } from "./src/http-contract.ts";
 export { provideHttp } from "./src/http-provider.ts";
-export {
-  formatContractVersion,
-  isCompatibleContractVersion,
-  normalizeContractVersion,
-} from "./src/version.ts";
+export { formatContractVersion, isCompatibleContractVersion } from "./src/version.ts";
 export { expectStatus, requestJson } from "./src/testing.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export {
@@ -56,7 +52,6 @@ export type {
   Plugin,
   Port,
   PortProvider,
-  PortVersion,
   ProviderHealth,
   ProviderLifecycle,
   RequestContext,
@@ -90,6 +85,5 @@ export type {
   HttpContractRoute,
   HttpContractRoutes,
   HttpPropagationSource,
-  HttpRetryOptions,
 } from "./src/http-contract.ts";
 export type { HttpPortOptions } from "./src/http-provider.ts";

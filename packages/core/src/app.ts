@@ -5,6 +5,10 @@ import {
   type AppConfigOptions,
   type ApplicationOptions,
   type AuthProvider,
+  type AuthRequirement,
+  DEFAULT_BODY_LIMIT_BYTES,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  defineConfig,
   extractResponseSchemas,
   type HealthReport,
   type HyApiOptions,
@@ -16,6 +20,7 @@ import {
   type MaybePromise,
   type Module,
   type ModuleApi,
+  type PlatformApi,
   type Plugin,
   type Port,
   type PortProvider,
@@ -42,7 +47,9 @@ import {
   UnauthorizedError,
   ValidationError,
 } from "./errors.ts";
+import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
+import { MAX_TIMER_MS } from "./resilience.ts";
 import { headerObject, parseRequestBody, queryObject, SchemaValidator } from "./validation.ts";
 import { formatContractVersion, isCompatibleContractVersion } from "./version.ts";
 
@@ -53,7 +60,9 @@ interface DependencyNode {
 
 interface RequestRuntime {
   requestId: string;
-  deadline?: number;
+  deadline: number;
+  deadlineSource: "header" | "timeout";
+  abort: AbortController;
   state: Map<string, unknown>;
   route: AnyRouteDefinition | null;
   identity: Identity | null;
@@ -62,13 +71,25 @@ interface RequestRuntime {
   cleanups: unknown[];
 }
 
+type HookPoint = "onRequest" | "onResponse" | "onError";
+type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;
+
 type AppLifecycleState = "configuring" | "starting" | "ready" | "failed" | "closing" | "closed";
 
 const RESPONSE_RESULT = "__hyapiResponse" as const;
+const PROVIDER_HEALTH_TIMEOUT_MS = 5_000;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
 
 function isResponseResult(value: unknown): value is ResponseResult {
   return typeof value === "object" && value !== null &&
     (value as Record<string, unknown>)[RESPONSE_RESULT] === true;
+}
+
+function isProviderHealth(value: unknown): value is ProviderHealth {
+  if (typeof value !== "object" || value === null) return false;
+  const report = value as Record<string, unknown>;
+  return (report.status === "healthy" || report.status === "degraded" ||
+    report.status === "unhealthy") && typeof report.provider === "string";
 }
 
 function appendErrors(target: unknown[], source: unknown): void {
@@ -87,6 +108,17 @@ function flattenError(error: unknown): unknown[] {
   return error instanceof AggregateError ? [...error.errors] : [error];
 }
 
+function withHeader(response: Response, name: string, value: string): Response {
+  try {
+    response.headers.set(name, value);
+    return response;
+  } catch {
+    const copy = new Response(response.body, response);
+    copy.headers.set(name, value);
+    return copy;
+  }
+}
+
 function joinPaths(base: string | undefined, path: string): string {
   const cleanBase = (base ?? "").trim().replace(/\/+$/, "");
   const cleanPath = path.trim().replace(/^\/+/, "").replace(/\/+$/, "");
@@ -95,6 +127,30 @@ function joinPaths(base: string | undefined, path: string): string {
   if (!cleanPath) return cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   const formattedBase = cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   return `${formattedBase}/${cleanPath}`;
+}
+
+function mergeAuth(
+  parent: AuthRequirement | undefined,
+  child: AuthRequirement | undefined,
+  location: string,
+): AuthRequirement | undefined {
+  if (child === undefined) return parent;
+  if (parent === undefined || parent === false) return child;
+  if (child === false) {
+    throw new ConfigurationError(
+      `${location} cannot disable authentication inherited from its group.`,
+    );
+  }
+  if (parent.required !== false && child.required === false) {
+    throw new ConfigurationError(
+      `${location} cannot make inherited required authentication optional.`,
+    );
+  }
+  const scopes = [...new Set([...(parent.scopes ?? []), ...(child.scopes ?? [])])];
+  return {
+    ...(parent.required === false && child.required === false ? { required: false } : {}),
+    ...(scopes.length > 0 ? { scopes } : {}),
+  };
 }
 
 function sortByDependencies<T extends DependencyNode>(
@@ -186,22 +242,34 @@ function normalizeGroupArgs(
 }
 
 export class RouterGroup implements RouteGroupApi {
-  private readonly hooks: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>;
+  readonly #app: HyApiApp;
+  readonly #options: RouteGroupOptions;
+  readonly #parent: RouterGroup | null;
+  readonly #hooks: Record<HookPoint, LifecycleHook[]> = {
+    onRequest: [],
+    onResponse: [],
+    onError: [],
+  };
 
-  constructor(
-    protected readonly app: HyApiApp,
-    private readonly options: RouteGroupOptions = {},
-    parentHooks?: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>,
-  ) {
-    this.hooks = {
-      onRequest: parentHooks ? [...parentHooks.onRequest] : [],
-      onResponse: parentHooks ? [...parentHooks.onResponse] : [],
-      onError: parentHooks ? [...parentHooks.onError] : [],
-    };
+  constructor(app: HyApiApp, options: RouteGroupOptions = {}, parent: RouterGroup | null = null) {
+    this.#app = app;
+    this.#options = options;
+    this.#parent = parent;
   }
 
-  addHook(point: "onRequest" | "onResponse" | "onError", hook: LifecycleHook): void {
-    this.hooks[point].push(hook);
+  addHook(point: HookPoint, hook: LifecycleHook): void {
+    this.#app.assertConfiguring("register hooks");
+    this.#hooks[point].push(hook);
+  }
+
+  /**
+   * onRequest hooks run outer to inner; onResponse and onError hooks run inner to outer.
+   */
+  collectHooks(point: HookPoint): LifecycleHook[] {
+    const inherited = this.#parent?.collectHooks(point) ?? [];
+    return point === "onRequest"
+      ? [...inherited, ...this.#hooks[point]]
+      : [...this.#hooks[point], ...inherited];
   }
 
   route<
@@ -211,12 +279,15 @@ export class RouterGroup implements RouteGroupApi {
     TResponse extends ResponseSchemas | undefined,
     TBodyRequired extends boolean = true,
   >(route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>): void {
-    const fullPath = joinPaths(this.options.prefix, route.path);
+    const fullPath = joinPaths(this.#options.prefix, route.path);
     const mergedTags = [
-      ...(this.options.tags ?? []),
-      ...(route.metadata?.tags ?? []),
+      ...new Set([...(this.#options.tags ?? []), ...(route.metadata?.tags ?? [])]),
     ];
-    const resolvedAuth = route.auth !== undefined ? route.auth : this.options.auth;
+    const resolvedAuth = mergeAuth(
+      this.#options.auth,
+      route.auth,
+      `Route '${route.method.toUpperCase()} ${fullPath}'`,
+    );
 
     const mergedRoute: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired> = {
       ...route,
@@ -232,11 +303,7 @@ export class RouterGroup implements RouteGroupApi {
       ...(resolvedAuth !== undefined ? { auth: resolvedAuth } : {}),
     };
 
-    this.app.route(mergedRoute as unknown as AnyRouteDefinition, {
-      onRequest: [...this.hooks.onRequest],
-      onResponse: [...this.hooks.onResponse],
-      onError: [...this.hooks.onError],
-    });
+    this.#app.route(mergedRoute as unknown as AnyRouteDefinition, this);
   }
 
   group(
@@ -258,31 +325,42 @@ export class RouterGroup implements RouteGroupApi {
     maybeFn?: (group: RouteGroupApi) => void,
   ): void {
     const { options: childOpts, fn } = normalizeGroupArgs(prefixOrOptions, optionsOrFn, maybeFn);
-    const mergedPrefix = joinPaths(this.options.prefix, childOpts.prefix ?? "");
-    const mergedTags = [
-      ...(this.options.tags ?? []),
-      ...(childOpts.tags ?? []),
-    ];
-    const mergedAuth = childOpts.auth !== undefined ? childOpts.auth : this.options.auth;
+    const mergedPrefix = joinPaths(this.#options.prefix, childOpts.prefix ?? "");
+    const mergedTags = [...new Set([...(this.#options.tags ?? []), ...(childOpts.tags ?? [])])];
+    const mergedAuth = mergeAuth(
+      this.#options.auth,
+      childOpts.auth,
+      `Group '${mergedPrefix || "/"}'`,
+    );
 
     const newOpts: RouteGroupOptions = {};
     if (mergedPrefix) newOpts.prefix = mergedPrefix;
     if (mergedTags.length > 0) newOpts.tags = mergedTags;
     if (mergedAuth !== undefined) newOpts.auth = mergedAuth;
 
-    const childGroup = new RouterGroup(this.app, newOpts, this.hooks);
-    fn(childGroup);
+    fn(new RouterGroup(this.#app, newOpts, this));
   }
 }
 
 class ModuleContext extends RouterGroup implements ModuleApi {
+  readonly #app: HyApiApp;
+  readonly #moduleName: string;
+  readonly #requiredPortIds: ReadonlySet<string>;
+
+  constructor(app: HyApiApp, module: Module) {
+    super(app);
+    this.#app = app;
+    this.#moduleName = module.name;
+    this.#requiredPortIds = new Set(module.requires?.map((port) => port.id));
+  }
+
   singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
   singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
   singleton<T>(
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.app.singletonService(nameOrFactory, maybeFactory);
+    return this.#app.singletonService(nameOrFactory, maybeFactory);
   }
 
   request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -291,7 +369,7 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.app.requestService(nameOrFactory, maybeFactory);
+    return this.#app.requestService(nameOrFactory, maybeFactory);
   }
 
   transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -300,29 +378,34 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.app.transientService(nameOrFactory, maybeFactory);
+    return this.#app.transientService(nameOrFactory, maybeFactory);
   }
 
   use<T>(port: Port<T>): T {
-    return this.app.usePort(port);
+    if (!this.#requiredPortIds.has(port.id)) {
+      throw new ConfigurationError(
+        `Module '${this.#moduleName}' uses port '${port.id}' without declaring it in requires.`,
+      );
+    }
+    return this.#app.usePort(port);
   }
 }
 
 export class HyApiApp {
-  readonly http: Hono;
+  private readonly http: Hono;
   readonly config: AppConfig;
   readonly validator = new SchemaValidator();
 
+  private readonly bodyLimitBytes: number;
+  private readonly requestTimeoutMs: number;
   private readonly routes: AnyRouteDefinition[] = [];
-  private readonly hooks: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]> = {
+  private readonly hooks: Record<HookPoint, LifecycleHook[]> = {
     onRequest: [],
     onResponse: [],
     onError: [],
   };
-  private readonly routeScopedHooks = new WeakMap<
-    AnyRouteDefinition,
-    Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>
-  >();
+  private readonly routeScopes = new WeakMap<AnyRouteDefinition, RouterGroup>();
+  private readonly resolvedRouteHooks = new WeakMap<AnyRouteDefinition, RouteHooks>();
   private readonly runtimeByRequest = new WeakMap<Request, RequestRuntime>();
   private readonly singletonServices = new Map<ServiceReference<unknown>, Promise<unknown>>();
   private readonly singletonCleanups: unknown[] = [];
@@ -333,44 +416,60 @@ export class HyApiApp {
   private lifecycleState: AppLifecycleState = "configuring";
   private readyPromise: Promise<void> | null = null;
   private closePromise: Promise<void> | null = null;
+  private openApiDocument: Record<string, unknown> | null = null;
 
   constructor(options: HyApiOptions) {
     this.config = options.config;
+    const bodyLimitBytes = this.config.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES;
+    if (!Number.isSafeInteger(bodyLimitBytes) || bodyLimitBytes <= 0) {
+      throw new ConfigurationError("bodyLimitBytes must be a positive integer.");
+    }
+    this.bodyLimitBytes = bodyLimitBytes;
+    const requestTimeoutMs = this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    if (
+      !Number.isInteger(requestTimeoutMs) || requestTimeoutMs <= 0 ||
+      requestTimeoutMs > MAX_TIMER_MS
+    ) {
+      throw new ConfigurationError(
+        "requestTimeoutMs must be a positive integer of at most 2147483647.",
+      );
+    }
+    this.requestTimeoutMs = requestTimeoutMs;
+
     this.http = new Hono();
     this.mountCoreMiddleware();
-    this.http.get(this.config.openapi.path, (context) => {
-      const document = buildOpenApiDocument(this.routes, this.validator, {
-        info: {
-          title: this.config.openapi.title,
-          ...(this.config.openapi.description
-            ? { description: this.config.openapi.description }
-            : {}),
-          version: this.config.openapi.version,
-        },
-        path: this.config.openapi.path,
+    if (this.config.openapi.enabled !== false) {
+      this.http.get(this.config.openapi.path, (context) => {
+        if (this.openApiDocument) return context.json(this.openApiDocument);
+        const document = buildOpenApiDocument(this.routes, this.validator, {
+          info: {
+            title: this.config.openapi.title,
+            ...(this.config.openapi.description
+              ? { description: this.config.openapi.description }
+              : {}),
+            version: this.config.openapi.version,
+          },
+          path: this.config.openapi.path,
+        });
+        if (this.lifecycleState === "ready") this.openApiDocument = document;
+        return context.json(document);
       });
-      return context.json(document);
-    });
+    }
     this.http.notFound((context) => {
-      const requestId = context.req.raw.headers.get(this.config.requestIdHeader) ??
-        crypto.randomUUID();
-      return this.errorResponse(new NotFoundError(), context.req.raw, requestId);
+      const request = context.req.raw;
+      const requestId = this.runtimeByRequest.get(request)?.requestId ??
+        this.resolveRequestId(request);
+      return this.errorResponse(new NotFoundError(), request, requestId);
     });
     this.http.onError(async (error, context) => {
-      const runtime = this.runtimeByRequest.get(context.req.raw);
-      if (runtime) {
-        runtime.lifecycle.error = error;
-        if (runtime.route) {
-          const scoped = this.routeScopedHooks.get(runtime.route);
-          if (scoped?.onError) {
-            await this.runHookList(scoped.onError, runtime.lifecycle, true);
-          }
-        }
-        await this.runHooks("onError", runtime.lifecycle, true);
-      }
-      const requestId = runtime?.requestId ??
-        context.req.raw.headers.get(this.config.requestIdHeader) ?? crypto.randomUUID();
-      return this.errorResponse(error, context.req.raw, requestId);
+      const request = context.req.raw;
+      const runtime = this.runtimeByRequest.get(request);
+      if (runtime) await this.notifyError(runtime, error);
+      return this.errorResponse(
+        error,
+        request,
+        runtime?.requestId ?? this.resolveRequestId(request),
+      );
     });
   }
 
@@ -392,19 +491,23 @@ export class HyApiApp {
     optionsOrFn?: RouteGroupOptions | ((group: RouteGroupApi) => void),
     maybeFn?: (group: RouteGroupApi) => void,
   ): void {
-    const rootGroup = new RouterGroup(this, {});
+    const rootGroup = new RouterGroup(this, {}, null);
     const { options, fn } = normalizeGroupArgs(prefixOrOptions, optionsOrFn, maybeFn);
     rootGroup.group(options, fn);
   }
 
-  addHook(point: "onRequest" | "onResponse" | "onError", hook: LifecycleHook): void {
+  assertConfiguring(action: string): void {
+    if (this.lifecycleState !== "configuring") {
+      throw new ConfigurationError(`Cannot ${action} after the application has started.`);
+    }
+  }
+
+  addHook(point: HookPoint, hook: LifecycleHook): void {
+    this.assertConfiguring("register hooks");
     this.hooks[point].push(hook);
   }
 
-  route(
-    route: AnyRouteDefinition,
-    scopedHooks?: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>,
-  ): void;
+  route(route: AnyRouteDefinition, scope?: RouterGroup): void;
   route<
     TParams extends Schema | undefined,
     TQuery extends Schema | undefined,
@@ -413,31 +516,39 @@ export class HyApiApp {
     TBodyRequired extends boolean = true,
   >(
     route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>,
-    scopedHooks?: Record<"onRequest" | "onResponse" | "onError", LifecycleHook[]>,
+    scope?: RouterGroup,
   ): void {
+    this.assertConfiguring("register routes");
     const registeredRoute = route as unknown as AnyRouteDefinition;
+    const label = `${registeredRoute.method.toUpperCase()} ${registeredRoute.path}`;
     if (registeredRoute.request?.bodyRequired !== undefined && !registeredRoute.request.body) {
       throw new ConfigurationError("request.bodyRequired requires a request.body schema.");
+    }
+    if (registeredRoute.method === "get" && registeredRoute.request?.body) {
+      throw new ConfigurationError(`Route '${label}' cannot declare a request body.`);
+    }
+    if (
+      this.config.openapi.enabled !== false && registeredRoute.method === "get" &&
+      registeredRoute.path === this.config.openapi.path
+    ) {
+      throw new ConfigurationError(`Route '${label}' conflicts with the OpenAPI document route.`);
     }
     if (
       this.routes.some((registered) =>
         registered.method === registeredRoute.method && registered.path === registeredRoute.path
       )
     ) {
-      throw new ConfigurationError(
-        `Route '${registeredRoute.method.toUpperCase()} ${registeredRoute.path}' is already registered.`,
-      );
+      throw new ConfigurationError(`Route '${label}' is already registered.`);
     }
     this.routes.push(registeredRoute);
-    if (scopedHooks) {
-      this.routeScopedHooks.set(registeredRoute, scopedHooks);
-    }
+    if (scope) this.routeScopes.set(registeredRoute, scope);
     const handler = (context: Context) => this.handleRoute(context, registeredRoute);
     const honoPath = toHonoPath(registeredRoute.path);
     this.http.on(registeredRoute.method.toUpperCase(), honoPath, handler);
   }
 
   setAuthProvider(provider: AuthProvider): void {
+    this.assertConfiguring("register an auth provider");
     if (this.authProvider) throw new ConfigurationError("An auth provider is already registered.");
     this.authProvider = provider;
   }
@@ -561,22 +672,9 @@ export class HyApiApp {
   }
 
   async health(): Promise<HealthReport> {
-    const providers: ProviderHealth[] = [];
-    for (const provider of this.portProviders.values()) {
-      if (!provider.lifecycle?.health) {
-        providers.push({ status: "healthy", provider: provider.port.id });
-        continue;
-      }
-      try {
-        providers.push(await provider.lifecycle.health());
-      } catch (error) {
-        providers.push({
-          status: "unhealthy",
-          provider: provider.port.id,
-          detail: error instanceof Error ? error.message : "Health check failed.",
-        });
-      }
-    }
+    const providers = await Promise.all(
+      [...this.portProviders.values()].map((provider) => this.providerHealth(provider)),
+    );
     const status = providers.some((provider) => provider.status === "unhealthy")
       ? "unhealthy"
       : providers.some((provider) => provider.status === "degraded")
@@ -607,24 +705,77 @@ export class HyApiApp {
     this.providersConnected = true;
   }
 
+  private async providerHealth(provider: PortProvider<unknown>): Promise<ProviderHealth> {
+    const id = provider.port.id;
+    const lifecycle = provider.lifecycle;
+    if (!lifecycle?.health) return { status: "healthy", provider: id };
+    const { promise: timedOut, resolve } = Promise.withResolvers<ProviderHealth>();
+    const timer = setTimeout(() =>
+      resolve({
+        status: "unhealthy",
+        provider: id,
+        detail: `Health check timed out after ${PROVIDER_HEALTH_TIMEOUT_MS} ms.`,
+      }), PROVIDER_HEALTH_TIMEOUT_MS);
+    try {
+      const report: unknown = await Promise.race([
+        Promise.resolve().then(() => lifecycle.health?.()),
+        timedOut,
+      ]);
+      if (!isProviderHealth(report)) {
+        return {
+          status: "unhealthy",
+          provider: id,
+          detail: "Health check returned an invalid report.",
+        };
+      }
+      return report;
+    } catch (error) {
+      return {
+        status: "unhealthy",
+        provider: id,
+        detail: error instanceof Error ? error.message : "Health check failed.",
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private resolveRequestId(request: Request): string {
+    const incoming = request.headers.get(this.config.requestIdHeader);
+    return incoming !== null && REQUEST_ID_PATTERN.test(incoming) ? incoming : crypto.randomUUID();
+  }
+
+  private routeHooks(route: AnyRouteDefinition): RouteHooks {
+    const cached = this.resolvedRouteHooks.get(route);
+    if (cached) return cached;
+    const scope = this.routeScopes.get(route);
+    const hooks: RouteHooks = {
+      onRequest: scope?.collectHooks("onRequest") ?? [],
+      onResponse: scope?.collectHooks("onResponse") ?? [],
+      onError: scope?.collectHooks("onError") ?? [],
+    };
+    if (this.lifecycleState === "ready") this.resolvedRouteHooks.set(route, hooks);
+    return hooks;
+  }
+
   private mountCoreMiddleware(): void {
     this.http.use("*", async (context, next) => {
       const request = context.req.raw;
-      const requestId = request.headers.get(this.config.requestIdHeader) ?? crypto.randomUUID();
-      const deadlineHeader = request.headers.get("x-hyapi-deadline");
-      const deadline = deadlineHeader === null || deadlineHeader.trim() === ""
-        ? undefined
-        : Number(deadlineHeader);
+      const requestId = this.resolveRequestId(request);
+      const timeoutDeadline = Date.now() + this.requestTimeoutMs;
+      const headerDeadline = parseDeadlineHeader(request.headers.get(DEADLINE_HEADER));
+      const fromHeader = headerDeadline !== undefined && headerDeadline <= timeoutDeadline;
       const state = new Map<string, unknown>();
       const runtime: RequestRuntime = {
         requestId,
-        ...(deadline !== undefined && Number.isFinite(deadline) ? { deadline } : {}),
+        deadline: fromHeader ? headerDeadline : timeoutDeadline,
+        deadlineSource: fromHeader ? "header" : "timeout",
+        abort: new AbortController(),
         state,
         route: null,
         identity: null,
         lifecycle: {
           request,
-          raw: context,
           requestId,
           state,
           route: null,
@@ -651,41 +802,25 @@ export class HyApiApp {
         try {
           await this.dispose(runtime.cleanups);
         } catch (cleanupError) {
-          const cleanupErrors = requestError === undefined
-            ? [cleanupError]
-            : [...flattenError(requestError), ...flattenError(cleanupError)];
-          requestError = cleanupErrors.length > 1
-            ? createAggregateError(cleanupErrors, "Request cleanup failed.")
-            : cleanupErrors[0];
+          if (requestError === undefined) {
+            // A cleanup failure must not replace a response that already succeeded.
+            await this.notifyError(runtime, cleanupError);
+          } else {
+            requestError = createAggregateError(
+              [...flattenError(requestError), ...flattenError(cleanupError)],
+              "Request cleanup failed.",
+            );
+          }
         }
         this.runtimeByRequest.delete(request);
       }
       if (requestError !== undefined) {
-        runtime.lifecycle.error = requestError;
-        const hookErrors: unknown[] = [];
-        try {
-          if (runtime.route) {
-            const scoped = this.routeScopedHooks.get(runtime.route);
-            if (scoped?.onError) {
-              await this.runHookList(scoped.onError, runtime.lifecycle, true);
-            }
-          }
-          await this.runHooks("onError", runtime.lifecycle, true);
-        } catch (error) {
-          hookErrors.push(...flattenError(error));
-        }
-        if (hookErrors.length > 0) {
-          requestError = createAggregateError(
-            [...flattenError(requestError), ...hookErrors],
-            "Request handling and error hooks failed.",
-          );
-        }
+        await this.notifyError(runtime, requestError);
         response = this.errorResponse(requestError, request, requestId);
       }
 
       if (response) {
-        response.headers.set(this.config.requestIdHeader, requestId);
-        context.res = response;
+        context.res = withHeader(response, this.config.requestIdHeader, requestId);
       }
     });
   }
@@ -705,10 +840,71 @@ export class HyApiApp {
     runtime.route = route;
     runtime.lifecycle.route = route;
 
-    const scoped = this.routeScopedHooks.get(route);
-    if (scoped?.onRequest) {
-      await this.runHookList(scoped.onRequest, runtime.lifecycle);
+    const hooks = this.routeHooks(route);
+    let response: Response;
+    try {
+      response = await this.runWithinDeadline(
+        runtime,
+        () => this.executeRoute(context, route, runtime, hooks),
+      );
+    } catch (error) {
+      response = await this.routeErrorResponse(error, request, runtime);
     }
+    runtime.lifecycle.response = response;
+    try {
+      await this.runHookList(hooks.onResponse, runtime.lifecycle);
+    } catch (error) {
+      response = await this.routeErrorResponse(error, request, runtime);
+      runtime.lifecycle.response = response;
+    }
+    return response;
+  }
+
+  private deadlineError(runtime: RequestRuntime): AppError {
+    return runtime.deadlineSource === "timeout"
+      ? new AppError(
+        503,
+        "REQUEST_TIMEOUT",
+        `The request did not complete within ${this.requestTimeoutMs} ms.`,
+        undefined,
+        true,
+      )
+      : new AppError(504, "DEADLINE_EXCEEDED", "The request deadline has passed.", undefined, true);
+  }
+
+  /**
+   * Races the route pipeline against the effective request deadline. JavaScript cannot stop a
+   * running handler, so the deadline aborts `ctx.signal` and the late result is discarded.
+   */
+  private async runWithinDeadline<T>(
+    runtime: RequestRuntime,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const remaining = runtime.deadline - Date.now();
+    if (remaining <= 0) throw this.deadlineError(runtime);
+    const { promise: expired, reject } = Promise.withResolvers<never>();
+    const timer = setTimeout(() => {
+      const error = this.deadlineError(runtime);
+      runtime.abort.abort(error);
+      reject(error);
+    }, remaining);
+    const execution = operation();
+    execution.catch(() => undefined);
+    try {
+      return await Promise.race([execution, expired]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async executeRoute(
+    context: Context,
+    route: AnyRouteDefinition,
+    runtime: RequestRuntime,
+    hooks: RouteHooks,
+  ): Promise<Response> {
+    const request = context.req.raw;
+    await this.runHookList(hooks.onRequest, runtime.lifecycle);
 
     const identity = await this.authenticate(request, route);
     runtime.identity = identity;
@@ -722,7 +918,7 @@ export class HyApiApp {
       ? this.validator.validate(requestSchemas.query, queryObject(request), "query")
       : queryObject(request);
     const rawBody = requestSchemas?.body && request.method !== "GET" && request.method !== "HEAD"
-      ? await parseRequestBody(request)
+      ? await parseRequestBody(request, this.bodyLimitBytes)
       : undefined;
     if (requestSchemas?.body && rawBody === undefined && requestSchemas.bodyRequired !== false) {
       throw new ValidationError("body", [{
@@ -742,9 +938,10 @@ export class HyApiApp {
 
     const routeContext: RequestContext = {
       request,
-      raw: context,
       requestId: runtime.requestId,
-      ...(runtime.deadline === undefined ? {} : { deadline: runtime.deadline }),
+      requestIdHeader: this.config.requestIdHeader,
+      deadline: runtime.deadline,
+      signal: runtime.abort.signal,
       params,
       query,
       body,
@@ -779,13 +976,25 @@ export class HyApiApp {
       }),
     };
     const result = await route.handler(routeContext);
-    const response = this.toResponse(result, route);
-    runtime.lifecycle.response = response;
+    return await this.toResponse(result, route);
+  }
 
-    if (scoped?.onResponse) {
-      await this.runHookList(scoped.onResponse, runtime.lifecycle);
+  private async routeErrorResponse(
+    error: unknown,
+    request: Request,
+    runtime: RequestRuntime,
+  ): Promise<Response> {
+    await this.notifyError(runtime, error);
+    return this.errorResponse(error, request, runtime.requestId);
+  }
+
+  /** Runs route-scoped and global onError hooks; hook failures are swallowed. */
+  private async notifyError(runtime: RequestRuntime, error: unknown): Promise<void> {
+    runtime.lifecycle.error = error;
+    if (runtime.route) {
+      await this.runHookList(this.routeHooks(runtime.route).onError, runtime.lifecycle, true);
     }
-    return response;
+    await this.runHooks("onError", runtime.lifecycle, true);
   }
 
   private serviceResolver(runtime?: RequestRuntime): ServiceResolver {
@@ -804,7 +1013,7 @@ export class HyApiApp {
     if (service.scope === "request" && !runtime) {
       return Promise.reject(
         new ConfigurationError(
-          "A request-scoped service can only be resolved while handling a request.",
+          "A request-scoped service cannot be resolved outside a request or from a singleton factory.",
         ),
       );
     }
@@ -812,10 +1021,15 @@ export class HyApiApp {
       return this.createService(service, runtime);
     }
     const services = service.scope === "singleton" ? this.singletonServices : runtime!.services;
-    const existing = services.get(service as ServiceReference<unknown>);
+    const key = service as ServiceReference<unknown>;
+    const existing = services.get(key);
     if (existing) return existing as Promise<T>;
     const created = this.createService(service, runtime);
-    services.set(service as ServiceReference<unknown>, created);
+    services.set(key, created);
+    // A failed factory must not poison the cache; the next resolution retries it.
+    created.catch(() => {
+      if (services.get(key) === created) services.delete(key);
+    });
     return created;
   }
 
@@ -823,7 +1037,9 @@ export class HyApiApp {
     service: ServiceReference<T>,
     runtime?: RequestRuntime,
   ): Promise<T> {
-    const value = await service.factory(this.serviceResolver(runtime));
+    const value = await service.factory(
+      this.serviceResolver(service.scope === "singleton" ? undefined : runtime),
+    );
     if (service.scope === "singleton") this.singletonCleanups.push(value);
     else if (service.scope === "request") runtime!.cleanups.push(value);
     return value;
@@ -864,8 +1080,7 @@ export class HyApiApp {
     return identity;
   }
 
-  private toResponse(result: unknown, route: AnyRouteDefinition): Response {
-    if (result instanceof Response) return result;
+  private async toResponse(result: unknown, route: AnyRouteDefinition): Promise<Response> {
     let body = result;
     const defaultStatus = route.responseStatus ??
       (route.method === "post" ? 201 : route.method === "delete" ? 204 : 200);
@@ -874,17 +1089,20 @@ export class HyApiApp {
       body = result.body;
       init = result.init ?? init;
     }
-    const status = init.status ?? defaultStatus;
+    const status = result instanceof Response ? result.status : init.status ?? defaultStatus;
 
-    const responseSchemas = extractResponseSchemas(route);
     const declaredResponses = route.responses;
-    const hasResponseContract = declaredResponses !== undefined;
     if (declaredResponses && !Object.hasOwn(declaredResponses, status)) {
+      if (result instanceof Response) await result.body?.cancel().catch(() => undefined);
       throw new ResponseContractError(
         `Response status ${status} is not declared for '${route.method.toUpperCase()} ${route.path}'.`,
         { status, declaredStatuses: Object.keys(declaredResponses).map(Number) },
       );
     }
+    if (result instanceof Response) return result;
+
+    const responseSchemas = extractResponseSchemas(route);
+    const hasResponseContract = declaredResponses !== undefined;
     if (status === 204 && body !== undefined) {
       throw new ResponseContractError("A 204 response must not include a response body.", {
         status,
@@ -919,7 +1137,7 @@ export class HyApiApp {
   }
 
   private async runHooks(
-    point: "onRequest" | "onResponse" | "onError",
+    point: HookPoint,
     lifecycle: LifecycleContext,
     swallowErrors = false,
   ): Promise<void> {
@@ -963,12 +1181,15 @@ export class HyApiApp {
     } catch (error) {
       appendErrors(errors, error);
     }
-    for (const provider of this.portProviders.values()) {
-      try {
-        await provider.lifecycle?.close?.();
-      } catch (error) {
-        appendErrors(errors, error);
+    if (this.providersConnected) {
+      for (const provider of [...this.portProviders.values()].reverse()) {
+        try {
+          await provider.lifecycle?.close?.();
+        } catch (error) {
+          appendErrors(errors, error);
+        }
       }
+      this.providersConnected = false;
     }
     this.lifecycleState = "closed";
 
@@ -984,102 +1205,122 @@ export function createApp(options: HyApiOptions): HyApiApp {
   return new HyApiApp(options);
 }
 
+function createPlatformApi(app: HyApiApp): PlatformApi {
+  const platform: PlatformApi = {
+    addHook: (point, hook) => app.addHook(point, hook),
+    setAuthProvider: (provider) => app.setAuthProvider(provider),
+  };
+  return Object.freeze(platform);
+}
+
+/** Closes modules and plugins in reverse order, then the app; every failure is collected. */
+async function closeComposition(
+  modules: readonly Module[],
+  plugins: readonly Plugin[],
+  contexts: ReadonlyMap<Module, ModuleContext>,
+  platform: PlatformApi,
+  app: HyApiApp,
+): Promise<unknown[]> {
+  const errors: unknown[] = [];
+  for (const module of [...modules].reverse()) {
+    if (!module.onClose) continue;
+    try {
+      await module.onClose(contexts.get(module)!);
+    } catch (error) {
+      appendErrors(errors, error);
+    }
+  }
+  for (const plugin of [...plugins].reverse()) {
+    if (!plugin.onClose) continue;
+    try {
+      await plugin.onClose(platform);
+    } catch (error) {
+      appendErrors(errors, error);
+    }
+  }
+  try {
+    await app.close();
+  } catch (error) {
+    appendErrors(errors, error);
+  }
+  return errors;
+}
+
 export async function createApplication(options: ApplicationOptions): Promise<HyApplication> {
   const app = createApp({ config: normalizeConfig(options.config) });
-  app.setOverrides(options.overrides ?? []);
-  const modules = sortModules(options.modules);
-  const plugins = sortPlugins(options.plugins ?? []);
-  app.setPortProviders([
-    ...(options.providers ?? []),
-    ...modules.flatMap((module) => module.provides ?? []),
-  ]);
-  for (const module of modules) {
-    for (const port of module.requires ?? []) app.usePort(port);
-  }
+  const platform = createPlatformApi(app);
   const contexts = new Map<Module, ModuleContext>();
+  const setUpPlugins: Plugin[] = [];
+  const setUpModules: Module[] = [];
+  let modules: Module[] = [];
+  let plugins: Plugin[] = [];
+  try {
+    app.setOverrides(options.overrides ?? []);
+    modules = sortModules(options.modules);
+    plugins = sortPlugins(options.plugins ?? []);
+    app.setPortProviders([
+      ...(options.providers ?? []),
+      ...modules.flatMap((module) => module.provides ?? []),
+    ]);
+    for (const module of modules) {
+      for (const port of module.requires ?? []) app.usePort(port);
+    }
 
-  for (const plugin of plugins) {
-    await plugin.setup(app);
+    for (const plugin of plugins) {
+      await plugin.setup(platform);
+      setUpPlugins.push(plugin);
+    }
+
+    for (const module of modules) {
+      const context = new ModuleContext(app, module);
+      contexts.set(module, context);
+      await module.setup(context);
+      setUpModules.push(module);
+    }
+
+    await app.connectProviders();
+    await app.ready();
+    for (const plugin of plugins) {
+      await plugin.onStart?.(platform);
+    }
+    for (const module of modules) {
+      await module.onStart?.(contexts.get(module)!);
+    }
+  } catch (error) {
+    // close() reports a failed ready() again; drop that duplicate of the original error.
+    const rollbackErrors = (await closeComposition(
+      setUpModules,
+      setUpPlugins,
+      contexts,
+      platform,
+      app,
+    )).filter((rollbackError) => rollbackError !== error);
+    if (rollbackErrors.length > 0) {
+      throw new AggregateError([error, ...rollbackErrors], "Application startup failed.", {
+        cause: error,
+      });
+    }
+    throw error;
   }
 
-  for (const module of modules) {
-    const context = new ModuleContext(app);
-    contexts.set(module, context);
-    await module.setup(context);
-  }
-
-  await app.connectProviders();
-  await app.ready();
-  for (const plugin of plugins) {
-    if (plugin.onStart) await plugin.onStart(app);
-  }
-  for (const module of modules) {
-    await module.onStart?.(contexts.get(module)!);
-  }
   let closePromise: Promise<void> | null = null;
   return {
     config: app.config,
     fetch: (request) => app.fetch(request),
     request: (input, init) => app.request(input, init),
     health: () => app.health(),
-    close: () => {
-      closePromise ??= (async () => {
-        const errors: unknown[] = [];
-        for (const module of [...modules].reverse()) {
-          if (!module.onClose) continue;
-          try {
-            await module.onClose(contexts.get(module)!);
-          } catch (error) {
-            appendErrors(errors, error);
-          }
-        }
-        for (const plugin of [...plugins].reverse()) {
-          if (!plugin.onClose) continue;
-          try {
-            await plugin.onClose(app);
-          } catch (error) {
-            appendErrors(errors, error);
-          }
-        }
-        try {
-          await app.close();
-        } catch (error) {
-          if (error instanceof AggregateError) {
-            appendErrors(errors, error);
-          } else {
-            errors.push(error);
-          }
-        }
-        if (errors.length > 0) {
-          throw createAggregateError(errors);
-        }
-      })();
-      return closePromise;
-    },
+    close: () =>
+      closePromise ??= closeComposition(modules, plugins, contexts, platform, app).then(
+        (errors) => {
+          if (errors.length > 0) throw createAggregateError(errors);
+        },
+      ),
   };
 }
 
 function normalizeConfig(config: AppConfig | AppConfigOptions): AppConfig {
-  if ("requestIdHeader" in config && "openapi" in config && config.openapi.path !== undefined) {
+  if ("requestIdHeader" in config && config.openapi?.path !== undefined) {
     return config as AppConfig;
   }
-  const version = config.version ?? "0.1.0";
-  return {
-    name: config.name,
-    version,
-    environment: config.environment ?? "development",
-    requestIdHeader: config.requestIdHeader ?? "x-request-id",
-    openapi: {
-      title: config.openapi?.title ?? `${config.name} API`,
-      ...(config.openapi?.description === undefined
-        ? {}
-        : { description: config.openapi.description }),
-      version: config.openapi?.version ?? version,
-      path: config.openapi?.path ?? "/openapi.json",
-    },
-  };
-}
-
-export async function createTestApplication(options: ApplicationOptions): Promise<HyApplication> {
-  return await createApplication(options);
+  return defineConfig(config);
 }

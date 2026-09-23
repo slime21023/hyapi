@@ -122,7 +122,7 @@ Deno.test("parseRequestBody - returns undefined for GET, HEAD, or Content-Length
   assertEquals(await parseRequestBody(zeroLengthReq), undefined);
 });
 
-Deno.test("parseRequestBody - does not trust Content-Length and checks unsupported media types first", async () => {
+Deno.test("parseRequestBody - does not trust Content-Length and ignores the media type of bodyless requests", async () => {
   const mismatchedLengthReq = new Request("http://test/", {
     method: "POST",
     headers: {
@@ -137,11 +137,7 @@ Deno.test("parseRequestBody - does not trust Content-Length and checks unsupport
     method: "POST",
     headers: { "content-type": "text/plain" },
   });
-  await assertRejects(
-    () => parseRequestBody(emptyUnsupportedReq),
-    AppError,
-    "The request body media type is not supported.",
-  );
+  assertEquals(await parseRequestBody(emptyUnsupportedReq), undefined);
 });
 
 Deno.test("parseRequestBody - parses valid JSON and throws AppError on invalid JSON", async () => {

@@ -95,9 +95,6 @@ export class ResponseContractError extends AppError {
 
 export function asAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
-  if (error instanceof SyntaxError) {
-    return new AppError(400, "INVALID_JSON", "Request body is not valid JSON.");
-  }
   const message = error instanceof Error ? error.message : "An unexpected error occurred.";
   return new AppError(500, "INTERNAL_ERROR", message, undefined, false);
 }

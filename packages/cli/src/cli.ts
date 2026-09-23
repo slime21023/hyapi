@@ -1,4 +1,4 @@
-export const VERSION = "1.0.0-rc.1";
+export const VERSION = "1.0.0-rc.2";
 
 export type CliCommand =
   | { readonly kind: "help" }
@@ -124,8 +124,15 @@ export async function main(
       if (command.generator !== "module") {
         throw new Error(`Unsupported generator '${command.generator}'. Supported: module.`);
       }
-      await createModule(Deno.cwd(), command.name, denoFileSystem);
-      write(`Created module '${command.name}'.`);
+      {
+        const name = await createModule(Deno.cwd(), command.name, denoFileSystem);
+        const camel = camelCase(name);
+        write(`Created module '${name}'.`);
+        write(
+          `Register it in src/app.ts: import { ${camel}Module } from "./modules/${name}/${name}.module.ts";`,
+        );
+        write(`Then add ${camel}Module to createApplication({ modules }).`);
+      }
       return;
     case "inspect":
       {
@@ -156,18 +163,33 @@ export async function inspectProject(root: string): Promise<ProjectInspection> {
     for await (const entry of Deno.readDir(`${root}/src/modules`)) {
       if (!entry.isDirectory) continue;
       modules.push(entry.name);
-      sources.push(...await readModuleSources(root, entry.name));
+      sources.push(...await readSources(`${root}/src/modules/${entry.name}`, entry.name));
     }
   } catch (error) {
     if (!(error instanceof Deno.errors.NotFound)) throw error;
   }
   modules.sort();
+  const sharedSources: ModuleSource[] = [];
+  try {
+    sharedSources.push(...await readSources(`${root}/src/contracts`, "contracts"));
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+  const applicationPath = `${root}/src/app.ts`;
+  const hasApplicationEntry = await pathExists(applicationPath);
+  if (hasApplicationEntry) {
+    sharedSources.push({
+      module: "app",
+      path: applicationPath,
+      text: await Deno.readTextFile(applicationPath),
+    });
+  }
   return {
     root,
     modules,
     hasDenoConfig: await pathExists(`${root}/deno.json`),
-    hasApplicationEntry: await pathExists(`${root}/src/app.ts`),
-    boundaries: inspectModuleBoundaries(sources),
+    hasApplicationEntry,
+    boundaries: inspectModuleBoundaries(sources, sharedSources),
   };
 }
 
@@ -226,7 +248,8 @@ export function doctor(inspection: ProjectInspection): readonly Diagnostic[] {
       module: unresolved.module,
       path: unresolved.path,
       message: `Could not resolve required Port reference '${unresolved.reference}'.`,
-      suggestion: "Use a named Port declaration or string identifier.",
+      suggestion:
+        "Declare the Port with definePort() in src/contracts/ or the module, and reference it by name.",
     });
   }
   return findings;
@@ -234,9 +257,15 @@ export function doctor(inspection: ProjectInspection): readonly Diagnostic[] {
 
 export function inspectModuleBoundaries(
   sources: readonly ModuleSource[],
+  sharedSources: readonly ModuleSource[] = [],
 ): ModuleBoundaryInspection {
+  const moduleSources = sources.map((source) => ({ ...source, text: stripComments(source.text) }));
+  const allSources = [
+    ...moduleSources,
+    ...sharedSources.map((source) => ({ ...source, text: stripComments(source.text) })),
+  ];
   const portNames = new Map<string, string>();
-  for (const source of sources) {
+  for (const source of allSources) {
     for (
       const match of source.text.matchAll(
         /(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)[^=]*=\s*definePort(?:<[^>]*>)?\(\s*["']([^"']+)["']/g,
@@ -251,7 +280,7 @@ export function inspectModuleBoundaries(
   const requiredPorts: PortRequirement[] = [];
   const providedPorts = new Map<string, PortProvision>();
   const unresolvedReferences: { module: string; path: string; reference: string }[] = [];
-  for (const source of sources) {
+  for (const source of moduleSources) {
     for (const specifier of importedSpecifiers(source.text)) {
       const target = resolveImportedModule(source, specifier);
       if (target && target !== source.module) {
@@ -271,7 +300,9 @@ export function inspectModuleBoundaries(
         }
       }
     }
-    for (const match of source.text.matchAll(/providePort\(\s*([^,\s)]+)/g)) {
+  }
+  for (const source of allSources) {
+    for (const match of source.text.matchAll(/provide(?:Port|Http)\(\s*([^,\s)]+)/g)) {
       const port = resolvePortReference(match[1] ?? "", portNames);
       if (port) providedPorts.set(port, { module: source.module, port, path: source.path });
     }
@@ -288,19 +319,18 @@ export function inspectModuleBoundaries(
   };
 }
 
-async function readModuleSources(root: string, module: string): Promise<ModuleSource[]> {
-  const directory = `${root}/src/modules/${module}`;
+function stripComments(text: string): string {
+  return text.replaceAll(/\/\*[\s\S]*?\*\//g, "").replaceAll(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
+async function readSources(directory: string, module: string): Promise<ModuleSource[]> {
   const sources: ModuleSource[] = [];
   for await (const entry of Deno.readDir(directory)) {
     const path = `${directory}/${entry.name}`;
     if (entry.isDirectory) {
-      sources.push(...await readModuleSources(root, `${module}/${entry.name}`));
+      sources.push(...await readSources(path, module));
     } else if (entry.isFile && entry.name.endsWith(".ts")) {
-      sources.push({
-        module: module.split("/")[0] ?? module,
-        path,
-        text: await Deno.readTextFile(path),
-      });
+      sources.push({ module, path, text: await Deno.readTextFile(path) });
     }
   }
   return sources;
@@ -325,8 +355,12 @@ function resolveImportedModule(source: ModuleSource, specifier: string): string 
     if (segment === "..") segments.pop();
     else segments.push(segment);
   }
-  const modulesIndex = segments.lastIndexOf("modules");
-  return modulesIndex === -1 ? undefined : segments[modulesIndex + 1];
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    if (segments[index] === "modules" && segments[index - 1] === "src") {
+      return segments[index + 1];
+    }
+  }
+  return undefined;
 }
 
 function resolvePortReference(
@@ -377,6 +411,12 @@ function formatInspection(inspection: ProjectInspection): string {
     ...(inspection.boundaries?.crossModuleImports ?? []).map((entry) =>
       `  import: ${entry.from} -> ${entry.to} (${entry.path})`
     ),
+    ...(inspection.boundaries?.requiredPorts ?? []).map((entry) =>
+      `  requires: ${entry.module} -> ${entry.port}`
+    ),
+    ...(inspection.boundaries?.providedPorts ?? []).map((entry) =>
+      `  provides: ${entry.port} (${entry.path})`
+    ),
   ].join("\n");
 }
 
@@ -412,7 +452,7 @@ export async function createModule(
   root: string,
   name: string,
   fileSystem: FileSystem,
-): Promise<void> {
+): Promise<string> {
   const normalized = normalizeName(name);
   const directory = `${root}/src/modules/${normalized}`;
   if (await fileSystem.exists(directory)) {
@@ -425,6 +465,7 @@ export async function createModule(
     [`${normalized}.schemas.ts`]: schemaTemplate(normalized),
     [`${normalized}_test.ts`]: testTemplate(normalized),
   });
+  return normalized;
 }
 
 async function writeFiles(
@@ -433,6 +474,9 @@ async function writeFiles(
   files: Readonly<Record<string, string>>,
 ): Promise<void> {
   for (const [path, content] of Object.entries(files)) {
+    if (path.includes("/")) {
+      await fileSystem.mkdir(`${root}/${path.slice(0, path.lastIndexOf("/"))}`);
+    }
     await fileSystem.writeTextFile(`${root}/${path}`, content);
   }
 }
@@ -444,6 +488,7 @@ function normalizeName(value: string): string {
       "Module names must use letters, numbers, and separators without leading/trailing separators.",
     );
   }
+  if (!/^[a-z]/.test(normalized)) throw new Error("Module names must start with a letter.");
   return normalized;
 }
 
@@ -451,7 +496,7 @@ function projectConfig(): string {
   return JSON.stringify(
     {
       imports: {
-        "@hyapi/core": "jsr:@hyapi/core@^1.0.0-rc.1",
+        "@hyapi/core": `jsr:@hyapi/core@^${VERSION}`,
         "@std/assert": "jsr:@std/assert@1",
         "typebox": "npm:typebox@1",
       },
@@ -478,12 +523,12 @@ function projectMain(): string {
 
 function projectApp(): string {
   return [
-    'import { createApplication } from "@hyapi/core";',
+    'import { createApplication, defineConfig } from "@hyapi/core";',
     'import { healthModule } from "./modules/health/health.module.ts";',
     'import { usersModule } from "./modules/users/users.module.ts";',
     "",
     "export const app = await createApplication({",
-    '  config: { name: "hyapi-app", version: "0.1.0", environment: "development", requestIdHeader: "x-request-id", openapi: { title: "HyAPI App", version: "0.1.0", path: "/openapi.json" } },',
+    '  config: defineConfig({ name: "hyapi-app" }),',
     "  modules: [healthModule, usersModule],",
     "});",
   ].join("\n") + "\n";
@@ -495,7 +540,7 @@ function projectAppTest(): string {
     'import { app } from "./app.ts";',
     "",
     'Deno.test("starter application exposes health and OpenAPI", async () => {',
-    '  assertEquals((await app.request("http://test/health")).status, 200);',
+    '  assertEquals((await app.request("http://test/health/live")).status, 200);',
     '  assertEquals((await app.request("http://test/openapi.json")).status, 200);',
     "});",
   ].join("\n") + "\n";
@@ -508,7 +553,7 @@ function healthModule(): string {
     "export const healthModule = defineModule({",
     '  name: "health",',
     "  setup(module) {",
-    '    module.route(defineRoute({ method: "get", path: "/health", handler: ({ ok }) => ok({ status: "ok" }) }));',
+    '    module.route(defineRoute({ method: "get", path: "/health/live", handler: ({ ok }) => ok({ status: "ok" }) }));',
     "  },",
     "});",
   ].join("\n") + "\n";
@@ -531,11 +576,13 @@ function moduleTemplate(name: string): string {
 function routeTemplate(name: string): string {
   return [
     'import { defineRoute, type ModuleApi } from "@hyapi/core";',
+    `import { ${pascalCase(name)}ResponseSchema } from "./${name}.schemas.ts";`,
     "",
     `export function register${pascalCase(name)}Routes(module: ModuleApi): void {`,
     "  module.route(defineRoute({",
     '    method: "get",',
     `    path: "/${name}",`,
+    `    responses: { 200: ${pascalCase(name)}ResponseSchema },`,
     `    handler: ({ ok }) => ok({ module: "${name}" }),`,
     "  }));",
     "}",

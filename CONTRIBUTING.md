@@ -8,8 +8,9 @@ Use Deno 2.9 or later. Before opening a pull request, run:
 deno task verify
 ```
 
-The command checks formatting, linting, TypeScript types, and the complete test suite. Text files
-use LF line endings through `.gitattributes`, including on Windows checkouts.
+The command checks formatting, linting, TypeScript types (core, CLI, example, benchmarks, and
+scripts), the complete test suite, the example `doctor` report, and a generated starter project.
+Text files use LF line endings through `.gitattributes`, including on Windows checkouts.
 
 ## Changes and issues
 
@@ -27,19 +28,36 @@ pull request. Do not expose Hono implementation details through a new HyAPI publ
 
 ## Versioning and releases
 
-HyAPI follows semantic versioning with the following pre-1.0 policy:
+HyAPI 1.x follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API
+consists of:
 
-- Patch releases (`0.1.x`) contain compatible fixes, documentation, and quality improvements.
-- Minor releases (`0.2.0`, `0.3.0`, and later) may change public APIs only when their milestone
-  explicitly declares the breaking change and provides a migration guide.
-- Experimental APIs must be marked as such in their documentation and may change in the next minor
-  release.
+- every export of `packages/core/mod.ts` (`@hyapi/core`) and `packages/cli/mod.ts` (`@hyapi/cli`);
+- CLI commands and flags;
+- wire behavior: problem+json fields, the `x-request-id`, `x-hyapi-deadline`, and `x-hyapi-service`
+  headers, and the values of `HttpContractClientError.reason` and `ResilienceError.reason`.
+
+Breaking changes to the public API ship only in a major release. Minor releases add compatible
+features; patch releases contain compatible fixes, documentation, and quality improvements.
+
+After 1.0.0 is published, an API is removed only through deprecation: mark it with a `@deprecated`
+JSDoc tag, record the deprecation in `CHANGELOG.md`, and keep it for at least one minor release
+before removal in the next major.
+
+Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
+old API, with no alias or transition period, and the change ships a migration note in
+`docs/migrations/`.
+
+Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
 
 Before a release, the maintainer verifies the release gate in the relevant roadmap milestone,
-updates `CHANGELOG.md`, runs `deno task verify` on a clean checkout, and tags the resulting commit.
+updates `CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout,
+and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which
+repeats `deno task verify` and publishes both packages to JSR.
 
-During the `v1.0.0-rc.1` freeze, runtime and public API changes are out of scope. Only test
-coverage, repeatable performance or security regression evidence, and documentation/example fixes
-may be merged before the final `v1.0.0` tag.
+During the `v1.0.0-rc.2` freeze, runtime and public API changes are out of scope. Only test
+coverage, repeatable performance or security evidence, and documentation corrections may be merged
+before the final `v1.0.0` tag. A benchmark regression of more than 20% on the same hardware must be
+explained in the pull request; see [docs/baselines/performance.md](docs/baselines/performance.md).
 
-The roadmap and release gates are maintained in [docs/roadmap.md](docs/roadmap.md).
+The roadmap and release gates are maintained in [docs/roadmap.md](docs/roadmap.md). Report security
+issues privately as described in [SECURITY.md](SECURITY.md).

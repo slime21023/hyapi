@@ -1,7 +1,7 @@
 import "typebox/format";
 import { Compile, type Validator } from "typebox/compile";
 import { Value } from "typebox/value";
-import type { Schema } from "./types.ts";
+import { DEFAULT_BODY_LIMIT_BYTES, type Schema } from "./types.ts";
 import { AppError, ResponseValidationError, ValidationError } from "./errors.ts";
 
 export type ValidationSource = "params" | "query" | "body" | "headers" | "response";
@@ -11,7 +11,9 @@ export class SchemaValidator {
 
   validate<T>(schema: Schema, value: unknown, source: ValidationSource): T {
     let targetValue = value;
-    if (source !== "response") {
+    if (source === "response") {
+      targetValue = Value.Clean(schema, Value.Clone(value));
+    } else {
       try {
         targetValue = Value.Convert(schema, Value.Default(schema, value));
       } catch {
@@ -73,14 +75,19 @@ export function headerObject(headers: Headers): Record<string, string> {
   return Object.fromEntries(headers.entries());
 }
 
-export async function parseRequestBody(request: Request): Promise<unknown> {
+export async function parseRequestBody(
+  request: Request,
+  limitBytes = DEFAULT_BODY_LIMIT_BYTES,
+): Promise<unknown> {
   if (request.method === "GET" || request.method === "HEAD") return undefined;
+  if (request.body === null) return undefined;
 
   const contentType = (request.headers.get("content-type") ?? "")
     .split(";", 1)[0]
     ?.trim()
     .toLowerCase() ?? "";
-  const isJson = !contentType || contentType === "application/json";
+  const isJson = !contentType || contentType === "application/json" ||
+    /^application\/[\w.!#$&^-]+\+json$/.test(contentType);
   const isFormUrlEncoded = contentType === "application/x-www-form-urlencoded";
   const isMultipart = contentType === "multipart/form-data";
 
@@ -92,12 +99,19 @@ export async function parseRequestBody(request: Request): Promise<unknown> {
     );
   }
 
-  if (request.body === null) return undefined;
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > limitBytes) {
+    throw new AppError(
+      413,
+      "PAYLOAD_TOO_LARGE",
+      `Request body exceeds the ${limitBytes}-byte limit.`,
+    );
+  }
 
-  const source = request.clone();
+  const bytes = await readLimited(request.clone().body!, limitBytes);
 
   if (isJson) {
-    const text = await source.text();
+    const text = new TextDecoder().decode(bytes);
     if (!text.trim()) return undefined;
     try {
       return JSON.parse(text) as unknown;
@@ -107,20 +121,49 @@ export async function parseRequestBody(request: Request): Promise<unknown> {
   }
 
   if (isFormUrlEncoded) {
-    try {
-      const text = await source.text();
-      if (!text) return undefined;
-      return entriesToObject(new URLSearchParams(text).entries());
-    } catch {
-      throw new AppError(400, "INVALID_FORM_DATA", "Failed to parse form URL-encoded body.");
-    }
+    const text = new TextDecoder().decode(bytes);
+    if (!text) return undefined;
+    return entriesToObject(new URLSearchParams(text).entries());
   }
 
   // The media type guard above leaves multipart/form-data as the only remaining supported format.
   try {
-    const formData = await source.formData();
+    const formData = await new Response(bytes, {
+      headers: { "content-type": request.headers.get("content-type")! },
+    }).formData();
     return entriesToObject(formData.entries());
   } catch {
     throw new AppError(400, "INVALID_MULTIPART_DATA", "Failed to parse multipart form data.");
   }
+}
+
+async function readLimited(
+  stream: ReadableStream<Uint8Array<ArrayBuffer>>,
+  limitBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limitBytes) {
+      await reader.cancel();
+      throw new AppError(
+        413,
+        "PAYLOAD_TOO_LARGE",
+        `Request body exceeds the ${limitBytes}-byte limit.`,
+      );
+    }
+    chunks.push(value);
+  }
+  if (chunks.length === 1) return chunks[0]!;
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
 }

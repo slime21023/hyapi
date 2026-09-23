@@ -1,4 +1,4 @@
-import type { CreateUserInput, UpdateUserInput, User } from "../schemas.ts";
+import type { CreateUserInput, UpdateUserInput, User } from "./users.schemas.ts";
 
 export interface UserRepository {
   list(offset: number, limit: number): User[];

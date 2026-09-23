@@ -1,7 +1,9 @@
 import {
   assert,
   assertEquals,
+  assertMatch,
   assertRejects,
+  assertStrictEquals,
   assertStringIncludes,
   assertThrows,
 } from "@std/assert";
@@ -9,7 +11,6 @@ import {
   type AppConfig,
   type AuthProvider,
   createApplication,
-  createTestApplication,
   defineConfig,
   defineModule,
   definePlugin,
@@ -18,9 +19,12 @@ import {
   defineRoute,
   type Identity,
   providePort,
+  type ProviderHealth,
   provideValue,
+  type RouteGroupApi,
   verifyPortContract,
   verifyPortContracts,
+  withHttpContext,
 } from "../mod.ts";
 import { expectStatus, requestJson } from "../mod.ts";
 import { ConfigurationError } from "../mod.ts";
@@ -89,7 +93,7 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
   assertEquals(invalid.headers.get("content-type"), "application/problem+json");
 });
 
-Deno.test("request context accepts valid deadlines and ignores empty headers", async () => {
+Deno.test("request context exposes the effective deadline", async () => {
   let deadline: number | undefined;
   const app = createApp({ config });
   app.route(defineRoute({
@@ -102,10 +106,15 @@ Deno.test("request context accepts valid deadlines and ignores empty headers", a
   }));
   await app.ready();
 
-  await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": "123" } });
-  assertEquals(deadline, 123);
+  const upstream = Date.now() + 60_000;
+  await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": String(upstream) } });
+  assertEquals(deadline, upstream);
+
+  const before = Date.now();
   await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": "" } });
-  assertEquals(deadline, undefined);
+  const after = Date.now();
+  assert(deadline !== undefined);
+  assert(before + 300_000 <= deadline && deadline <= after + 300_000);
 });
 
 Deno.test("defineConfig provides ergonomic application defaults", () => {
@@ -114,6 +123,8 @@ Deno.test("defineConfig provides ergonomic application defaults", () => {
     version: "0.1.0",
     environment: "development",
     requestIdHeader: "x-request-id",
+    bodyLimitBytes: 10485760,
+    requestTimeoutMs: 300000,
     openapi: { title: "orders API", version: "0.1.0", path: "/openapi.json" },
   });
 });
@@ -258,9 +269,9 @@ Deno.test("module services honor singleton request transient scopes and cleanup"
   assertEquals(closed, [2, 2, 1]);
 });
 
-Deno.test("createTestApplication replaces named services before module setup is used", async () => {
+Deno.test("createApplication replaces named services before module setup is used", async () => {
   let factoryCalls = 0;
-  const app = await createTestApplication({
+  const app = await createApplication({
     config,
     overrides: [provideValue("clock", { now: () => "test-time" })],
     modules: [defineModule({
@@ -319,7 +330,9 @@ Deno.test("modules resolve explicit ports and reject missing or incompatible pro
     () =>
       createApplication({
         config,
-        providers: [providePort(definePort("users.directory", 2), { find: () => "" })],
+        providers: [
+          providePort(definePort("users.directory", { major: 2, minor: 0 }), { find: () => "" }),
+        ],
         modules: [
           defineModule({ name: "version", requires: [userDirectory], setup: () => undefined }),
         ],
@@ -371,8 +384,8 @@ Deno.test("provider connection failure rolls back already connected providers", 
       events.push(`close:${name}`);
     },
   });
-  const first = definePort("first", 1);
-  const second = definePort("second", 1);
+  const first = definePort("first");
+  const second = definePort("second");
   await assertRejects(
     () =>
       createApplication({
@@ -558,7 +571,9 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
   assert(doc.paths["/v1/users/{id}"]);
   assertEquals(doc.paths["/v1/users"].get.tags, ["Users"]);
   assertEquals(doc.paths["/v1/users"].get.security, [{ bearerAuth: ["users:read"] }]);
-  assertEquals(doc.paths["/v1/users"].post.security, [{ bearerAuth: ["users:write"] }]);
+  assertEquals(doc.paths["/v1/users"].post.security, [{
+    bearerAuth: ["users:read", "users:write"],
+  }]);
   assert(doc.paths["/v1/users"].get.responses["401"]);
   assert(doc.paths["/v1/users"].get.responses["403"]);
 
@@ -783,8 +798,8 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
     "api:request",
     "users:request",
     "handler:users",
-    "api:response",
     "users:response",
+    "api:response",
     "global:response",
   ]);
 });
@@ -1096,4 +1111,638 @@ Deno.test("app - supports returning raw Response object from handler", async () 
   const res = await app.request("http://test/raw-response");
   assertEquals(res.status, 202);
   assertEquals(await res.text(), "custom stream or raw body");
+});
+
+Deno.test("app - enforces the configured request body limit", async () => {
+  const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
+  app.route(defineRoute({
+    method: "post",
+    path: "/limited",
+    request: { body: Type.Object({ name: Type.String() }) },
+    responses: { 200: Type.Object({ name: Type.String() }) },
+    handler: ({ body, ok }) => ok(body),
+  }));
+  await app.ready();
+
+  const accepted = await app.request("http://test/limited", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada" }),
+  });
+  assertEquals(accepted.status, 200);
+  assertEquals(await accepted.json(), { name: "Ada" });
+
+  const streamed = await app.request("http://test/limited", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Ada Lovelace" }),
+  });
+  assertEquals(streamed.status, 413);
+  assertEquals((await streamed.json()).code, "PAYLOAD_TOO_LARGE");
+
+  const declared = await app.request("http://test/limited", {
+    method: "POST",
+    headers: { "content-type": "application/json", "content-length": "1024" },
+    body: JSON.stringify({ name: "Ada" }),
+  });
+  assertEquals(declared.status, 413);
+  assertEquals((await declared.json()).code, "PAYLOAD_TOO_LARGE");
+});
+
+Deno.test("app - accepts structured +json request media types", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "patch",
+    path: "/patch",
+    request: { body: Type.Object({ name: Type.String() }) },
+    responses: { 200: Type.Object({ name: Type.String() }) },
+    handler: ({ body, ok }) => ok(body),
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/patch", {
+    method: "PATCH",
+    headers: { "content-type": "application/merge-patch+json" },
+    body: JSON.stringify({ name: "Ada" }),
+  });
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { name: "Ada" });
+});
+
+Deno.test("app - replaces malformed request ids and tags immutable responses", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/redirect",
+    handler: () => Response.redirect("http://test/elsewhere", 302),
+  }));
+  await app.ready();
+
+  const malformed = await app.request("http://test/missing", {
+    headers: { "x-request-id": "bad value\n" },
+  });
+  const generatedId = malformed.headers.get("x-request-id");
+  assert(generatedId !== null);
+  assertMatch(generatedId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assertEquals((await malformed.json()).requestId, generatedId);
+
+  const redirect = await app.request("http://test/redirect", {
+    headers: { "x-request-id": "trace-1" },
+  });
+  assertEquals(redirect.status, 302);
+  assertEquals(redirect.headers.get("location"), "http://test/elsewhere");
+  assertEquals(redirect.headers.get("x-request-id"), "trace-1");
+});
+
+Deno.test("app - request cleanup failures reach onError without replacing the response", async () => {
+  const errors: unknown[] = [];
+  const app = createApp({ config });
+  const connection = app.requestService(() => ({
+    close: () => {
+      throw new Error("close failed");
+    },
+  }));
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/cleanup",
+    handler: async ({ services, ok }) => {
+      await services.get(connection);
+      return ok({ ok: true });
+    },
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/cleanup");
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { ok: true });
+  assertEquals(errors.length, 1);
+  assert(errors[0] instanceof AggregateError);
+  assertEquals(errors[0].errors.map((error: Error) => error.message), ["close failed"]);
+});
+
+Deno.test("app - handler SyntaxErrors are internal server errors", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/syntax",
+    handler: () => JSON.parse("{"),
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/syntax");
+  assertEquals(response.status, 500);
+  assertEquals((await response.json()).code, "INTERNAL_ERROR");
+});
+
+Deno.test("app - raw Response results must use a declared status", async () => {
+  const app = createApp({ config });
+  const responses = { 200: Type.Object({ ok: Type.Boolean() }) };
+  app.route(defineRoute({
+    method: "get",
+    path: "/raw-undeclared",
+    responses,
+    handler: () => new Response("accepted", { status: 202 }),
+  }));
+  app.route(defineRoute({
+    method: "get",
+    path: "/raw-declared",
+    responses,
+    handler: () => Response.json({ ok: true }),
+  }));
+  await app.ready();
+
+  const undeclared = await app.request("http://test/raw-undeclared");
+  assertEquals(undeclared.status, 500);
+  assertEquals((await undeclared.json()).code, "RESPONSE_CONTRACT_ERROR");
+
+  const declared = await app.request("http://test/raw-declared");
+  assertEquals(declared.status, 200);
+  assertEquals(await declared.json(), { ok: true });
+});
+
+Deno.test("app - response bodies drop properties the schema does not declare", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/users/me",
+    responses: { 200: Type.Object({ id: Type.String(), name: Type.String() }) },
+    handler: ({ ok }) => ok({ id: "u1", name: "Ada", passwordHash: "secret" }),
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/users/me");
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { id: "u1", name: "Ada" });
+});
+
+Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration", async () => {
+  const app = createApp({ config });
+  assertThrows(
+    () =>
+      app.route(defineRoute({
+        method: "get",
+        path: "/search",
+        request: { body: Type.Object({ term: Type.String() }) },
+        handler: () => undefined,
+      })),
+    ConfigurationError,
+    "Route 'GET /search' cannot declare a request body.",
+  );
+  assertThrows(
+    () =>
+      app.route(defineRoute({
+        method: "get",
+        path: "/openapi.json",
+        handler: () => undefined,
+      })),
+    ConfigurationError,
+    "Route 'GET /openapi.json' conflicts with the OpenAPI document route.",
+  );
+
+  const withoutDocs = createApp({
+    config: { ...config, openapi: { ...config.openapi, enabled: false } },
+  });
+  withoutDocs.route(defineRoute({
+    method: "get",
+    path: "/openapi.json",
+    handler: ({ ok }) => ok({ custom: true }),
+  }));
+  await withoutDocs.ready();
+  assertEquals(await (await withoutDocs.request("http://test/openapi.json")).json(), {
+    custom: true,
+  });
+});
+
+Deno.test("app - rejects requests whose upstream deadline has passed", async () => {
+  let calls = 0;
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/late",
+    handler: ({ ok }) => {
+      calls += 1;
+      return ok({ ok: true });
+    },
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/late", { headers: { "x-hyapi-deadline": "1" } });
+  assertEquals(response.status, 504);
+  assertEquals(response.headers.get("content-type"), "application/problem+json");
+  assertEquals((await response.json()).code, "DEADLINE_EXCEEDED");
+  assertEquals(calls, 0);
+});
+
+Deno.test("app - aborts ctx.signal and answers 503 when requestTimeoutMs elapses", async () => {
+  const handlerFinished = Promise.withResolvers<boolean>();
+  const app = await createApplication({
+    config: defineConfig({ name: "t", requestTimeoutMs: 20 }),
+    modules: [defineModule({
+      name: "slow",
+      setup(module) {
+        module.route(defineRoute({
+          method: "get",
+          path: "/slow",
+          handler: async ({ signal, ok }) => {
+            const delay = Promise.withResolvers<void>();
+            setTimeout(delay.resolve, 100);
+            await delay.promise;
+            handlerFinished.resolve(signal.aborted);
+            return ok({ ok: true });
+          },
+        }));
+      },
+    })],
+  });
+
+  const response = await app.request("http://test/slow");
+  assertEquals(response.status, 503);
+  assertEquals(response.headers.get("content-type"), "application/problem+json");
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  assertEquals(await handlerFinished.promise, true);
+  await app.close();
+});
+
+Deno.test("createApplication rejects invalid request limits", async () => {
+  for (const requestTimeoutMs of [0, 2_147_483_648]) {
+    await assertRejects(
+      () =>
+        createApplication({ config: defineConfig({ name: "t", requestTimeoutMs }), modules: [] }),
+      ConfigurationError,
+      "requestTimeoutMs must be a positive integer of at most 2147483647.",
+    );
+  }
+  await assertRejects(
+    () =>
+      createApplication({ config: defineConfig({ name: "t", bodyLimitBytes: 0 }), modules: [] }),
+    ConfigurationError,
+    "bodyLimitBytes must be a positive integer.",
+  );
+});
+
+Deno.test("withHttpContext propagates the effective deadline and request id header", async () => {
+  let outgoing: Headers | undefined;
+  let deadline: number | undefined;
+  const app = createApp({ config: { ...config, requestIdHeader: "x-correlation-id" } });
+  app.route(defineRoute({
+    method: "get",
+    path: "/propagate",
+    handler: (context) => {
+      deadline = context.deadline;
+      outgoing = new Headers(withHttpContext(context, "svc").headers);
+      return context.ok({ ok: true });
+    },
+  }));
+  await app.ready();
+
+  await app.request("http://test/propagate", { headers: { "x-correlation-id": "corr-1" } });
+  assert(outgoing !== undefined);
+  assertEquals(outgoing.get("x-hyapi-deadline"), String(deadline));
+  assertEquals(outgoing.get("x-correlation-id"), "corr-1");
+});
+
+Deno.test("group hooks registered after a route still run for that route", async () => {
+  const log: string[] = [];
+  const app = createApp({ config });
+  app.group("/late", (group) => {
+    group.route(defineRoute({
+      method: "get",
+      path: "",
+      handler: ({ ok }) => {
+        log.push("handler");
+        return ok({ ok: true });
+      },
+    }));
+    group.addHook("onRequest", () => {
+      log.push("late:request");
+    });
+  });
+  await app.ready();
+
+  assertEquals((await app.request("http://test/late")).status, 200);
+  assertEquals(log, ["late:request", "handler"]);
+});
+
+Deno.test("app rejects hook, route, and auth provider registration after start", async () => {
+  const app = createApp({ config });
+  let captured: RouteGroupApi | undefined;
+  app.group("/group", (group) => {
+    captured = group;
+  });
+  await app.ready();
+
+  assertThrows(
+    () => app.addHook("onRequest", () => undefined),
+    ConfigurationError,
+    "Cannot register hooks after the application has started.",
+  );
+  assertThrows(
+    () => captured?.addHook("onRequest", () => undefined),
+    ConfigurationError,
+    "Cannot register hooks after the application has started.",
+  );
+  assertThrows(
+    () => app.route(defineRoute({ method: "get", path: "/late", handler: () => undefined })),
+    ConfigurationError,
+    "Cannot register routes after the application has started.",
+  );
+  assertThrows(
+    () => app.setAuthProvider({ authenticate: () => null }),
+    ConfigurationError,
+    "Cannot register an auth provider after the application has started.",
+  );
+});
+
+Deno.test("group onError and onResponse hooks run when a handler fails", async () => {
+  const log: string[] = [];
+  const app = createApp({ config });
+  app.addHook("onResponse", ({ response }) => {
+    log.push(`global:response:${response?.status}`);
+  });
+  app.group("/api", (api) => {
+    api.addHook("onError", () => {
+      log.push("api:error");
+    });
+    api.addHook("onResponse", ({ response }) => {
+      log.push(`api:response:${response?.status}`);
+    });
+    api.route(defineRoute({
+      method: "get",
+      path: "/fail",
+      handler: () => {
+        throw new Error("boom");
+      },
+    }));
+  });
+  await app.ready();
+
+  const response = await app.request("http://test/api/fail");
+  assertEquals(response.status, 500);
+  assertEquals(log, ["api:error", "api:response:500", "global:response:500"]);
+});
+
+Deno.test("group and route scopes merge as a union", async () => {
+  const app = createApp({ config });
+  app.setAuthProvider({
+    authenticate: (request) => {
+      const scopes = request.headers.get("x-scopes");
+      return scopes === null
+        ? null
+        : { subject: "user", scopes: scopes.split(",").filter(Boolean), claims: {} };
+    },
+  });
+  app.group("/users", { auth: { scopes: ["users:read"] } }, (users) => {
+    users.route(defineRoute({
+      method: "post",
+      path: "",
+      auth: { scopes: ["users:write"] },
+      handler: ({ created }) => created({ ok: true }),
+    }));
+  });
+  await app.ready();
+
+  const call = (scopes: string) =>
+    app.request("http://test/users", { method: "POST", headers: { "x-scopes": scopes } });
+  assertEquals((await call("users:read")).status, 403);
+  assertEquals((await call("users:write")).status, 403);
+  assertEquals((await call("users:read,users:write")).status, 201);
+});
+
+Deno.test("routes and groups cannot weaken inherited authentication", () => {
+  const app = createApp({ config });
+  app.group("/secure", { auth: { scopes: ["admin"] } }, (secure) => {
+    assertThrows(
+      () =>
+        secure.route(defineRoute({
+          method: "get",
+          path: "/public",
+          auth: false,
+          handler: () => undefined,
+        })),
+      ConfigurationError,
+      "Route 'GET /secure/public' cannot disable authentication inherited from its group.",
+    );
+    assertThrows(
+      () =>
+        secure.route(defineRoute({
+          method: "get",
+          path: "/optional",
+          auth: { required: false },
+          handler: () => undefined,
+        })),
+      ConfigurationError,
+      "Route 'GET /secure/optional' cannot make inherited required authentication optional.",
+    );
+    assertThrows(
+      () => secure.group("/open", { auth: false }, () => undefined),
+      ConfigurationError,
+      "Group '/secure/open' cannot disable authentication inherited from its group.",
+    );
+  });
+});
+
+Deno.test("singleton factories cannot resolve request-scoped services", async () => {
+  const app = createApp({ config });
+  const requestScoped = app.requestService(() => ({ id: 1 }));
+  const leaky = app.singletonService(async (services) => await services.get(requestScoped));
+  app.route(defineRoute({
+    method: "get",
+    path: "/leaky",
+    handler: async ({ services, ok }) => ok(await services.get(leaky)),
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/leaky");
+  assertEquals(response.status, 500);
+  assertEquals((await response.json()).code, "CONFIGURATION_ERROR");
+});
+
+Deno.test("failed singleton factories are retried on the next resolution", async () => {
+  let attempts = 0;
+  const app = createApp({ config });
+  const flaky = app.singletonService(() => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("first attempt fails");
+    return { attempts };
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/flaky",
+    handler: async ({ services, ok }) => ok(await services.get(flaky)),
+  }));
+  await app.ready();
+
+  const failed = await app.request("http://test/flaky");
+  assertEquals(failed.status, 500);
+  await failed.body?.cancel();
+  const recovered = await app.request("http://test/flaky");
+  assertEquals(recovered.status, 200);
+  assertEquals(await recovered.json(), { attempts: 2 });
+  await app.close();
+});
+
+Deno.test("module.use rejects ports missing from requires", async () => {
+  const port = definePort<{ value: string }>("undeclared.port");
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        providers: [providePort(port, { value: "x" })],
+        modules: [defineModule({
+          name: "sneaky",
+          setup(module) {
+            module.use(port);
+          },
+        })],
+      }),
+    ConfigurationError,
+    "Module 'sneaky' uses port 'undeclared.port' without declaring it in requires.",
+  );
+});
+
+Deno.test("createApplication rolls back providers and plugins when startup fails", async () => {
+  const events: string[] = [];
+  const failure = new Error("module start failed");
+  const error = await assertRejects(() =>
+    createApplication({
+      config,
+      providers: [providePort(definePort("rollback.port"), {}, {
+        connect: () => {
+          events.push("provider:connect");
+        },
+        close: () => {
+          events.push("provider:close");
+        },
+      })],
+      plugins: [definePlugin({
+        name: "tracker",
+        setup: () => {
+          events.push("plugin:setup");
+        },
+        onClose: () => {
+          events.push("plugin:close");
+        },
+      })],
+      modules: [defineModule({
+        name: "broken",
+        setup: () => undefined,
+        onStart: () => {
+          throw failure;
+        },
+        onClose: () => {
+          events.push("module:close");
+        },
+      })],
+    })
+  );
+  assertStrictEquals(error, failure);
+  assertEquals(events, [
+    "plugin:setup",
+    "provider:connect",
+    "module:close",
+    "plugin:close",
+    "provider:close",
+  ]);
+});
+
+Deno.test("providers close in reverse registration order", async () => {
+  const events: string[] = [];
+  const closing = (name: string) => ({
+    close: () => {
+      events.push(name);
+    },
+  });
+  const app = await createApplication({
+    config,
+    modules: [],
+    providers: [
+      providePort(definePort("a"), {}, closing("a")),
+      providePort(definePort("b"), {}, closing("b")),
+      providePort(definePort("c"), {}, closing("c")),
+    ],
+  });
+  await app.close();
+  assertEquals(events, ["c", "b", "a"]);
+});
+
+Deno.test("health aggregates degraded providers and rejects invalid reports", async () => {
+  const app = await createApplication({
+    config,
+    modules: [],
+    providers: [
+      providePort(definePort("ok"), {}, { health: () => ({ status: "healthy", provider: "ok" }) }),
+      providePort(definePort("slow"), {}, {
+        health: () => ({ status: "degraded", provider: "slow", detail: "lagging" }),
+      }),
+      providePort(definePort("plain"), {}),
+    ],
+  });
+  assertEquals(await app.health(), {
+    status: "degraded",
+    providers: [
+      { status: "healthy", provider: "ok" },
+      { status: "degraded", provider: "slow", detail: "lagging" },
+      { status: "healthy", provider: "plain" },
+    ],
+  });
+  await app.close();
+
+  const invalid = await createApplication({
+    config,
+    modules: [],
+    providers: [providePort(definePort("bogus"), {}, {
+      health: () => ({ status: "fine", provider: "bogus" }) as unknown as ProviderHealth,
+    })],
+  });
+  assertEquals(await invalid.health(), {
+    status: "unhealthy",
+    providers: [{
+      status: "unhealthy",
+      provider: "bogus",
+      detail: "Health check returned an invalid report.",
+    }],
+  });
+  await invalid.close();
+});
+
+Deno.test("health reports providers whose checks time out as unhealthy", async () => {
+  const app = await createApplication({
+    config,
+    modules: [],
+    providers: [providePort(definePort("hung"), {}, {
+      health: () => Promise.withResolvers<ProviderHealth>().promise,
+    })],
+  });
+  assertEquals(await app.health(), {
+    status: "unhealthy",
+    providers: [{
+      status: "unhealthy",
+      provider: "hung",
+      detail: "Health check timed out after 5000 ms.",
+    }],
+  });
+  await app.close();
+});
+
+Deno.test("plugins receive only the platform API", async () => {
+  let platform: unknown;
+  const app = await createApplication({
+    config,
+    modules: [],
+    plugins: [definePlugin({
+      name: "inspect",
+      setup: (value) => {
+        platform = value;
+      },
+    })],
+  });
+  assert(typeof platform === "object" && platform !== null);
+  assertEquals("route" in platform, false);
+  assertEquals("http" in platform, false);
+  assertEquals(Object.keys(platform).sort(), ["addHook", "setAuthProvider"]);
+  assert(Object.isFrozen(platform));
+  await app.close();
 });

@@ -50,36 +50,18 @@ export function buildOpenApiDocument(
       (route.request?.params || route.request?.query || route.request?.body ||
         route.request?.headers)
     ) {
-      responses["400"] = {
-        description: "Bad request / validation failure",
-        content: {
-          "application/problem+json": {
-            schema: { $ref: "#/components/schemas/ProblemDetails" },
-          },
-        },
-      };
+      responses["400"] = problemResponse("Bad request / validation failure");
+    }
+
+    if (route.request?.body) {
+      responses["413"] ??= problemResponse("Payload too large");
+      responses["415"] ??= problemResponse("Unsupported media type");
     }
 
     if (isProtectedAuth(route.auth)) {
-      if (route.auth.required !== false && !responses["401"]) {
-        responses["401"] = {
-          description: "Authentication required or invalid token",
-          content: {
-            "application/problem+json": {
-              schema: { $ref: "#/components/schemas/ProblemDetails" },
-            },
-          },
-        };
-      }
-      if (route.auth.scopes && route.auth.scopes.length > 0 && !responses["403"]) {
-        responses["403"] = {
-          description: "Forbidden / insufficient scope",
-          content: {
-            "application/problem+json": {
-              schema: { $ref: "#/components/schemas/ProblemDetails" },
-            },
-          },
-        };
+      responses["401"] ??= problemResponse("Authentication required or invalid token");
+      if (route.auth.scopes && route.auth.scopes.length > 0) {
+        responses["403"] ??= problemResponse("Forbidden / insufficient scope");
       }
     }
 
@@ -177,6 +159,17 @@ export function buildOpenApiDocument(
             details: {},
           },
         },
+      },
+    },
+  };
+}
+
+function problemResponse(description: string): Record<string, unknown> {
+  return {
+    description,
+    content: {
+      "application/problem+json": {
+        schema: { $ref: "#/components/schemas/ProblemDetails" },
       },
     },
   };

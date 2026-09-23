@@ -11,6 +11,7 @@ export interface JwtOptions {
 interface JwtHeader {
   alg?: unknown;
   typ?: unknown;
+  crit?: unknown;
 }
 
 interface JwtClaims {
@@ -31,8 +32,14 @@ export class JwtAuthProvider implements AuthProvider {
   ) {}
 
   static async create(options: JwtOptions): Promise<JwtAuthProvider> {
-    if (options.secret.length < 32) {
-      throw new ConfigurationError("JWT secret must contain at least 32 characters.");
+    if (new TextEncoder().encode(options.secret).length < 32) {
+      throw new ConfigurationError("JWT secret must contain at least 32 bytes.");
+    }
+    if (
+      options.clockSkewSeconds !== undefined &&
+      !(Number.isFinite(options.clockSkewSeconds) && options.clockSkewSeconds >= 0)
+    ) {
+      throw new ConfigurationError("JWT clockSkewSeconds must be a non-negative number.");
     }
     const key = await crypto.subtle.importKey(
       "raw",
@@ -58,17 +65,25 @@ export class JwtAuthProvider implements AuthProvider {
       throw new UnauthorizedError("The bearer token is malformed.");
     }
 
-    let headerValue: JwtHeader;
-    let claims: JwtClaims;
+    let headerValue: unknown;
+    let claimsValue: unknown;
     let signatureBytes: Uint8Array;
     try {
-      headerValue = JSON.parse(decodeBase64Url(encodedHeader)) as JwtHeader;
-      claims = JSON.parse(decodeBase64Url(encodedClaims)) as JwtClaims;
+      headerValue = JSON.parse(decodeBase64Url(encodedHeader));
+      claimsValue = JSON.parse(decodeBase64Url(encodedClaims));
       signatureBytes = decodeBytes(encodedSignature);
     } catch {
       throw new UnauthorizedError("The bearer token is malformed.");
     }
-    if (headerValue.alg !== "HS256") throw new UnauthorizedError("Only HS256 tokens are accepted.");
+    if (!isPlainObject(headerValue) || !isPlainObject(claimsValue)) {
+      throw new UnauthorizedError("The bearer token is malformed.");
+    }
+    const jwtHeader: JwtHeader = headerValue;
+    const claims: JwtClaims = claimsValue;
+    if (jwtHeader.alg !== "HS256") throw new UnauthorizedError("Only HS256 tokens are accepted.");
+    if (jwtHeader.crit !== undefined) {
+      throw new UnauthorizedError("The bearer token uses unsupported critical header parameters.");
+    }
 
     const valid = await crypto.subtle.verify(
       "HMAC",
@@ -80,8 +95,11 @@ export class JwtAuthProvider implements AuthProvider {
 
     const now = Math.floor(Date.now() / 1000);
     const skew = this.options.clockSkewSeconds ?? 5;
-    if (typeof claims.exp !== "number" || claims.exp < now - skew) {
+    if (typeof claims.exp !== "number" || now >= claims.exp + skew) {
       throw new UnauthorizedError("The bearer token has expired or has no expiration.");
+    }
+    if (claims.nbf !== undefined && typeof claims.nbf !== "number") {
+      throw new UnauthorizedError("The bearer token is malformed.");
     }
     if (typeof claims.nbf === "number" && claims.nbf > now + skew) {
       throw new UnauthorizedError("The bearer token is not active yet.");
@@ -119,6 +137,10 @@ export function jwtPlugin(options: JwtOptions): Plugin {
 function audienceIncludes(audience: unknown, expected: string): boolean {
   if (typeof audience === "string") return audience === expected;
   return Array.isArray(audience) && audience.includes(expected);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function scopesFromClaims(claims: JwtClaims): readonly string[] {

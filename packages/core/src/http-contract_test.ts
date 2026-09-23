@@ -2,6 +2,7 @@ import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import Type from "typebox";
 import {
   type AppConfig,
+  ConfigurationError,
   createApplication,
   createHttpContractClient,
   defineHttpContract,
@@ -22,7 +23,7 @@ const config: AppConfig = {
 
 const catalogContract = defineHttpContract({
   name: "catalog",
-  version: 1,
+  version: { major: 1, minor: 0 },
   routes: {
     getItem: {
       method: "get",
@@ -30,6 +31,19 @@ const catalogContract = defineHttpContract({
       request: { params: Type.Object({ id: Type.String() }) },
       responses: { 200: Type.Object({ id: Type.String(), name: Type.String() }) },
       metadata: { summary: "Get catalog item" },
+    },
+  },
+});
+
+const orderContract = defineHttpContract({
+  name: "orders",
+  version: { major: 1, minor: 0 },
+  routes: {
+    createOrder: {
+      method: "post",
+      path: "/v1/orders",
+      request: { body: Type.Object({ sku: Type.String() }) },
+      responses: { 201: Type.Object({ id: Type.String() }) },
     },
   },
 });
@@ -105,7 +119,7 @@ Deno.test("HTTP contract clients time out and retry only idempotent operations",
   const retryingClient = createHttpContractClient(catalogContract, {
     baseUrl: "http://test",
     timeoutMs: 100,
-    retry: { maxAttempts: 2 },
+    resilience: { retry: { maxAttempts: 2, initialDelayMs: 0 } },
     fetch: async () => {
       attempts += 1;
       return attempts === 1
@@ -147,7 +161,7 @@ Deno.test("HTTP clients honor propagated deadlines and stop retrying past the bu
   const client = createHttpContractClient(catalogContract, {
     baseUrl: "http://test",
     timeoutMs: 100,
-    retry: { maxAttempts: 3, delayMs: 100 },
+    resilience: { retry: { maxAttempts: 3, initialDelayMs: 100 } },
     fetch: async () => {
       calls += 1;
       return Response.json({ message: "temporary" }, { status: 503 });
@@ -162,7 +176,7 @@ Deno.test("HTTP clients honor propagated deadlines and stop retrying past the bu
   await assertRejects(
     () => client.getItem({ params: { id: "keyboard" } }, init),
     HttpContractClientError,
-    "timeout",
+    "deadline",
   );
   assertEquals(calls, 1);
 });
@@ -186,7 +200,7 @@ Deno.test("HTTP clients reject an expired propagated deadline before fetching", 
   await assertRejects(
     () => client.getItem({ params: { id: "keyboard" } }, init),
     HttpContractClientError,
-    "timeout",
+    "deadline",
   );
   assertEquals(calls, 0);
 });
@@ -197,10 +211,10 @@ Deno.test("HTTP clients reject invalid retry budgets at construction", () => {
       createHttpContractClient(catalogContract, {
         baseUrl: "http://test",
         timeoutMs: 100,
-        retry: { maxAttempts: 2, delayMs: -1 },
+        resilience: { retry: { maxAttempts: 2, initialDelayMs: -1 } },
       }),
     Error,
-    "delayMs",
+    "initialDelayMs",
   );
 });
 
@@ -248,4 +262,151 @@ Deno.test("HTTP resilience retries transient failures for safe methods", async (
     body: { id: "keyboard", name: "Keyboard" },
   });
   assertEquals(calls, 2);
+});
+
+Deno.test("HTTP contract clients send the declared method and keep the base URL path", async () => {
+  const requests: Array<{ url: string; method: string | undefined; body: unknown }> = [];
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({ url: String(input), method: init?.method, body: init?.body });
+    return String(input).endsWith("/v1/orders")
+      ? Response.json({ id: "order-1" }, { status: 201 })
+      : Response.json({ id: "k", name: "Keyboard" });
+  };
+  const orders = createHttpContractClient(orderContract, {
+    baseUrl: "http://gw/orders-svc",
+    timeoutMs: 100,
+    fetch,
+  });
+  const catalog = createHttpContractClient(catalogContract, {
+    baseUrl: "http://gw/users-svc/",
+    timeoutMs: 100,
+    fetch,
+  });
+
+  assertEquals(await orders.createOrder({ body: { sku: "kb" } }), {
+    status: 201,
+    body: { id: "order-1" },
+  });
+  await catalog.getItem({ params: { id: "k" } });
+  assertEquals(requests, [
+    { url: "http://gw/orders-svc/v1/orders", method: "POST", body: '{"sku":"kb"}' },
+    { url: "http://gw/users-svc/v1/items/k", method: "GET", body: undefined },
+  ]);
+});
+
+Deno.test("HTTP retries never repeat unsafe requests without an idempotency key", async () => {
+  let calls = 0;
+  const client = createHttpContractClient(orderContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    resilience: { retry: { maxAttempts: 3, initialDelayMs: 0, retryOn: () => true } },
+    fetch: async () => {
+      calls += 1;
+      return calls === 1
+        ? Response.json({ message: "temporary" }, { status: 503 })
+        : Response.json({ id: "order-1" }, { status: 201 });
+    },
+  });
+
+  await assertRejects(
+    () => client.createOrder({ body: { sku: "kb" } }),
+    HttpContractClientError,
+    "server",
+  );
+  assertEquals(calls, 1);
+
+  calls = 0;
+  assertEquals(
+    await client.createOrder({ body: { sku: "kb" } }, {
+      headers: { "idempotency-key": "order-kb" },
+    }),
+    { status: 201, body: { id: "order-1" } },
+  );
+  assertEquals(calls, 2);
+});
+
+Deno.test("HTTP clients report caller cancellation as aborted without fetching", async () => {
+  let calls = 0;
+  const client = createHttpContractClient(catalogContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    resilience: { retry: { maxAttempts: 3, initialDelayMs: 0 } },
+    fetch: async () => {
+      calls += 1;
+      return Response.json({ id: "k", name: "Keyboard" });
+    },
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  const error = await assertRejects(
+    () => client.getItem({ params: { id: "k" } }, { signal: controller.signal }),
+    HttpContractClientError,
+  );
+  assertEquals(error.reason, "aborted");
+  assertEquals(calls, 0);
+});
+
+Deno.test("HTTP deadline failures do not open the circuit breaker", async () => {
+  let calls = 0;
+  const client = createHttpContractClient(catalogContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    resilience: { circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 1000 } },
+    fetch: async () => {
+      calls += 1;
+      return Response.json({ id: "k", name: "Keyboard" });
+    },
+  });
+  const expired = { headers: { "x-hyapi-deadline": String(Date.now() - 1) } };
+
+  for (let call = 0; call < 3; call += 1) {
+    await assertRejects(
+      () => client.getItem({ params: { id: "k" } }, expired),
+      HttpContractClientError,
+      "deadline",
+    );
+  }
+  assertEquals(await client.getItem({ params: { id: "k" } }), {
+    status: 200,
+    body: { id: "k", name: "Keyboard" },
+  });
+  assertEquals(calls, 1);
+});
+
+Deno.test("HTTP clients forward the earliest effective deadline downstream", async () => {
+  let sentHeaders = new Headers();
+  const deadline = Date.now() + 1_000;
+  const client = createHttpContractClient(catalogContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    deadline,
+    fetch: async (_input, init) => {
+      sentHeaders = new Headers(init?.headers);
+      return Response.json({ id: "k", name: "Keyboard" });
+    },
+  });
+
+  await client.getItem({ params: { id: "k" } }, {
+    headers: { "x-hyapi-deadline": String(Date.now() + 60_000) },
+  });
+  assertEquals(sentHeaders.get("x-hyapi-deadline"), String(deadline));
+});
+
+Deno.test("HTTP contract definitions reject invalid versions and relative paths", () => {
+  assertThrows(
+    () => defineHttpContract({ name: "catalog", version: { major: 1, minor: 1.5 }, routes: {} }),
+    ConfigurationError,
+    "Invalid contract version",
+  );
+  assertThrows(
+    () =>
+      defineHttpContract({
+        name: "catalog",
+        version: { major: 1, minor: 0 },
+        routes: { getItem: { ...catalogContract.routes.getItem, path: "v1/items/{id}" } },
+      }),
+    ConfigurationError,
+    "path must start with '/'",
+  );
 });

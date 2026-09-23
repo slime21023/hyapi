@@ -1,6 +1,6 @@
 # RFC 0001: Function-first application modules
 
-- Status: Proposed
+- Status: Accepted (implemented in v0.2; revised in v0.7 and v1.0.0-rc.2)
 - Target: v0.2.0
 - Related issue: [#4](https://github.com/slime21023/hyapi/issues/4)
 
@@ -35,7 +35,9 @@ export const usersModule = defineModule({
   name: "users",
   setup(module) {
     const repository = module.singleton(() => new UserRepository());
-    const service = module.request(() => new UserService(repository()));
+    const service = module.request(async (services) =>
+      new UserService(await services.get(repository))
+    );
 
     module.group("/v1/users", { tags: ["users"] }, (users) => {
       users.route(listUsersRoute(service));
@@ -44,14 +46,18 @@ export const usersModule = defineModule({
 });
 ```
 
-Each scoped-service registration returns a typed resolver `() => T`. This keeps ordinary dependency
-composition visible in code and avoids introducing service names or tokens for module-internal
-services. Calling a request resolver outside a request context is a configuration error.
+Each scoped-service registration returns a typed `ServiceReference<T>`. Factories and route handlers
+resolve a reference with `await services.get(reference)`, which keeps ordinary dependency
+composition visible in code and avoids introducing string tokens for module-internal services.
+Resolving a request-scoped service outside a request, or from a singleton factory, is a
+configuration error.
 
-`PluginDefinition` contains a unique `name`, optional plugin dependencies, and `setup(platform)`.
-The platform API may register lifecycle hooks, an auth provider, configuration validators, and
-platform-scoped services. It does not expose an underlying Hono object and does not represent a
-business module.
+`PluginDefinition` contains a unique `name`, optional plugin dependencies, and `setup(platform)`,
+with optional `onStart(platform)` and `onClose(platform)`. The `PlatformApi` passed to each of them
+provides exactly two operations: `addHook(point, hook)` for global lifecycle hooks and
+`setAuthProvider(provider)`. Both are available only while the application is being configured. The
+platform API does not expose routes, the application instance, or an underlying Hono object, and
+does not represent a business module.
 
 ## Service scope semantics
 
@@ -61,9 +67,10 @@ business module.
 | `request`   | One lazy instance per request       | request dispatch through response completion | close in reverse creation order after response hooks run    |
 | `transient` | New instance on every resolver call | caller-owned                                 | HyAPI performs no automatic cleanup                         |
 
-A singleton cannot depend on a request resolver. The application rejects this scope violation when
+A singleton cannot depend on a request service. The application rejects this scope violation when
 the singleton factory resolves the request service. Factories can be synchronous or asynchronous;
-concurrent resolution of the same singleton or request service shares one initialization result.
+concurrent resolution of the same singleton or request service shares one initialization result. A
+failed initialization is not cached: the next resolution runs the factory again.
 
 Automatic cleanup applies to values implementing `close(): void | Promise<void>`. Cleanup failures
 are collected, logged through the platform error hook, and do not prevent remaining resources from

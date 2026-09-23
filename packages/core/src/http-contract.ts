@@ -1,8 +1,19 @@
+import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
+import { ConfigurationError } from "./errors.ts";
+import {
+  computeRetryDelay,
+  createGuard,
+  MAX_TIMER_MS,
+  ResilienceError,
+  type ResiliencePolicy,
+  type RetryPolicy,
+  validateRetryPolicy,
+} from "./resilience.ts";
 import type {
+  ContractVersion,
   HttpMethod,
   InferSchema,
   MaybePromise,
-  PortVersion,
   RequestContext,
   ResponseSchemas,
   RouteDefinition,
@@ -12,7 +23,7 @@ import type {
   Schema,
 } from "./types.ts";
 import { SchemaValidator } from "./validation.ts";
-import { type ResiliencePolicy, withResilience } from "./resilience.ts";
+import { validateContractVersion } from "./version.ts";
 
 export interface HttpContractRoute<
   TParams extends Schema | undefined = Schema | undefined,
@@ -40,7 +51,7 @@ export type HttpContractRoutes = Readonly<Record<string, AnyHttpContractRoute>>;
 
 export interface HttpContract<TRoutes extends HttpContractRoutes = HttpContractRoutes> {
   readonly name: string;
-  readonly version: PortVersion;
+  readonly version: ContractVersion;
   readonly routes: TRoutes;
 }
 
@@ -84,23 +95,15 @@ export type HttpContractClient<TRoutes extends HttpContractRoutes> = {
 export interface HttpContractClientOptions {
   readonly baseUrl: string;
   readonly timeoutMs: number;
-  readonly retry?: HttpRetryOptions;
   readonly resilience?: ResiliencePolicy;
   readonly deadline?: number;
   readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => MaybePromise<Response>;
 }
 
-export interface HttpRetryOptions {
-  readonly maxAttempts: number;
-  readonly delayMs?: number;
-  readonly backoff?: "exponential";
-  readonly maxDelayMs?: number;
-  readonly jitter?: boolean;
-}
-
 export interface HttpPropagationSource {
   readonly request: Request;
   readonly requestId: string;
+  readonly requestIdHeader?: string;
   readonly deadline?: number;
 }
 
@@ -123,12 +126,19 @@ interface HttpInvocation {
 }
 
 type HttpInvocationResult = HttpContractResponse<ResponseSchemas>;
-type ResilienceGuard = (invocation: HttpInvocation) => Promise<HttpInvocationResult>;
+type HttpAttempt = (invocation: HttpInvocation) => Promise<HttpInvocationResult>;
 
 export class HttpContractClientError extends Error {
   constructor(
     readonly operation: string,
-    readonly reason: "network" | "timeout" | "client" | "server" | "contract",
+    readonly reason:
+      | "network"
+      | "timeout"
+      | "deadline"
+      | "aborted"
+      | "client"
+      | "server"
+      | "contract",
     readonly status?: number,
     options?: ErrorOptions,
   ) {
@@ -140,6 +150,14 @@ export class HttpContractClientError extends Error {
 export function defineHttpContract<TRoutes extends HttpContractRoutes>(
   contract: HttpContract<TRoutes>,
 ): HttpContract<TRoutes> {
+  validateContractVersion(contract.version);
+  for (const [key, route] of Object.entries(contract.routes)) {
+    if (!route.path.startsWith("/")) {
+      throw new ConfigurationError(
+        `HTTP contract '${contract.name}' route '${key}' path must start with '/'.`,
+      );
+    }
+  }
   return contract;
 }
 
@@ -155,6 +173,11 @@ export function registerHttpContract<TRoutes extends HttpContractRoutes>(
     ][]
   ) {
     const handler = handlers[name];
+    if (typeof handler !== "function") {
+      throw new ConfigurationError(
+        `HTTP contract '${contract.name}' has no handler for route '${name}'.`,
+      );
+    }
     const metadata = {
       ...contractRoute.metadata,
       operationId: contractRoute.metadata?.operationId ?? name,
@@ -171,37 +194,39 @@ export function createHttpContractClient<TRoutes extends HttpContractRoutes>(
   contract: HttpContract<TRoutes>,
   options: HttpContractClientOptions,
 ): HttpContractClient<TRoutes> {
-  if (!Number.isFinite(options.timeoutMs) || options.timeoutMs < 1) {
-    throw new Error("HTTP contract clients require a positive timeoutMs.");
-  }
-  if (options.deadline !== undefined && !Number.isFinite(options.deadline)) {
-    throw new Error("HTTP contract client deadline must be finite.");
-  }
-  const maxAttempts = options.retry?.maxAttempts ?? 1;
-  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
-    throw new Error("HTTP retry maxAttempts must be a positive integer.");
+  if (
+    !Number.isFinite(options.timeoutMs) || options.timeoutMs < 1 ||
+    options.timeoutMs > MAX_TIMER_MS
+  ) {
+    throw new Error("HTTP contract clients require a positive timeoutMs of at most 2147483647.");
   }
   if (
-    options.retry?.delayMs !== undefined &&
-    (!Number.isFinite(options.retry.delayMs) || options.retry.delayMs < 0)
+    options.deadline !== undefined && (!Number.isFinite(options.deadline) || options.deadline < 0)
   ) {
-    throw new Error("HTTP retry delayMs must be non-negative.");
+    throw new Error(
+      "HTTP contract client deadline must be a finite, non-negative epoch millisecond value.",
+    );
   }
-  if (
-    options.retry?.maxDelayMs !== undefined &&
-    (!Number.isFinite(options.retry.maxDelayMs) || options.retry.maxDelayMs < 0)
-  ) {
-    throw new Error("HTTP retry maxDelayMs must be non-negative.");
-  }
+  const resilience = options.resilience;
+  const retryPolicy = resilience?.retry;
+  validateRetryPolicy(retryPolicy);
   const validator = new SchemaValidator();
-  const resilienceGuard = options.resilience ? createResilienceGuard(options) : undefined;
+  const attempt: HttpAttempt = resilience
+    ? createGuard((signal, invocation: HttpInvocation) => invokeOnce(invocation, signal), {
+      ...(resilience.timeoutMs === undefined ? {} : { timeoutMs: resilience.timeoutMs }),
+      ...(resilience.circuitBreaker === undefined
+        ? {}
+        : { circuitBreaker: resilience.circuitBreaker }),
+      ...(resilience.bulkhead === undefined ? {} : { bulkhead: resilience.bulkhead }),
+    })
+    : (invocation) => invokeOnce(invocation);
   const invoke = async (
     name: string,
     route: AnyHttpContractRoute,
     request: HttpClientRequest,
     init?: RequestInit,
-  ): Promise<HttpContractResponse<ResponseSchemas>> => {
-    const url = new URL(interpolatePath(route.path, request.params), options.baseUrl);
+  ): Promise<HttpInvocationResult> => {
+    const url = resolveContractUrl(options.baseUrl, interpolatePath(route.path, request.params));
     appendQuery(url, request.query);
     const headers = new Headers(init?.headers);
     const body = request.body === undefined ? undefined : JSON.stringify(request.body);
@@ -210,9 +235,10 @@ export function createHttpContractClient<TRoutes extends HttpContractRoutes>(
     }
     const deadline = resolveDeadline(
       options.deadline,
-      parseDeadline(headers.get("x-hyapi-deadline")),
+      parseDeadlineHeader(headers.get(DEADLINE_HEADER)),
     );
-    const invocation: HttpInvocation = {
+    if (deadline !== undefined) headers.set(DEADLINE_HEADER, String(Math.floor(deadline)));
+    return await runClientRetry(attempt, {
       name,
       route,
       url,
@@ -222,44 +248,7 @@ export function createHttpContractClient<TRoutes extends HttpContractRoutes>(
       options,
       validator,
       deadline,
-    };
-    if (resilienceGuard) {
-      return await runResilienceRetry(resilienceGuard, invocation, options.resilience?.retry);
-    }
-    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      try {
-        return await invokeOnce(
-          name,
-          route,
-          url,
-          headers,
-          body,
-          init,
-          options,
-          validator,
-          deadline,
-        );
-      } catch (error) {
-        if (deadline !== undefined && Date.now() >= deadline) {
-          throw new HttpContractClientError(name, "timeout", undefined, { cause: error });
-        }
-        if (!isRetryable(error, route.method, headers) || attempt === maxAttempts) throw error;
-        const baseDelay = options.retry?.backoff === "exponential"
-          ? (options.retry?.delayMs ?? 0) * 2 ** (attempt - 1)
-          : options.retry?.delayMs ?? 0;
-        const cappedDelay = Math.min(baseDelay, options.retry?.maxDelayMs ?? baseDelay);
-        const delayMs = options.retry?.jitter
-          ? Math.floor(Math.random() * (cappedDelay + 1))
-          : cappedDelay;
-        if (delayMs > 0) {
-          if (deadline !== undefined && Date.now() + delayMs >= deadline) {
-            throw new HttpContractClientError(name, "timeout", undefined, { cause: error });
-          }
-          await delay(delayMs);
-        }
-      }
-    }
-    throw new Error("HTTP retry loop ended unexpectedly.");
+    }, retryPolicy);
   };
 
   return Object.fromEntries(
@@ -277,123 +266,89 @@ export function withHttpContext(
 ): RequestInit {
   if (!serviceName.trim()) throw new Error("HTTP serviceName must not be empty.");
   const headers = new Headers(init.headers);
-  headers.set("x-request-id", source.requestId);
+  headers.set(source.requestIdHeader ?? "x-request-id", source.requestId);
   const traceparent = source.request.headers.get("traceparent");
   if (traceparent) headers.set("traceparent", traceparent);
   headers.set("x-hyapi-service", serviceName);
   if (source.deadline !== undefined && Number.isFinite(source.deadline)) {
-    headers.set("x-hyapi-deadline", String(source.deadline));
+    headers.set(DEADLINE_HEADER, String(Math.floor(source.deadline)));
   }
   return { ...init, headers };
 }
 
-function createResilienceGuard(
-  options: HttpContractClientOptions,
-): ResilienceGuard {
-  const resilience = options.resilience!;
-  validateResilienceRetryPolicy(resilience.retry);
-  const guardPolicy: ResiliencePolicy = {
-    ...(resilience.timeoutMs === undefined ? {} : { timeoutMs: resilience.timeoutMs }),
-    ...(resilience.circuitBreaker === undefined
-      ? {}
-      : { circuitBreaker: resilience.circuitBreaker }),
-    ...(resilience.bulkhead === undefined ? {} : { bulkhead: resilience.bulkhead }),
-  };
-  return withResilience(
-    (invocation: HttpInvocation) =>
-      invokeOnce(
-        invocation.name,
-        invocation.route,
-        invocation.url,
-        invocation.headers,
-        invocation.body,
-        invocation.init,
-        invocation.options,
-        invocation.validator,
-        invocation.deadline,
-      ),
-    guardPolicy,
-  );
+export function resolveContractUrl(baseUrl: string, path: string): URL {
+  const url = new URL(baseUrl);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${path}`;
+  url.search = "";
+  url.hash = "";
+  return url;
 }
 
-async function runResilienceRetry(
-  operation: ResilienceGuard,
+async function runClientRetry(
+  attempt: HttpAttempt,
   invocation: HttpInvocation,
-  policy: ResiliencePolicy["retry"] | undefined,
+  retryPolicy: RetryPolicy | undefined,
 ): Promise<HttpInvocationResult> {
-  if (!policy) return await operation(invocation);
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= policy.maxAttempts; attempt += 1) {
+  for (let attemptNumber = 1;; attemptNumber += 1) {
+    if (invocation.init?.signal?.aborted) {
+      throw new HttpContractClientError(invocation.name, "aborted");
+    }
     try {
-      return await operation(invocation);
+      return await attempt(invocation);
     } catch (error) {
-      lastError = error;
-      if (invocation.deadline !== undefined && Date.now() >= invocation.deadline) {
-        throw new HttpContractClientError(invocation.name, "timeout", undefined, { cause: error });
+      if (
+        !retryPolicy || attemptNumber >= retryPolicy.maxAttempts ||
+        !shouldRetry(error, invocation, retryPolicy)
+      ) {
+        throw error;
       }
-      if (attempt === policy.maxAttempts) throw error;
-      const retryOn = policy.retryOn?.(error) ??
-        isRetryable(error, invocation.route.method, invocation.headers);
-      if (!retryOn) throw error;
-      const baseDelay = policy.backoff === "exponential"
-        ? policy.initialDelayMs * 2 ** (attempt - 1)
-        : policy.initialDelayMs;
-      const cappedDelay = Math.min(baseDelay, policy.maxDelayMs ?? baseDelay);
-      const delayMs = policy.jitter ? Math.floor(Math.random() * (cappedDelay + 1)) : cappedDelay;
-      if (delayMs > 0) {
-        if (
-          invocation.deadline !== undefined &&
-          Date.now() + delayMs >= invocation.deadline
-        ) {
-          throw new HttpContractClientError(invocation.name, "timeout", undefined, {
-            cause: error,
-          });
-        }
-        await delay(delayMs);
+      const delayMs = computeRetryDelay(retryPolicy, attemptNumber);
+      if (invocation.deadline !== undefined && Date.now() + delayMs >= invocation.deadline) {
+        throw new HttpContractClientError(invocation.name, "deadline", undefined, { cause: error });
       }
+      if (delayMs > 0) await delay(delayMs);
     }
   }
-  throw lastError;
 }
 
-function validateResilienceRetryPolicy(policy: ResiliencePolicy["retry"] | undefined): void {
-  if (!policy) return;
-  if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1) {
-    throw new Error("Resilience retry maxAttempts must be a positive integer.");
-  }
-  if (!Number.isFinite(policy.initialDelayMs) || policy.initialDelayMs < 0) {
-    throw new Error("Resilience retry initialDelayMs must be non-negative.");
-  }
-  if (
-    policy.maxDelayMs !== undefined &&
-    (!Number.isFinite(policy.maxDelayMs) || policy.maxDelayMs < 0)
-  ) {
-    throw new Error("Resilience retry maxDelayMs must be non-negative.");
-  }
+function shouldRetry(error: unknown, invocation: HttpInvocation, policy: RetryPolicy): boolean {
+  if (!isIdempotentRequest(invocation.route.method, invocation.headers)) return false;
+  return policy.retryOn?.(error) ?? isTransientFailure(error);
+}
+
+function isIdempotentRequest(method: HttpMethod, headers: Headers): boolean {
+  return method === "get" || method === "put" || method === "delete" || method === "options" ||
+    headers.has("idempotency-key");
+}
+
+function isTransientFailure(error: unknown): boolean {
+  if (error instanceof ResilienceError) return error.reason === "timeout";
+  if (!(error instanceof HttpContractClientError)) return false;
+  return error.reason === "network" || error.reason === "timeout" || error.reason === "server" ||
+    (error.reason === "client" && (error.status === 408 || error.status === 429));
 }
 
 async function invokeOnce(
-  name: string,
-  route: AnyHttpContractRoute,
-  url: URL,
-  headers: Headers,
-  body: string | undefined,
-  init: RequestInit | undefined,
-  options: HttpContractClientOptions,
-  validator: SchemaValidator,
-  deadline: number | undefined,
-): Promise<HttpContractResponse<ResponseSchemas>> {
+  invocation: HttpInvocation,
+  guardSignal?: AbortSignal,
+): Promise<HttpInvocationResult> {
+  const { name, route, url, headers, body, init, options, validator, deadline } = invocation;
+  const now = Date.now();
   const remaining = deadline === undefined
     ? options.timeoutMs
-    : Math.min(options.timeoutMs, deadline - Date.now());
-  if (remaining <= 0) throw new HttpContractClientError(name, "timeout");
+    : Math.min(options.timeoutMs, deadline - now);
+  const deadlineBound = deadline !== undefined && deadline - now < options.timeoutMs;
+  if (remaining <= 0) throw new HttpContractClientError(name, "deadline");
   const timeoutController = new AbortController();
   const timer = setTimeout(() => timeoutController.abort(), Math.max(1, Math.ceil(remaining)));
-  const signal = init?.signal
-    ? AbortSignal.any([init.signal, timeoutController.signal])
-    : timeoutController.signal;
+  const signal = AbortSignal.any([
+    timeoutController.signal,
+    ...(init?.signal ? [init.signal] : []),
+    ...(guardSignal ? [guardSignal] : []),
+  ]);
   const requestInit: RequestInit = {
     ...init,
+    method: route.method.toUpperCase(),
     headers,
     signal,
     ...(body === undefined ? {} : { body }),
@@ -401,10 +356,11 @@ async function invokeOnce(
   try {
     const response = await (options.fetch ?? fetch)(url, requestInit);
     if (timeoutController.signal.aborted) {
-      throw new HttpContractClientError(name, "timeout");
+      throw new HttpContractClientError(name, deadlineBound ? "deadline" : "timeout");
     }
     const schema = route.responses[response.status];
     if (!schema) {
+      await response.body?.cancel().catch(() => undefined);
       const reason = response.status >= 500
         ? "server"
         : response.status >= 400
@@ -414,11 +370,16 @@ async function invokeOnce(
     }
 
     let result: unknown;
-    if (response.status !== 204 && response.headers.get("content-length") !== "0") {
-      try {
-        result = await response.json();
-      } catch (error) {
-        throw new HttpContractClientError(name, "contract", response.status, { cause: error });
+    if (response.status === 204) {
+      await response.body?.cancel().catch(() => undefined);
+    } else {
+      const text = await response.text();
+      if (text !== "") {
+        try {
+          result = JSON.parse(text);
+        } catch (error) {
+          throw new HttpContractClientError(name, "contract", response.status, { cause: error });
+        }
       }
     }
     try {
@@ -427,26 +388,22 @@ async function invokeOnce(
       throw new HttpContractClientError(name, "contract", response.status, { cause: error });
     }
     if (timeoutController.signal.aborted) {
-      throw new HttpContractClientError(name, "timeout");
+      throw new HttpContractClientError(name, deadlineBound ? "deadline" : "timeout");
     }
-    return { status: response.status, body: result } as HttpContractResponse<ResponseSchemas>;
+    return { status: response.status, body: result } as HttpInvocationResult;
   } catch (error) {
     if (error instanceof HttpContractClientError) throw error;
-    throw new HttpContractClientError(
-      name,
-      timeoutController.signal.aborted ? "timeout" : "network",
-      undefined,
-      { cause: error },
-    );
+    const reason = init?.signal?.aborted
+      ? "aborted"
+      : guardSignal?.aborted
+      ? "timeout"
+      : timeoutController.signal.aborted
+      ? deadlineBound ? "deadline" : "timeout"
+      : "network";
+    throw new HttpContractClientError(name, reason, undefined, { cause: error });
   } finally {
     clearTimeout(timer);
   }
-}
-
-function parseDeadline(value: string | null): number | undefined {
-  if (value === null || value.trim() === "") return undefined;
-  const deadline = Number(value);
-  return Number.isFinite(deadline) ? deadline : undefined;
 }
 
 function resolveDeadline(...deadlines: Array<number | undefined>): number | undefined {
@@ -454,17 +411,10 @@ function resolveDeadline(...deadlines: Array<number | undefined>): number | unde
   return valid.length === 0 ? undefined : Math.min(...valid);
 }
 
-function isRetryable(error: unknown, method: HttpMethod, headers: Headers): boolean {
-  if (!(error instanceof HttpContractClientError)) return false;
-  const idempotent = method === "get" || method === "put" || method === "delete" ||
-    method === "options";
-  return idempotent || headers.has("idempotency-key")
-    ? error.reason === "network" || error.reason === "timeout" || error.reason === "server"
-    : false;
-}
-
 function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, milliseconds);
+  return promise;
 }
 
 function interpolatePath(path: string, params: unknown): string {

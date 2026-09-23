@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError } from "@hyapi/core";
-import type { CreateUserInput, UpdateUserInput } from "../schemas.ts";
-import type { UserRepository } from "../repositories/user-repository.ts";
+import type { CreateUserInput, UpdateUserInput } from "./users.schemas.ts";
+import type { UserRepository } from "./user-repository.ts";
 
 export class UserService {
   constructor(private readonly repository: UserRepository) {}

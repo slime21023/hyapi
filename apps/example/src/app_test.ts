@@ -1,18 +1,8 @@
 import { assert, assertEquals } from "@std/assert";
+import { defineConfig } from "@hyapi/core";
 import { buildExampleApp } from "./app.ts";
-import type { AppConfig } from "@hyapi/core";
 
-const config: AppConfig = {
-  name: "example-test",
-  version: "0.2.0",
-  environment: "test",
-  requestIdHeader: "x-request-id",
-  openapi: {
-    title: "Example test API",
-    version: "0.2.0",
-    path: "/openapi.json",
-  },
-};
+const config = defineConfig({ name: "example-test", environment: "test" });
 const secret = "test-secret-with-at-least-32-characters";
 
 Deno.test("example application composes Users and Orders through a public port", async () => {
@@ -159,6 +149,99 @@ Deno.test("example application composes Users and Orders through a public port",
   assert(document.paths["/v1/users/{id}"].delete.responses["204"]);
   assert(document.components.securitySchemes.bearerAuth);
   assert(document.components.schemas.ProblemDetails);
+});
+
+Deno.test("example readiness probe reports ready when providers are healthy", async () => {
+  const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
+
+  const ready = await app.request("http://test/health/ready");
+  assertEquals(ready.status, 200);
+  const body = await ready.json();
+  assertEquals(body.status, "ready");
+  assertEquals(body.service, "example-test");
+
+  await app.close();
+});
+
+Deno.test("example users can be fetched by id until they are deleted", async () => {
+  const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
+  const token = await createToken(secret, ["users:read", "users:write"]);
+  const authorization = `Bearer ${token}`;
+
+  const created = await app.request("http://test/v1/users", {
+    method: "POST",
+    headers: { authorization, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Grace Hopper", email: "grace@example.com" }),
+  });
+  assertEquals(created.status, 201);
+  const user = await created.json();
+
+  const found = await app.request(`http://test/v1/users/${user.id}`, {
+    headers: { authorization },
+  });
+  assertEquals(found.status, 200);
+  assertEquals((await found.json()).email, "grace@example.com");
+
+  const deleted = await app.request(`http://test/v1/users/${user.id}`, {
+    method: "DELETE",
+    headers: { authorization },
+  });
+  assertEquals(deleted.status, 204);
+
+  const missing = await app.request(`http://test/v1/users/${user.id}`, {
+    headers: { authorization },
+  });
+  assertEquals(missing.status, 404);
+  await missing.body?.cancel();
+
+  await app.close();
+});
+
+Deno.test("example orders require the orders:write scope", async () => {
+  const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
+  const payload = JSON.stringify({ userId: crypto.randomUUID(), sku: "starter-plan" });
+
+  const anonymous = await app.request("http://test/v1/orders", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload,
+  });
+  assertEquals(anonymous.status, 401);
+  await anonymous.body?.cancel();
+
+  const readToken = await createToken(secret, ["users:read"]);
+  const forbidden = await app.request("http://test/v1/orders", {
+    method: "POST",
+    headers: { authorization: `Bearer ${readToken}`, "content-type": "application/json" },
+    body: payload,
+  });
+  assertEquals(forbidden.status, 403);
+  await forbidden.body?.cancel();
+
+  await app.close();
+});
+
+Deno.test("example user updates and deletes return 404 for unknown ids", async () => {
+  const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
+  const token = await createToken(secret, ["users:write"]);
+  const unknownId = crypto.randomUUID();
+
+  const patched = await app.request(`http://test/v1/users/${unknownId}`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ name: "Nobody" }),
+  });
+  assertEquals(patched.status, 404);
+  await patched.body?.cancel();
+
+  const deleted = await app.request(`http://test/v1/users/${unknownId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assertEquals(deleted.status, 404);
+  await deleted.body?.cancel();
+
+  await app.close();
 });
 
 async function createToken(

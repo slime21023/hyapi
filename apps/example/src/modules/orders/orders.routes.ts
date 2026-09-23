@@ -1,8 +1,8 @@
 import { defineRoute, NotFoundError, type RouteGroupApi } from "@hyapi/core";
-import { CreateOrderSchema, OrderSchema } from "../schemas.ts";
-import type { UserDirectory as LocalUserDirectory } from "../contracts/user-directory.ts";
+import { CreateOrderSchema, OrderSchema } from "./orders.schemas.ts";
+import type { UserDirectory } from "../../contracts/user-directory.ts";
 
-export function registerOrderRoutes(api: RouteGroupApi, users: LocalUserDirectory): void {
+export function registerOrderRoutes(api: RouteGroupApi, users: UserDirectory): void {
   api.group("/v1/orders", { tags: ["orders"], auth: { scopes: ["orders:write"] } }, (orders) => {
     orders.route(
       defineRoute({

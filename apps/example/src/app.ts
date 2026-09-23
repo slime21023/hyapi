@@ -1,18 +1,13 @@
 import {
   type AppConfig,
   createApplication,
-  defineModule,
   definePlugin,
   type HyApplication,
   jwtPlugin,
-  providePort,
 } from "@hyapi/core";
-import { userDirectoryPort } from "./contracts/user-directory.ts";
-import { registerHealthRoutes } from "./routes/health.ts";
-import { registerOrderRoutes } from "./routes/orders.ts";
-import { registerUserRoutes } from "./routes/users.ts";
-import { InMemoryUserRepository } from "./repositories/user-repository.ts";
-import { UserService } from "./services/user-service.ts";
+import { createHealthModule } from "./modules/health/health.module.ts";
+import { ordersModule } from "./modules/orders/orders.module.ts";
+import { createUsersModule } from "./modules/users/users.module.ts";
 
 export interface ExampleAppOptions {
   readonly enableRequestLogging?: boolean;
@@ -23,30 +18,12 @@ export async function buildExampleApp(
   jwtSecret: string,
   options: ExampleAppOptions = {},
 ): Promise<HyApplication> {
-  const repository = new InMemoryUserRepository();
-  const service = new UserService(repository);
-  const healthModule = defineModule({
-    name: "health",
-    setup(module) {
-      registerHealthRoutes(module, config.name);
-    },
-  });
-  const usersModule = defineModule({
-    name: "users",
-    provides: [providePort(userDirectoryPort, {
-      find: async (id) => repository.findById(id),
-    })],
-    setup(module) {
-      registerUserRoutes(module, service);
-    },
-  });
-  const ordersModule = defineModule({
-    name: "orders",
-    requires: [userDirectoryPort],
-    setup(module) {
-      registerOrderRoutes(module, module.use(userDirectoryPort));
-    },
-  });
+  let application: HyApplication | undefined;
+  const healthModule = createHealthModule(
+    config.name,
+    async () => application ? await application.health() : { status: "unhealthy", providers: [] },
+  );
+  const usersModule = createUsersModule();
   const plugins = [
     jwtPlugin({
       secret: jwtSecret,
@@ -79,9 +56,10 @@ export async function buildExampleApp(
     }));
   }
 
-  return await createApplication({
+  application = await createApplication({
     config,
     modules: [healthModule, usersModule, ordersModule],
     plugins,
   });
+  return application;
 }
