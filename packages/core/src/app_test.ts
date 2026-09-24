@@ -1149,6 +1149,152 @@ Deno.test("app - enforces the configured request body limit", async () => {
   assertEquals((await declared.json()).code, "PAYLOAD_TOO_LARGE");
 });
 
+/** Fails the test instead of hanging CI when a stream-bound response never arrives. */
+async function withinOneSecond<T>(promise: Promise<T>): Promise<T> {
+  const timeout = Promise.withResolvers<never>();
+  const timer = setTimeout(() => timeout.reject(new Error("timed out after 1 second")), 1000);
+  try {
+    return await Promise.race([promise, timeout.promise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+Deno.test("app - enforces bodyLimitBytes on routes without a body schema", async () => {
+  let unreadHandlerRan = false;
+  const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
+  app.route(defineRoute({
+    method: "post",
+    path: "/raw",
+    responses: { 200: Type.Object({ length: Type.Number() }) },
+    handler: async ({ request, ok }) => ok({ length: (await request.text()).length }),
+  }));
+  app.route(defineRoute({
+    method: "post",
+    path: "/unread",
+    handler: () => {
+      unreadHandlerRan = true;
+      return new Response(null, { status: 204 });
+    },
+  }));
+  await app.ready();
+
+  const oversized = await app.request("http://test/raw", {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "x".repeat(1024),
+  });
+  assertEquals(oversized.status, 413);
+  assertEquals((await oversized.json()).code, "PAYLOAD_TOO_LARGE");
+
+  const small = await app.request("http://test/raw", {
+    method: "POST",
+    headers: { "content-type": "text/plain" },
+    body: "x".repeat(8),
+  });
+  assertEquals(small.status, 200);
+  assertEquals(await small.json(), { length: 8 });
+
+  const declared = await app.request("http://test/unread", {
+    method: "POST",
+    headers: { "content-type": "text/plain", "content-length": "1024" },
+    body: "x",
+  });
+  assertEquals(declared.status, 413);
+  assertEquals((await declared.json()).code, "PAYLOAD_TOO_LARGE");
+  assertEquals(unreadHandlerRan, false);
+});
+
+Deno.test("app - rejects an oversized open body stream with 413", async () => {
+  let cancelled = false;
+  const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
+  app.route(defineRoute({
+    method: "post",
+    path: "/limited",
+    request: { body: Type.Object({ name: Type.String() }) },
+    handler: () => new Response(null, { status: 204 }),
+  }));
+  await app.ready();
+
+  const response = await withinOneSecond(Promise.resolve(app.request("http://test/limited", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(32));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    }),
+  })));
+  assertEquals(response.status, 413);
+  assertEquals((await response.json()).code, "PAYLOAD_TOO_LARGE");
+  assertEquals(cancelled, true);
+});
+
+Deno.test("app - request timeout cancels a stalled body read", async () => {
+  let cancelled = false;
+  const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
+  app.route(defineRoute({
+    method: "post",
+    path: "/stalled",
+    request: { body: Type.Object({ name: Type.String() }) },
+    handler: () => new Response(null, { status: 204 }),
+  }));
+  await app.ready();
+
+  const response = await withinOneSecond(Promise.resolve(app.request("http://test/stalled", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: new ReadableStream({
+      cancel() {
+        cancelled = true;
+      },
+    }),
+  })));
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  const settle = Promise.withResolvers<void>();
+  setTimeout(settle.resolve, 10);
+  await settle.promise;
+  assertEquals(cancelled, true);
+});
+
+Deno.test("app - error responses do not inherit headers from the replaced response", async () => {
+  const app = createApp({ config });
+  app.addHook("onResponse", () => {
+    throw new Error("hook failed");
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/redirect",
+    handler: () =>
+      new Response(null, {
+        status: 302,
+        headers: { location: "/home", "set-cookie": "session=abc; HttpOnly" },
+      }),
+  }));
+  await app.ready();
+
+  const response = await app.request("http://test/redirect");
+  assertEquals(response.status, 500);
+  assertEquals(response.headers.get("content-type"), "application/problem+json");
+  assertEquals(response.headers.get("location"), null);
+  assertEquals(response.headers.get("set-cookie"), null);
+  assert(response.headers.get("x-request-id"));
+  await response.body?.cancel();
+});
+
+Deno.test("createApplication fills defaults for partial configs", async () => {
+  const partial = { name: "x", requestIdHeader: "x-id", openapi: { path: "/spec" } };
+  const app = await createApplication({ config: partial, modules: [] });
+  assertEquals(app.config, defineConfig(partial));
+  const response = await app.request("http://test/spec");
+  assertEquals((await response.json()).info, { title: "x API", version: "0.1.0" });
+  await app.close();
+});
+
 Deno.test("app - accepts structured +json request media types", async () => {
   const app = createApp({ config });
   app.route(defineRoute({

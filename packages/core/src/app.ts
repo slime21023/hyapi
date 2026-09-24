@@ -2,7 +2,6 @@ import { type Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type AppConfig,
-  type AppConfigOptions,
   type ApplicationOptions,
   type AuthProvider,
   type AuthRequirement,
@@ -50,7 +49,13 @@ import {
 import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./resilience.ts";
-import { headerObject, parseRequestBody, queryObject, SchemaValidator } from "./validation.ts";
+import {
+  headerObject,
+  limitRequestBody,
+  parseRequestBody,
+  queryObject,
+  SchemaValidator,
+} from "./validation.ts";
 import { formatContractVersion, isCompatibleContractVersion } from "./version.ts";
 
 interface DependencyNode {
@@ -816,6 +821,8 @@ export class HyApiApp {
       }
       if (requestError !== undefined) {
         await this.notifyError(runtime, requestError);
+        // Hono merges the previous response's headers into any new assignment; drop it first.
+        context.res = undefined;
         response = this.errorResponse(requestError, request, requestId);
       }
 
@@ -917,9 +924,14 @@ export class HyApiApp {
     const query = requestSchemas?.query
       ? this.validator.validate(requestSchemas.query, queryObject(request), "query")
       : queryObject(request);
-    const rawBody = requestSchemas?.body && request.method !== "GET" && request.method !== "HEAD"
-      ? await parseRequestBody(request, this.bodyLimitBytes)
-      : undefined;
+    const boundedRequest = limitRequestBody(request, this.bodyLimitBytes, runtime.abort.signal);
+    let handlerRequest = boundedRequest;
+    let rawBody: unknown;
+    if (requestSchemas?.body && boundedRequest.body !== null) {
+      const bytes = await boundedRequest.arrayBuffer();
+      handlerRequest = new Request(boundedRequest, { body: bytes });
+      rawBody = await parseRequestBody(new Request(boundedRequest, { body: bytes }));
+    }
     if (requestSchemas?.body && rawBody === undefined && requestSchemas.bodyRequired !== false) {
       throw new ValidationError("body", [{
         keyword: "required",
@@ -937,7 +949,7 @@ export class HyApiApp {
       : headerObject(request.headers);
 
     const routeContext: RequestContext = {
-      request,
+      request: handlerRequest,
       requestId: runtime.requestId,
       requestIdHeader: this.config.requestIdHeader,
       deadline: runtime.deadline,
@@ -1247,7 +1259,7 @@ async function closeComposition(
 }
 
 export async function createApplication(options: ApplicationOptions): Promise<HyApplication> {
-  const app = createApp({ config: normalizeConfig(options.config) });
+  const app = createApp({ config: defineConfig(options.config) });
   const platform = createPlatformApi(app);
   const contexts = new Map<Module, ModuleContext>();
   const setUpPlugins: Plugin[] = [];
@@ -1316,11 +1328,4 @@ export async function createApplication(options: ApplicationOptions): Promise<Hy
         },
       ),
   };
-}
-
-function normalizeConfig(config: AppConfig | AppConfigOptions): AppConfig {
-  if ("requestIdHeader" in config && config.openapi?.path !== undefined) {
-    return config as AppConfig;
-  }
-  return defineConfig(config);
 }

@@ -7,6 +7,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Fixed
+
+- `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
+  oversized streamed body returns 413 instead of hanging, and a request timeout cancels a stalled
+  body read.
+- Resilience timeouts count as circuit-breaker failures and release their half-open probe and
+  bulkhead slot even if the abandoned operation never settles.
+- Error responses that replace a handler response (for example after a failing global `onResponse`
+  hook) no longer inherit its headers such as `Set-Cookie` or `Location`.
+- `createApplication` fills defaults for partial configs that set `requestIdHeader` and
+  `openapi.path`.
+
 ## [1.0.0-rc.2] - 2026-09-23
 
 ### Added

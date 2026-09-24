@@ -1,7 +1,7 @@
 import "typebox/format";
 import { Compile, type Validator } from "typebox/compile";
 import { Value } from "typebox/value";
-import { DEFAULT_BODY_LIMIT_BYTES, type Schema } from "./types.ts";
+import type { Schema } from "./types.ts";
 import { AppError, ResponseValidationError, ValidationError } from "./errors.ts";
 
 export type ValidationSource = "params" | "query" | "body" | "headers" | "response";
@@ -75,10 +75,84 @@ export function headerObject(headers: Headers): Record<string, string> {
   return Object.fromEntries(headers.entries());
 }
 
-export async function parseRequestBody(
+function payloadTooLarge(limitBytes: number): AppError {
+  return new AppError(
+    413,
+    "PAYLOAD_TOO_LARGE",
+    `Request body exceeds the ${limitBytes}-byte limit.`,
+  );
+}
+
+/**
+ * Wraps the request body in a stream that errors with 413 once `limitBytes` is exceeded and
+ * cancels the source when `signal` aborts. Reads the original body directly: cancelling a
+ * `request.clone()` branch never settles in Deno.
+ */
+export function limitRequestBody(
   request: Request,
-  limitBytes = DEFAULT_BODY_LIMIT_BYTES,
-): Promise<unknown> {
+  limitBytes: number,
+  signal: AbortSignal,
+): Request {
+  if (request.body === null) return request;
+  if (signal.aborted) throw signal.reason;
+
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > limitBytes) {
+    throw payloadTooLarge(limitBytes);
+  }
+
+  const reader = request.body.getReader();
+  let controller!: ReadableStreamDefaultController<Uint8Array<ArrayBuffer>>;
+  let total = 0;
+  let finished = false;
+
+  const fail = (error: unknown) => {
+    if (finished) return;
+    finished = true;
+    signal.removeEventListener("abort", onAbort);
+    controller.error(error);
+    // Not awaited: the error path must not wait on the source acknowledging cancellation.
+    reader.cancel(error).catch(() => undefined);
+  };
+  const onAbort = () => fail(signal.reason);
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    start(c) {
+      controller = c;
+    },
+    async pull(c) {
+      let result: ReadableStreamReadResult<Uint8Array<ArrayBuffer>>;
+      try {
+        result = await reader.read();
+      } catch (error) {
+        fail(error);
+        return;
+      }
+      if (finished) return;
+      if (result.done) {
+        finished = true;
+        signal.removeEventListener("abort", onAbort);
+        c.close();
+        return;
+      }
+      total += result.value.byteLength;
+      if (total > limitBytes) {
+        fail(payloadTooLarge(limitBytes));
+        return;
+      }
+      c.enqueue(result.value);
+    },
+    cancel(reason) {
+      finished = true;
+      signal.removeEventListener("abort", onAbort);
+      reader.cancel(reason).catch(() => undefined);
+    },
+  });
+  return new Request(request, { body });
+}
+
+export async function parseRequestBody(request: Request): Promise<unknown> {
   if (request.method === "GET" || request.method === "HEAD") return undefined;
   if (request.body === null) return undefined;
 
@@ -99,16 +173,7 @@ export async function parseRequestBody(
     );
   }
 
-  const contentLength = request.headers.get("content-length");
-  if (contentLength !== null && /^\d+$/.test(contentLength) && Number(contentLength) > limitBytes) {
-    throw new AppError(
-      413,
-      "PAYLOAD_TOO_LARGE",
-      `Request body exceeds the ${limitBytes}-byte limit.`,
-    );
-  }
-
-  const bytes = await readLimited(request.clone().body!, limitBytes);
+  const bytes = new Uint8Array(await request.arrayBuffer());
 
   if (isJson) {
     const text = new TextDecoder().decode(bytes);
@@ -135,35 +200,4 @@ export async function parseRequestBody(
   } catch {
     throw new AppError(400, "INVALID_MULTIPART_DATA", "Failed to parse multipart form data.");
   }
-}
-
-async function readLimited(
-  stream: ReadableStream<Uint8Array<ArrayBuffer>>,
-  limitBytes: number,
-): Promise<Uint8Array<ArrayBuffer>> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array<ArrayBuffer>[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > limitBytes) {
-      await reader.cancel();
-      throw new AppError(
-        413,
-        "PAYLOAD_TOO_LARGE",
-        `Request body exceeds the ${limitBytes}-byte limit.`,
-      );
-    }
-    chunks.push(value);
-  }
-  if (chunks.length === 1) return chunks[0]!;
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
 }

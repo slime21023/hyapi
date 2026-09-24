@@ -49,6 +49,10 @@ const NON_BREAKER_FAILURE_REASONS: Readonly<Record<string, true>> = {
   aborted: true,
 };
 
+/**
+ * Timed-out operations are abandoned: they release their bulkhead slot and count as
+ * circuit-breaker failures even if they never settle.
+ */
 export function withResilience<TArgs extends readonly unknown[], TResult>(
   operation: (...args: TArgs) => MaybePromise<TResult>,
   policy: ResiliencePolicy,
@@ -65,7 +69,7 @@ export function createGuard<TArgs extends readonly unknown[], TResult>(
   const bulkhead = policy.bulkhead ? new Bulkhead(policy.bulkhead) : undefined;
   return (...args: TArgs): Promise<TResult> => {
     const exec = async (signal: AbortSignal): Promise<TResult> => {
-      if (breaker) return await breaker.execute(() => operation(signal, ...args));
+      if (breaker) return await breaker.execute(() => operation(signal, ...args), signal);
       return await operation(signal, ...args);
     };
     return runWithRetry(
@@ -150,7 +154,8 @@ class CircuitBreaker {
   private lastFailure: unknown = undefined;
   constructor(private readonly policy: CircuitBreakerPolicy) {}
 
-  async execute<T>(operation: () => MaybePromise<T>): Promise<T> {
+  async execute<T>(operation: () => MaybePromise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw signal.reason;
     if (this.state === "open") {
       if (Date.now() - this.openedAt < this.policy.resetTimeoutMs) {
         throw new ResilienceError("circuit_open", "Circuit breaker is open.", {
@@ -172,14 +177,29 @@ class CircuitBreaker {
       probe = true;
     }
     const generation = this.generation;
+    let settled = false;
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      this.recordFailure(generation, probe, signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     let result: T;
     try {
       result = await operation();
     } catch (error) {
-      this.recordFailure(generation, probe, error);
+      signal?.removeEventListener("abort", onAbort);
+      if (!settled) {
+        settled = true;
+        this.recordFailure(generation, probe, error);
+      }
       throw error;
     }
-    this.recordSuccess(generation, probe);
+    signal?.removeEventListener("abort", onAbort);
+    if (!settled) {
+      settled = true;
+      this.recordSuccess(generation, probe);
+    }
     return result;
   }
 
@@ -251,11 +271,23 @@ class Bulkhead {
     } else {
       this.active += 1;
     }
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      signal.removeEventListener("abort", release);
+      this.active -= 1;
+      this.releaseNext();
+    };
+    if (signal.aborted) {
+      release();
+      throw signal.reason;
+    }
+    signal.addEventListener("abort", release, { once: true });
     try {
       return await operation(signal);
     } finally {
-      this.active -= 1;
-      this.releaseNext();
+      release();
     }
   }
 
@@ -269,7 +301,7 @@ class Bulkhead {
 }
 
 function countsAsBreakerFailure(error: unknown): boolean {
-  if (error instanceof ResilienceError) return false;
+  if (error instanceof ResilienceError) return error.reason === "timeout";
   if (typeof error !== "object" || error === null) return true;
   const reason = (error as { reason?: unknown }).reason;
   return typeof reason !== "string" || NON_BREAKER_FAILURE_REASONS[reason] !== true;

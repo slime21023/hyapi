@@ -170,16 +170,17 @@ Deno.test("circuit breakers ignore late successes from calls started before open
   await assertRejects(() => operation(), ResilienceError, "Circuit breaker is open");
 });
 
-Deno.test("timed-out bulkhead waiters never run and release their queue slot", async () => {
-  let releaseFirst: (() => void) | undefined;
-  const firstPending = new Promise<void>((resolve) => releaseFirst = resolve);
+Deno.test("timed-out bulkhead holders hand their slot to the next waiter exactly once", async () => {
+  const firstHold = Promise.withResolvers<void>();
+  const thirdHold = Promise.withResolvers<void>();
   const started: number[] = [];
   let calls = 0;
   const operation = withResilience(
     async () => {
       const call = ++calls;
       started.push(call);
-      if (call === 1) await firstPending;
+      if (call === 1) await firstHold.promise;
+      if (call === 3) await thirdHold.promise;
       return call;
     },
     { timeoutMs: 20, bulkhead: { maxConcurrent: 1, queueSize: 1 } },
@@ -187,14 +188,18 @@ Deno.test("timed-out bulkhead waiters never run and release their queue slot", a
 
   const first = operation();
   const queued = operation();
-  await Promise.all([
-    assertRejects(() => first, ResilienceError, "Operation timed out"),
-    assertRejects(() => queued, ResilienceError, "Operation timed out"),
-  ]);
-  const next = operation();
-  releaseFirst?.();
-  assertEquals(await next, 2);
-  assertEquals(started, [1, 2]);
+  await assertRejects(() => first, ResilienceError, "Operation timed out");
+  assertEquals(await queued, 2);
+
+  // The abandoned holder settles late; its slot was already released, so it must not free another.
+  firstHold.resolve();
+  await delay(0);
+  const third = operation();
+  const fourth = operation();
+  await assertRejects(() => operation(), ResilienceError, "Bulkhead queue is full");
+  thirdHold.resolve();
+  assertEquals(await Promise.all([third, fourth]), [3, 4]);
+  assertEquals(started, [1, 2, 3, 4]);
 });
 
 Deno.test("withResilience enforces an operation timeout", async () => {
@@ -203,6 +208,48 @@ Deno.test("withResilience enforces an operation timeout", async () => {
     { timeoutMs: 1 },
   );
   await assertRejects(() => operation(), ResilienceError, "Operation timed out");
+});
+
+Deno.test("timeouts count as circuit breaker failures", async () => {
+  const operation = withResilience(
+    () => new Promise<string>(() => undefined),
+    { timeoutMs: 10, circuitBreaker: { failureThreshold: 2, resetTimeoutMs: 1000 } },
+  );
+  await assertRejects(() => operation(), ResilienceError, "Operation timed out");
+  await assertRejects(() => operation(), ResilienceError, "Operation timed out");
+  await assertRejects(() => operation(), ResilienceError, "Circuit breaker is open");
+});
+
+Deno.test("a hung half-open probe does not wedge the breaker", async () => {
+  let calls = 0;
+  const operation = withResilience(
+    (): Promise<string> => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new Error("down"));
+      if (calls === 2) return new Promise<string>(() => undefined);
+      return Promise.resolve("ok");
+    },
+    { timeoutMs: 10, circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 20 } },
+  );
+  await assertRejects(() => operation(), Error, "down");
+  await delay(30);
+  await assertRejects(() => operation(), ResilienceError, "Operation timed out");
+  await delay(30);
+  assertEquals(await operation(), "ok");
+});
+
+Deno.test("a timed-out operation releases its bulkhead slot", async () => {
+  let calls = 0;
+  const operation = withResilience(
+    (): Promise<string> => {
+      calls += 1;
+      if (calls === 1) return new Promise<string>(() => undefined);
+      return Promise.resolve("ok");
+    },
+    { timeoutMs: 10, bulkhead: { maxConcurrent: 1 } },
+  );
+  await assertRejects(() => operation(), ResilienceError, "Operation timed out");
+  assertEquals(await operation(), "ok");
 });
 
 Deno.test("withResilience rejects invalid policy budgets early", () => {
