@@ -9,8 +9,9 @@ deno task verify
 ```
 
 The command checks formatting, linting, TypeScript types (core, CLI, example, benchmarks, and
-scripts), the complete test suite, the example `doctor` report, and a generated starter project.
-Text files use LF line endings through `.gitattributes`, including on Windows checkouts.
+scripts), the complete test suite, the example `doctor` report, and a generated starter project's
+verification, listener response, and graceful shutdown. Text files use LF line endings through
+`.gitattributes`, including on Windows checkouts.
 
 ## Changes and issues
 
@@ -52,12 +53,14 @@ Experimental APIs are marked with an `@experimental` JSDoc tag and may change in
 Before a release, the maintainer verifies the release gate in the relevant roadmap milestone,
 updates `CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout,
 and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which
-repeats `deno task verify` and publishes both packages to JSR.
+rejects a tag that differs from either package version before repeating `deno task verify` and
+publishing both packages to JSR.
 
-During the `v1.0.0-rc.2` freeze, runtime and public API changes are out of scope. Only test
-coverage, repeatable performance or security evidence, and documentation corrections may be merged
-before the final `v1.0.0` tag. A benchmark regression of more than 20% on the same hardware must be
-explained in the pull request; see [docs/baselines/performance.md](docs/baselines/performance.md).
+The `v1.0.0-rc.2` freeze was reopened for lifecycle correctness fixes. `v1.0.0-rc.3` is the next
+candidate, not a published release; its verification gate must pass before tagging. After that gate,
+runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression of more than
+20% on the same hardware must be explained in the pull request; see
+[docs/baselines/performance.md](docs/baselines/performance.md).
 
 The roadmap and release gates are maintained in [docs/roadmap.md](docs/roadmap.md). Report security
 issues privately as described in [SECURITY.md](SECURITY.md).

@@ -8,9 +8,10 @@ public API.
 
 ## Current status
 
-HyAPI is currently at **v1.0.0-rc.2**, the audit-remediation release candidate. Its public API is
-frozen; only test coverage, repeatable performance/security evidence, and documentation corrections
-are in scope before v1.0.0.
+HyAPI is preparing **v1.0.0-rc.3** as the next release candidate. It includes lifecycle correctness
+changes since rc.2. The local `deno task verify` gate passed with 200 tests, including the generated
+starter's live listener and shutdown; `deno publish --dry-run --allow-dirty` also passed. The clean
+checkout publish check and JSR publication have not yet completed.
 
 Read the [roadmap](docs/roadmap.md), [v1.0.0 migration guide](docs/migrations/v1.0.0.md),
 [changelog](CHANGELOG.md), [contribution/release policy](CONTRIBUTING.md),
@@ -62,10 +63,10 @@ deno run -A jsr:@hyapi/cli doctor .                 diagnose boundary and struct
 The JSR CLI command requires a published `@hyapi/cli` package. From a checkout, use
 `deno run --allow-read --allow-write packages/cli/mod.ts new my-api`; then `cd my-api` before
 running `deno run --allow-read --allow-write ../packages/cli/mod.ts generate module billing`. The
-generated starter depends on `jsr:@hyapi/core@^1.0.0-rc.2` and cannot check or start independently
+generated starter depends on `jsr:@hyapi/core@^1.0.0-rc.3` and cannot check or start independently
 until that version is published. `deno task verify:starter` checks a local-source substitution, not
 registry availability; after publishing, run
-`deno run --allow-read --allow-write --allow-run --allow-env scripts/verify-starter.ts --published`
+`deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts --published`
 to check an unmodified starter.
 
 `generate module` prints the import line and the `createApplication({ modules })` entry to add to
@@ -427,8 +428,8 @@ Provider lifecycle and major/minor contract compatibility are described in the
 Remote-call resilience policies, including retry, circuit breaker, and bulkhead controls, are
 described in the [v0.9 migration guide](docs/migrations/v0.9.0.md).
 
-`v1.0.0-rc.2` removes superseded APIs and changes several defaults; see the
-[v1.0.0 migration guide](docs/migrations/v1.0.0.md).
+`v1.0.0-rc.3` changes application/request lifecycle behavior; rc.2 removed superseded APIs and
+changed several defaults. See the [v1.0.0 migration guide](docs/migrations/v1.0.0.md).
 
 ## Example API
 
@@ -468,14 +469,15 @@ deno task fmt             format codebase
 deno task fmt:check       verify formatting
 deno task lint            run Oxlint
 deno task doctor:example  run the CLI doctor against apps/example
-deno task verify:starter  generate a starter project and run its verify task and CLI doctor
+deno task verify:starter  generate a starter and check verify, doctor, listener, and shutdown
 deno task bench           run the core performance benchmarks
 deno task publish:check   run the JSR publish dry-run for core and CLI
 deno task verify          run the complete quality gate
 ```
 
 The test suite uses in-memory `app.request()` and does not open a TCP port. `deno task verify` runs
-formatting, lint, type checking, the test suite, `doctor:example`, and `verify:starter`.
+formatting, lint, type checking, the test suite, `doctor:example`, and `verify:starter` (which opens
+a temporary localhost listener).
 
 ## Project development
 

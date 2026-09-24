@@ -7,7 +7,10 @@ import {
   createHttpContractClient,
   defineHttpContract,
   defineModule,
+  type HttpContract,
   HttpContractClientError,
+  type HttpContractRequest,
+  type HttpContractRoute,
   registerHttpContract,
   ResilienceError,
   withHttpContext,
@@ -46,6 +49,54 @@ const orderContract = defineHttpContract({
       responses: { 201: Type.Object({ id: Type.String() }) },
     },
   },
+});
+
+const optionalBodyContract = defineHttpContract({
+  name: "optional-body",
+  version: { major: 1, minor: 0 },
+  routes: {
+    submit: {
+      method: "post",
+      path: "/optional",
+      request: { body: Type.Object({ value: Type.String() }), bodyRequired: false },
+      responses: { 200: Type.Object({ accepted: Type.Boolean() }) },
+    },
+  },
+});
+
+Deno.test("HTTP contract client types and sends an optional request body", async () => {
+  const requiredBodyRemainsRequired: {} extends
+    Pick<HttpContractRequest<typeof orderContract.routes.createOrder>, "body"> ? false
+    : true = true;
+  const noBodyRemainsOptional: {} extends
+    Pick<HttpContractRequest<typeof catalogContract.routes.getItem>, "body"> ? true
+    : false = true;
+  assert(requiredBodyRemainsRequired && noBodyRemainsOptional);
+
+  type AnnotatedRoute = HttpContractRoute<
+    undefined,
+    undefined,
+    typeof optionalBodyContract.routes.submit.request.body,
+    typeof optionalBodyContract.routes.submit.responses,
+    false
+  >;
+  const annotatedContract: HttpContract<{ submit: AnnotatedRoute }> = optionalBodyContract;
+  const bodies: (BodyInit | null | undefined)[] = [];
+  const options = {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    fetch: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      bodies.push(init?.body);
+      return Response.json({ accepted: true });
+    },
+  };
+  const client = createHttpContractClient(optionalBodyContract, options);
+  const annotatedClient = createHttpContractClient(annotatedContract, options);
+  const annotatedRequest: HttpContractRequest<AnnotatedRoute> = {};
+  await annotatedClient.submit(annotatedRequest);
+  await client.submit({});
+  await client.submit({ body: { value: "provided" } });
+  assertEquals(bodies, [undefined, undefined, '{"value":"provided"}']);
 });
 
 Deno.test("HTTP contracts register server routes and drive a validated typed client", async () => {

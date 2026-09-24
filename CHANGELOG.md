@@ -5,7 +5,7 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0-rc.3] - Unreleased
 
 ### Added
 
@@ -30,6 +30,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Application cleanup and startup rollback use bounded asynchronous closer deadlines; shutdown gives
   cooperative aborted requests a short final drain before closing providers. Native `Response`
   streams remain caller-owned after the request returns.
+- Publishing rejects a release tag unless it matches both package versions; generated starter
+  verification checks the listener's HTTP response and graceful shutdown, not only its project
+  checks and `doctor` report.
 
 ### Fixed
 
@@ -38,6 +41,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   closed singletons.
 - Request services created after a request timed out are closed instead of leaked.
 - HTTP client retry backoff stops as soon as the caller aborts.
+- Typed HTTP contract clients allow callers to omit `body` when a route declares
+  `bodyRequired: false`; required-body routes still require it.
+- CLI `doctor` reports missing providers even when unrelated modules reuse a Port variable name;
+  same-named references now resolve within their own module.
 - `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
   oversized streamed body returns 413 instead of hanging, and a request timeout cancels a stalled
   body read.

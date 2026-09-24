@@ -74,8 +74,12 @@ type RequestPart<TKey extends string, TValue> = TValue extends Schema
   : { readonly [TName in TKey]?: never };
 
 export type HttpContractRequest<TRoute extends AnyHttpContractRoute> = TRoute extends
-  HttpContractRoute<infer TParams, infer TQuery, infer TBody, infer _TResponses, infer _TRequired>
-  ? RequestPart<"params", TParams> & RequestPart<"query", TQuery> & RequestPart<"body", TBody>
+  HttpContractRoute<infer TParams, infer TQuery, infer TBody, infer _TResponses, infer TRequired> ?
+    & RequestPart<"params", TParams>
+    & RequestPart<"query", TQuery>
+    & ((TRoute extends { readonly request: { readonly bodyRequired: false } } ? false
+      : TRequired) extends false ? Partial<RequestPart<"body", TBody>>
+      : RequestPart<"body", TBody>)
   : never;
 
 type HttpContractResponse<TResponses extends ResponseSchemas> = {

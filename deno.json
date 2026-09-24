@@ -18,7 +18,7 @@
     "check": "deno check packages/core/mod.ts packages/cli/mod.ts apps/example/src/main.ts packages/core/bench/app_bench.ts scripts/verify-starter.ts",
     "test": "deno test --allow-env --allow-read --allow-write",
     "doctor:example": "deno run --allow-read packages/cli/mod.ts doctor apps/example",
-    "verify:starter": "deno run --allow-read --allow-write --allow-run --allow-env scripts/verify-starter.ts",
+    "verify:starter": "deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts",
     "bench": "deno bench --allow-env packages/core/bench/",
     "publish:check": "deno publish --dry-run",
     "verify": "deno fmt --check && deno task lint && deno task check && deno test --allow-env --allow-read --allow-write && deno task doctor:example && deno task verify:starter"

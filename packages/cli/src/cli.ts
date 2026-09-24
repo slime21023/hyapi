@@ -1,4 +1,4 @@
-export const VERSION = "1.0.0-rc.2";
+export const VERSION = "1.0.0-rc.3";
 
 export type CliCommand =
   | { readonly kind: "help" }
@@ -283,15 +283,28 @@ export function inspectModuleBoundaries(
     ...moduleSources,
     ...sharedSources.map((source) => ({ ...source, text: stripComments(source.text) })),
   ];
-  const portNames = new Map<string, string>();
+  const portNames = new Map<string, string | undefined>();
+  const modulePortNames = new Map<string, Map<string, string | undefined>>();
+  const sourcePortNames = new Map<ModuleSource, Map<string, string>>();
   for (const source of allSources) {
+    const local = new Map<string, string>();
+    sourcePortNames.set(source, local);
+    let moduleNames = modulePortNames.get(source.module);
+    if (!moduleNames) {
+      moduleNames = new Map();
+      modulePortNames.set(source.module, moduleNames);
+    }
     for (
       const match of source.text.matchAll(
         /(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)[^=]*=\s*definePort(?:<[^>]*>)?\(\s*["']([^"']+)["']/g,
       )
     ) {
       const [name, port] = [match[1], match[2]];
-      if (name && port) portNames.set(name, port);
+      if (name && port) {
+        local.set(name, port);
+        rememberPortName(moduleNames, name, port);
+        rememberPortName(portNames, name, port);
+      }
     }
   }
 
@@ -308,7 +321,12 @@ export function inspectModuleBoundaries(
     }
     for (const match of source.text.matchAll(/requires\s*:\s*\[([\s\S]*?)\]/g)) {
       for (const reference of (match[1] ?? "").split(",")) {
-        const port = resolvePortReference(reference, portNames);
+        const port = resolvePortReference(
+          reference,
+          sourcePortNames.get(source)!,
+          modulePortNames.get(source.module)!,
+          portNames,
+        );
         if (port) requiredPorts.push({ module: source.module, port, path: source.path });
         else if (reference.trim()) {
           unresolvedReferences.push({
@@ -322,7 +340,12 @@ export function inspectModuleBoundaries(
   }
   for (const source of allSources) {
     for (const match of source.text.matchAll(/provide(?:Port|Http)\(\s*([^,\s)]+)/g)) {
-      const port = resolvePortReference(match[1] ?? "", portNames);
+      const port = resolvePortReference(
+        match[1] ?? "",
+        sourcePortNames.get(source)!,
+        modulePortNames.get(source.module)!,
+        portNames,
+      );
       if (port) providedPorts.set(port, { module: source.module, port, path: source.path });
     }
   }
@@ -382,13 +405,27 @@ function resolveImportedModule(source: ModuleSource, specifier: string): string 
   return undefined;
 }
 
+function rememberPortName(
+  names: Map<string, string | undefined>,
+  name: string,
+  port: string,
+): void {
+  if (!names.has(name)) names.set(name, port);
+  else if (names.get(name) !== port) names.set(name, undefined);
+}
+
 function resolvePortReference(
   reference: string,
-  portNames: ReadonlyMap<string, string>,
+  local: ReadonlyMap<string, string>,
+  moduleNames: ReadonlyMap<string, string | undefined>,
+  globalNames: ReadonlyMap<string, string | undefined>,
 ): string | undefined {
   const trimmed = reference.trim();
   const stringMatch = /^["']([^"']+)["']$/.exec(trimmed);
-  return stringMatch?.[1] ?? portNames.get(trimmed);
+  if (stringMatch) return stringMatch[1];
+  if (local.has(trimmed)) return local.get(trimmed);
+  if (moduleNames.has(trimmed)) return moduleNames.get(trimmed);
+  return globalNames.get(trimmed);
 }
 
 function uniqueImports(imports: readonly CrossModuleImport[]): readonly CrossModuleImport[] {

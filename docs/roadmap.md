@@ -27,7 +27,8 @@ provider without changing use case code.
 | v0.8.0      | Provider lifecycle and contract-version compatibility                             | Completed  |
 | v0.9.0      | Distributed resilience and remote-call governance                                 | Completed  |
 | v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Superseded |
-| v1.0.0-rc.2 | Audit remediation, Hono-free public API, release automation                       | Candidate  |
+| v1.0.0-rc.2 | Audit remediation, Hono-free public API, release automation                       | Superseded |
+| v1.0.0-rc.3 | Lifecycle correctness and next release-candidate gate                             | Candidate  |
 | v1.0.0      | Production baseline and public API stability                                      | Future     |
 
 ## v0.8.0 — Provider lifecycle and contract compatibility
@@ -97,8 +98,8 @@ breaking existing application code.
 - [x] **RC-08:** Require formatting, lint, type checking, the complete test suite, and synchronized
       package/CLI metadata before publishing the candidate.
 
-The `v1.0.0-rc.1` freeze was lifted for the rc.2 audit remediation below; rc.2 is now the frozen
-candidate.
+The `v1.0.0-rc.1` freeze was lifted for the rc.2 audit remediation below. rc.2 is superseded by the
+rc.3 lifecycle correctness candidate; its completed work and verification record remain below.
 
 ## v1.0.0-rc.2 — Audit remediation
 
@@ -140,9 +141,21 @@ same change, with migration notes only.
 - [x] **RC2-16:** v1.0 documentation: versioning policy, `SECURITY.md`, operations guide,
       performance baseline, and the rc.2 migration guide.
 
-After `v1.0.0-rc.2`, runtime and public API changes are frozen. Follow-up work is limited to test
-coverage, repeatable performance measurements, security regression checks, and documentation or
-example corrections.
+The `v1.0.0-rc.2` freeze was reopened for the rc.3 lifecycle correctness changes. See the candidate
+milestone below; rc.2's work and verification record remain historical.
+
+## v1.0.0-rc.3 — Lifecycle correctness candidate
+
+**Goal:** ship the lifecycle and request-scope correctness changes recorded in the rc.3 changelog
+with an explicit migration path and a release gate that cannot publish mismatched package versions.
+
+- [x] Verify the generated starter's actual listener response and graceful shutdown, in addition to
+      its `verify` task and CLI `doctor` report.
+- [x] Require the publish workflow's tag to match both package versions.
+- [x] Run `deno task verify` in the working checkout (200 tests, including generated listener and
+      shutdown) and `deno publish --dry-run --allow-dirty` for a non-publishing preflight.
+- [ ] Run `deno task verify`, `deno task publish:check`, and `git diff --check` in a clean checkout.
+      Record results before tagging; do not publish until the clean gate passes.
 
 ## v1.0.0-rc.2 verification record
 

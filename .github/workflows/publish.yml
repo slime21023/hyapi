@@ -15,5 +15,18 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.x
+      - name: Check tag and package versions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          deno eval '
+            const tag = Deno.env.get("RELEASE_TAG");
+            const core = JSON.parse(Deno.readTextFileSync("packages/core/deno.json")).version;
+            const cli = JSON.parse(Deno.readTextFileSync("packages/cli/deno.json")).version;
+            if (core !== cli || tag !== `v${core}`) {
+              console.error(`Release mismatch: tag=${tag}, core=${core}, cli=${cli}`);
+              Deno.exit(1);
+            }
+          '
       - run: deno task verify
       - run: deno publish

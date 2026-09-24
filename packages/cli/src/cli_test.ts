@@ -171,6 +171,44 @@ Deno.test("doctor flags direct module imports and unresolved declared ports", ()
   );
 });
 
+Deno.test("doctor resolves same-named ports within each module", () => {
+  const boundaries = inspectModuleBoundaries([
+    {
+      module: "orders",
+      path: "src/modules/orders/orders.port.ts",
+      text: 'export const port = definePort("orders.payment");',
+    },
+    {
+      module: "orders",
+      path: "src/modules/orders/orders.module.ts",
+      text: 'import { port } from "./orders.port.ts";\n' +
+        "export const orders = defineModule({ requires: [port] });",
+    },
+    {
+      module: "billing",
+      path: "src/modules/billing/billing.port.ts",
+      text: 'export const port = definePort("billing.invoice");',
+    },
+    {
+      module: "billing",
+      path: "src/modules/billing/billing.module.ts",
+      text: 'import { port } from "./billing.port.ts";\nprovidePort(port, {});',
+    },
+  ]);
+  assertEquals(boundaries.requiredPorts.map(({ port }) => port), ["orders.payment"]);
+  assertEquals(boundaries.providedPorts.map(({ port }) => port), ["billing.invoice"]);
+  assertEquals(
+    doctor({
+      root: "demo",
+      modules: ["orders", "billing"],
+      hasDenoConfig: true,
+      hasApplicationEntry: true,
+      boundaries,
+    }).map(({ code }) => code),
+    ["PORT_PROVIDER_MISSING"],
+  );
+});
+
 Deno.test("boundary inspection marks heuristic analysis and unresolved references", () => {
   const boundaries = inspectModuleBoundaries([{
     module: "orders",
