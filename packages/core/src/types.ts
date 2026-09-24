@@ -250,6 +250,7 @@ export interface ApplicationOptions {
 
 export const DEFAULT_BODY_LIMIT_BYTES = 10_485_760;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 export interface AppConfig {
   readonly name: string;
@@ -258,6 +259,8 @@ export interface AppConfig {
   readonly requestIdHeader: string;
   readonly bodyLimitBytes?: number;
   readonly requestTimeoutMs?: number;
+  /** How long `close()` waits for in-flight requests before aborting them. */
+  readonly shutdownTimeoutMs?: number;
   readonly openapi: {
     readonly enabled?: boolean;
     readonly title: string;
@@ -274,6 +277,7 @@ export interface AppConfigOptions {
   readonly requestIdHeader?: string;
   readonly bodyLimitBytes?: number;
   readonly requestTimeoutMs?: number;
+  readonly shutdownTimeoutMs?: number;
   readonly openapi?: {
     readonly enabled?: boolean;
     readonly title?: string;
@@ -285,6 +289,10 @@ export interface AppConfigOptions {
 
 export interface HyApiOptions {
   readonly config: AppConfig;
+  readonly modules?: readonly Module[];
+  readonly plugins?: readonly Plugin[];
+  readonly overrides?: readonly ServiceOverride[];
+  readonly providers?: readonly PortProvider<unknown>[];
 }
 
 export interface OpenApiInfo {
@@ -325,6 +333,7 @@ export function defineConfig(options: AppConfigOptions): AppConfig {
     requestIdHeader: options.requestIdHeader ?? "x-request-id",
     bodyLimitBytes: options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES,
     requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    shutdownTimeoutMs: options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
     openapi: {
       ...(options.openapi?.enabled === undefined ? {} : { enabled: options.openapi.enabled }),
       title: options.openapi?.title ?? `${options.name} API`,

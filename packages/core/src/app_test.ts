@@ -9,6 +9,7 @@ import {
 } from "@std/assert";
 import {
   type AppConfig,
+  AppError,
   type AuthProvider,
   createApplication,
   defineConfig,
@@ -29,6 +30,7 @@ import {
 import { expectStatus, requestJson } from "../mod.ts";
 import { ConfigurationError } from "../mod.ts";
 import { createApp } from "./app.ts";
+import { sleep } from "./timers.ts";
 import Type from "typebox";
 
 const config: AppConfig = {
@@ -69,7 +71,7 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
       },
     }),
   );
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/items/abc?limit=2", {
     headers: { "x-request-id": "request-123" },
@@ -104,7 +106,7 @@ Deno.test("request context exposes the effective deadline", async () => {
       return ok({ ok: true });
     },
   }));
-  await app.ready();
+  await app.start();
 
   const upstream = Date.now() + 60_000;
   await app.request("http://test/deadline", { headers: { "x-hyapi-deadline": String(upstream) } });
@@ -125,13 +127,14 @@ Deno.test("defineConfig provides ergonomic application defaults", () => {
     requestIdHeader: "x-request-id",
     bodyLimitBytes: 10485760,
     requestTimeoutMs: 300000,
+    shutdownTimeoutMs: 30000,
     openapi: { title: "orders API", version: "0.1.0", path: "/openapi.json" },
   });
 });
 
 Deno.test("unmatched routes return problem details", async () => {
   const app = createApp({ config });
-  await app.ready();
+  await app.start();
   const response = await app.request("http://test/missing");
   assertEquals(response.status, 404);
   const problem = await response.json();
@@ -563,7 +566,7 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
     });
   });
 
-  await app.ready();
+  await app.start();
 
   const openapiRes = await app.request("http://test/openapi.json");
   const doc = await openapiRes.json();
@@ -608,7 +611,7 @@ Deno.test("ready rejects protected routes without an auth provider", async () =>
     auth: {},
     handler: () => "private",
   }));
-  await assertRejects(() => app.ready(), ConfigurationError);
+  await assertRejects(() => app.start(), ConfigurationError);
 });
 
 Deno.test("multi-status response schema validates matching status code schema", async () => {
@@ -633,7 +636,7 @@ Deno.test("multi-status response schema validates matching status code schema", 
       },
     }),
   );
-  await app.ready();
+  await app.start();
 
   const resOk = await app.request("http://test/multi/ok");
   assertEquals(resOk.status, 200);
@@ -670,7 +673,7 @@ Deno.test("app - rejects undeclared statuses and missing response bodies", async
     }),
   );
 
-  await app.ready();
+  await app.start();
 
   const undeclared = await app.request("http://test/undeclared-status");
   assertEquals(undeclared.status, 500);
@@ -691,7 +694,7 @@ Deno.test("app - validates composite response schemas", async () => {
       handler: () => true,
     }),
   );
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/composite-response");
   assertEquals(response.status, 500);
@@ -720,7 +723,7 @@ Deno.test("query array schema coerces single query param to array", async () => 
       handler: ({ query, ok }) => ok({ tags: query.tag }),
     }),
   );
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/tags?tag=deno");
   assertEquals(response.status, 200);
@@ -781,7 +784,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
     });
   });
 
-  await app.ready();
+  await app.start();
 
   // Test public route -> only global hooks run
   log.length = 0;
@@ -832,7 +835,7 @@ Deno.test("TypeCompiler validates formats and coerces query params", async () =>
         }),
     }),
   );
-  await app.ready();
+  await app.start();
 
   const valid = await app.request("http://test/validate?email=ada@example.com&age=25&active=true");
   assertEquals(valid.status, 200);
@@ -875,7 +878,7 @@ Deno.test("multi-format body parsing handles form URL-encoded and multipart", as
     }),
   );
 
-  await app.ready();
+  await app.start();
 
   // Test application/x-www-form-urlencoded
   const formRes = await app.request("http://test/form", {
@@ -932,7 +935,7 @@ Deno.test("app - enforces required and optional request bodies without consuming
     }),
   );
 
-  await app.ready();
+  await app.start();
 
   const missing = await app.request("http://test/required-body", { method: "POST" });
   assertEquals(missing.status, 400);
@@ -981,7 +984,7 @@ Deno.test("app - rejects unsupported request media types", async () => {
       handler: ({ ok }) => ok({ accepted: true }),
     }),
   );
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/unsupported-body", {
     method: "POST",
@@ -1020,7 +1023,7 @@ Deno.test("app - shares request state across hooks and handler", async () => {
       },
     }),
   );
-  await app.ready();
+  await app.start();
 
   const res = await app.request("http://test/state-test");
   assertEquals(res.status, 200);
@@ -1046,7 +1049,7 @@ Deno.test("app - triggers onError hooks on failures", async () => {
       },
     }),
   );
-  await app.ready();
+  await app.start();
 
   const res = await app.request("http://test/fail");
   assertEquals(res.status, 500);
@@ -1082,7 +1085,7 @@ Deno.test("app - supports optional authentication", async () => {
       },
     }),
   );
-  await app.ready();
+  await app.start();
 
   // Without token -> succeeds with identity: null
   const resNoToken = await app.request("http://test/optional");
@@ -1106,7 +1109,7 @@ Deno.test("app - supports returning raw Response object from handler", async () 
       handler: () => new Response("custom stream or raw body", { status: 202 }),
     }),
   );
-  await app.ready();
+  await app.start();
 
   const res = await app.request("http://test/raw-response");
   assertEquals(res.status, 202);
@@ -1122,7 +1125,7 @@ Deno.test("app - enforces the configured request body limit", async () => {
     responses: { 200: Type.Object({ name: Type.String() }) },
     handler: ({ body, ok }) => ok(body),
   }));
-  await app.ready();
+  await app.start();
 
   const accepted = await app.request("http://test/limited", {
     method: "POST",
@@ -1177,7 +1180,7 @@ Deno.test("app - enforces bodyLimitBytes on routes without a body schema", async
       return new Response(null, { status: 204 });
     },
   }));
-  await app.ready();
+  await app.start();
 
   const oversized = await app.request("http://test/raw", {
     method: "POST",
@@ -1214,7 +1217,7 @@ Deno.test("app - rejects an oversized open body stream with 413", async () => {
     request: { body: Type.Object({ name: Type.String() }) },
     handler: () => new Response(null, { status: 204 }),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await withinOneSecond(Promise.resolve(app.request("http://test/limited", {
     method: "POST",
@@ -1242,7 +1245,7 @@ Deno.test("app - request timeout cancels a stalled body read", async () => {
     request: { body: Type.Object({ name: Type.String() }) },
     handler: () => new Response(null, { status: 204 }),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await withinOneSecond(Promise.resolve(app.request("http://test/stalled", {
     method: "POST",
@@ -1275,7 +1278,7 @@ Deno.test("app - error responses do not inherit headers from the replaced respon
         headers: { location: "/home", "set-cookie": "session=abc; HttpOnly" },
       }),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/redirect");
   assertEquals(response.status, 500);
@@ -1304,7 +1307,7 @@ Deno.test("app - accepts structured +json request media types", async () => {
     responses: { 200: Type.Object({ name: Type.String() }) },
     handler: ({ body, ok }) => ok(body),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/patch", {
     method: "PATCH",
@@ -1322,7 +1325,7 @@ Deno.test("app - replaces malformed request ids and tags immutable responses", a
     path: "/redirect",
     handler: () => Response.redirect("http://test/elsewhere", 302),
   }));
-  await app.ready();
+  await app.start();
 
   const malformed = await app.request("http://test/missing", {
     headers: { "x-request-id": "bad value\n" },
@@ -1359,7 +1362,7 @@ Deno.test("app - request cleanup failures reach onError without replacing the re
       return ok({ ok: true });
     },
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/cleanup");
   assertEquals(response.status, 200);
@@ -1376,7 +1379,7 @@ Deno.test("app - handler SyntaxErrors are internal server errors", async () => {
     path: "/syntax",
     handler: () => JSON.parse("{"),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/syntax");
   assertEquals(response.status, 500);
@@ -1398,7 +1401,7 @@ Deno.test("app - raw Response results must use a declared status", async () => {
     responses,
     handler: () => Response.json({ ok: true }),
   }));
-  await app.ready();
+  await app.start();
 
   const undeclared = await app.request("http://test/raw-undeclared");
   assertEquals(undeclared.status, 500);
@@ -1417,7 +1420,7 @@ Deno.test("app - response bodies drop properties the schema does not declare", a
     responses: { 200: Type.Object({ id: Type.String(), name: Type.String() }) },
     handler: ({ ok }) => ok({ id: "u1", name: "Ada", passwordHash: "secret" }),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/users/me");
   assertEquals(response.status, 200);
@@ -1456,7 +1459,7 @@ Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration",
     path: "/openapi.json",
     handler: ({ ok }) => ok({ custom: true }),
   }));
-  await withoutDocs.ready();
+  await withoutDocs.start();
   assertEquals(await (await withoutDocs.request("http://test/openapi.json")).json(), {
     custom: true,
   });
@@ -1473,7 +1476,7 @@ Deno.test("app - rejects requests whose upstream deadline has passed", async () 
       return ok({ ok: true });
     },
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/late", { headers: { "x-hyapi-deadline": "1" } });
   assertEquals(response.status, 504);
@@ -1542,7 +1545,7 @@ Deno.test("withHttpContext propagates the effective deadline and request id head
       return context.ok({ ok: true });
     },
   }));
-  await app.ready();
+  await app.start();
 
   await app.request("http://test/propagate", { headers: { "x-correlation-id": "corr-1" } });
   assert(outgoing !== undefined);
@@ -1566,7 +1569,7 @@ Deno.test("group hooks registered after a route still run for that route", async
       log.push("late:request");
     });
   });
-  await app.ready();
+  await app.start();
 
   assertEquals((await app.request("http://test/late")).status, 200);
   assertEquals(log, ["late:request", "handler"]);
@@ -1578,7 +1581,7 @@ Deno.test("app rejects hook, route, and auth provider registration after start",
   app.group("/group", (group) => {
     captured = group;
   });
-  await app.ready();
+  await app.start();
 
   assertThrows(
     () => app.addHook("onRequest", () => undefined),
@@ -1623,7 +1626,7 @@ Deno.test("group onError and onResponse hooks run when a handler fails", async (
       },
     }));
   });
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/api/fail");
   assertEquals(response.status, 500);
@@ -1648,7 +1651,7 @@ Deno.test("group and route scopes merge as a union", async () => {
       handler: ({ created }) => created({ ok: true }),
     }));
   });
-  await app.ready();
+  await app.start();
 
   const call = (scopes: string) =>
     app.request("http://test/users", { method: "POST", headers: { "x-scopes": scopes } });
@@ -1699,7 +1702,7 @@ Deno.test("singleton factories cannot resolve request-scoped services", async ()
     path: "/leaky",
     handler: async ({ services, ok }) => ok(await services.get(leaky)),
   }));
-  await app.ready();
+  await app.start();
 
   const response = await app.request("http://test/leaky");
   assertEquals(response.status, 500);
@@ -1719,7 +1722,7 @@ Deno.test("failed singleton factories are retried on the next resolution", async
     path: "/flaky",
     handler: async ({ services, ok }) => ok(await services.get(flaky)),
   }));
-  await app.ready();
+  await app.start();
 
   const failed = await app.request("http://test/flaky");
   assertEquals(failed.status, 500);
@@ -1891,4 +1894,227 @@ Deno.test("plugins receive only the platform API", async () => {
   assertEquals(Object.keys(platform).sort(), ["addHook", "setAuthProvider"]);
   assert(Object.isFrozen(platform));
   await app.close();
+});
+
+Deno.test("requests after close return 503 and never reuse closed singletons", async () => {
+  const log: string[] = [];
+  const app = await createApplication({
+    config,
+    modules: [defineModule({
+      name: "db",
+      setup(module) {
+        const db = module.singleton(() => {
+          log.push("create");
+          return { close: () => void log.push("close") };
+        });
+        module.route(defineRoute({
+          method: "get",
+          path: "/db",
+          handler: async ({ services }) => {
+            await services.get(db);
+            return new Response(null, { status: 204 });
+          },
+        }));
+      },
+    })],
+  });
+  assertEquals((await app.request("http://test/db")).status, 204);
+  await app.close();
+
+  const response = await app.request("http://test/db");
+  assertEquals(response.status, 503);
+  assert(response.headers.get("x-request-id"));
+  assertEquals((await response.json()).code, "APPLICATION_UNAVAILABLE");
+  assertEquals(log, ["create", "close"]);
+});
+
+Deno.test("request services outliving their request are closed and never created late", async () => {
+  const log: string[] = [];
+  const outcomes = Promise.withResolvers<unknown[]>();
+  const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
+  const connection = app.requestService(async () => {
+    await sleep(60);
+    log.push("request:create");
+    return { close: () => void log.push("request:close") };
+  });
+  const code = (error: unknown) => error instanceof AppError ? error.code : error;
+  app.route(defineRoute({
+    method: "get",
+    path: "/slow",
+    handler: async ({ services }) => {
+      // Started before the timeout, finished after the request scope closed.
+      const inFlight = await services.get(connection).then(() => "resolved", code);
+      // Started after the request scope closed.
+      const late = await services.get(connection).then(() => "resolved", code);
+      outcomes.resolve([inFlight, late]);
+      return new Response(null, { status: 204 });
+    },
+  }));
+  await app.start();
+
+  const response = await app.request("http://test/slow");
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  assertEquals(await withinOneSecond(outcomes.promise), ["SCOPE_CLOSED", "SCOPE_CLOSED"]);
+  assertEquals(log, ["request:create", "request:close"]);
+  await app.close();
+});
+
+Deno.test("close drains in-flight requests before closing providers", async () => {
+  const log: string[] = [];
+  const port = definePort<{ query(): string }>("drain.db");
+  const app = await createApplication({
+    config,
+    providers: [providePort(port, { query: () => "row" }, {
+      close: () => void log.push("provider:close"),
+    })],
+    modules: [defineModule({
+      name: "work",
+      requires: [port],
+      setup(module) {
+        const db = module.use(port);
+        module.route(defineRoute({
+          method: "get",
+          path: "/work",
+          handler: async () => {
+            log.push("handler:start");
+            await sleep(50);
+            log.push(`handler:use:${db.query()}`);
+            return new Response(null, { status: 204 });
+          },
+        }));
+      },
+    })],
+  });
+
+  const inflight = app.request("http://test/work");
+  await sleep(5);
+  await withinOneSecond(app.close());
+  log.push("close:resolved");
+  assertEquals((await inflight).status, 204);
+  assertEquals(log, ["handler:start", "handler:use:row", "provider:close", "close:resolved"]);
+});
+
+Deno.test("close aborts requests that outlive shutdownTimeoutMs", async () => {
+  let observed = false;
+  const app = await createApplication({
+    config: { ...config, shutdownTimeoutMs: 20 },
+    modules: [defineModule({
+      name: "stuck",
+      setup(module) {
+        module.route(defineRoute({
+          method: "get",
+          path: "/stuck",
+          handler: async ({ signal }) => {
+            const aborted = Promise.withResolvers<void>();
+            signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+            await aborted.promise;
+            observed = signal.aborted;
+            return new Response(null, { status: 204 });
+          },
+        }));
+      },
+    })],
+  });
+
+  const inflight = app.request("http://test/stuck");
+  await sleep(5);
+  await withinOneSecond(app.close());
+  const response = await withinOneSecond(Promise.resolve(inflight));
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "APPLICATION_UNAVAILABLE");
+  assertEquals(observed, true);
+});
+
+Deno.test("requestTimeoutMs bounds global onRequest hooks", async () => {
+  const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
+  app.addHook("onRequest", () => sleep(150));
+  app.route(defineRoute({
+    method: "get",
+    path: "/hooked",
+    handler: () => new Response(null, { status: 204 }),
+  }));
+  await app.start();
+
+  const started = Date.now();
+  const response = await app.request("http://test/hooked");
+  assert(Date.now() - started < 100);
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  await app.close();
+});
+
+Deno.test("health reports unhealthy without probing providers after close", async () => {
+  let probes = 0;
+  const app = await createApplication({
+    config,
+    modules: [],
+    providers: [providePort(definePort("probed"), {}, {
+      health: () => {
+        probes += 1;
+        return { status: "healthy", provider: "probed" };
+      },
+    })],
+  });
+  assertEquals((await app.health()).status, "healthy");
+  await app.close();
+
+  assertEquals(await app.health(), { status: "unhealthy", providers: [] });
+  assertEquals(probes, 1);
+});
+
+Deno.test("a failing onResponse hook still lets outer hooks see the error response", async () => {
+  const statuses: number[] = [];
+  const app = createApp({ config });
+  app.addHook("onResponse", () => {
+    throw new Error("hook failed");
+  });
+  app.addHook("onResponse", ({ response }) => {
+    statuses.push(response?.status ?? 0);
+  });
+  app.route(defineRoute({ method: "get", path: "/ok", handler: () => new Response("ok") }));
+  await app.start();
+
+  const response = await app.request("http://test/ok");
+  assertEquals(response.status, 500);
+  assertEquals(response.headers.get("content-type"), "application/problem+json");
+  await response.body?.cancel();
+  assertEquals(statuses, [500]);
+  await app.close();
+});
+
+Deno.test("ctx.signal aborts when the client disconnects", async () => {
+  const observed = Promise.withResolvers<boolean>();
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/watch",
+    handler: async ({ signal }) => {
+      const aborted = Promise.withResolvers<void>();
+      signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+      await aborted.promise;
+      observed.resolve(signal.aborted);
+      return new Response(null, { status: 204 });
+    },
+  }));
+  await app.start();
+
+  const client = new AbortController();
+  const pending = app.request("http://test/watch", { signal: client.signal });
+  await sleep(10);
+  client.abort();
+  assertEquals(await withinOneSecond(observed.promise), true);
+  await (await withinOneSecond(pending)).body?.cancel();
+  await app.close();
+});
+
+Deno.test("createApplication rejects invalid shutdown timeouts", async () => {
+  for (const shutdownTimeoutMs of [0, 2_147_483_648]) {
+    await assertRejects(
+      () =>
+        createApplication({ config: defineConfig({ name: "t", shutdownTimeoutMs }), modules: [] }),
+      ConfigurationError,
+      "shutdownTimeoutMs must be a positive integer of at most 2147483647.",
+    );
+  }
 });

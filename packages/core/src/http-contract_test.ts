@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertThrows } from "@std/assert";
 import Type from "typebox";
 import {
   type AppConfig,
@@ -345,6 +345,30 @@ Deno.test("HTTP clients report caller cancellation as aborted without fetching",
   );
   assertEquals(error.reason, "aborted");
   assertEquals(calls, 0);
+});
+
+Deno.test("HTTP clients stop retrying when the caller aborts during backoff", async () => {
+  let calls = 0;
+  const client = createHttpContractClient(catalogContract, {
+    baseUrl: "http://test",
+    timeoutMs: 1000,
+    resilience: { retry: { maxAttempts: 2, initialDelayMs: 300 } },
+    fetch: () => {
+      calls += 1;
+      return Response.json({}, { status: 503 });
+    },
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 20);
+  const started = Date.now();
+
+  const error = await assertRejects(
+    () => client.getItem({ params: { id: "k" } }, { signal: controller.signal }),
+    HttpContractClientError,
+  );
+  assertEquals(error.reason, "aborted");
+  assertEquals(calls, 1);
+  assert(Date.now() - started < 200);
 });
 
 Deno.test("HTTP deadline failures do not open the circuit breaker", async () => {

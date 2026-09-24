@@ -191,16 +191,19 @@ const config = defineConfig({
   name: "items-api",
   bodyLimitBytes: 1_048_576, // default 10485760 (10 MiB); larger bodies return 413
   requestTimeoutMs: 30_000, // default 300000 (5 minutes); expiry returns 503
+  shutdownTimeoutMs: 10_000, // default 30000; how long close() waits for in-flight requests
   openapi: { enabled: false }, // default true; disables GET /openapi.json
 });
 ```
 
 - `bodyLimitBytes` limits every request body, including streamed bodies without `Content-Length`.
   Larger bodies are rejected with 413 `PAYLOAD_TOO_LARGE`.
-- `requestTimeoutMs` bounds the time from group `onRequest` hooks to the handler's response. On
+- `requestTimeoutMs` bounds the time from global `onRequest` hooks to the handler's response. On
   expiry, `ctx.signal` is aborted and the client receives 503 `REQUEST_TIMEOUT`. A request whose
   upstream `x-hyapi-deadline` has already passed is rejected with 504 `DEADLINE_EXCEEDED` before the
   handler runs.
+- `shutdownTimeoutMs` bounds how long `app.close()` waits for in-flight requests before aborting
+  their `ctx.signal`.
 - `openapi.enabled: false` removes the OpenAPI document route.
 
 ### 5. Modules, Services, and Plugins
@@ -241,20 +244,26 @@ const app = await createApplication({
   plugins: [databasePlugin, jwtPlugin({ secret: env.JWT_SECRET })],
 });
 
-// Graceful shutdown runs module and plugin lifecycle hooks in reverse order.
+// Graceful shutdown stops accepting requests, waits for in-flight ones, then runs module and
+// plugin onClose hooks in reverse order.
 await app.close();
 ```
 
 A singleton factory cannot resolve request-scoped services. A factory that throws is not cached, so
-the next resolution retries it. If startup fails, modules and plugins that were already set up are
-closed in reverse order before `createApplication()` rejects.
+the next resolution retries it. Resolving a request-scoped service after its request ended, or a
+singleton after `close()`, rejects with `AppError` code `SCOPE_CLOSED`. If startup fails, modules
+and plugins that were already set up are closed in reverse order before `createApplication()`
+rejects.
 
 Lifecycle order is
 `global onRequest → deadline/timeout check → group onRequest (outer→inner) → authentication → validation → handler → response validation → group onResponse (inner→outer) → global onResponse`.
-Error responses also pass through group and global `onResponse` hooks (after `onError`). Everything
-from group `onRequest` to the handler's response is bounded by the earlier of `requestTimeoutMs` and
-the upstream deadline; on expiry `ctx.signal` is aborted. Failures use `application/problem+json`
-(RFC 7807) and include the request ID.
+Error responses also pass through group and global `onResponse` hooks (after `onError`); when an
+`onResponse` hook throws, its error response replaces the response and the remaining outer hooks
+still run. Everything from global `onRequest` to the handler's response is bounded by the earlier of
+`requestTimeoutMs` and the upstream deadline; on expiry `ctx.signal` is aborted. `ctx.signal` is
+also aborted when the client disconnects. Request-scoped services close after the response hooks,
+and cleanup failures are reported to `onError` without changing the response. Failures use
+`application/problem+json` (RFC 7807) and include the request ID.
 
 ### 6. Public Module Ports
 

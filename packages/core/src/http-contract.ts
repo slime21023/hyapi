@@ -3,12 +3,12 @@ import { ConfigurationError } from "./errors.ts";
 import {
   computeRetryDelay,
   createGuard,
-  MAX_TIMER_MS,
   ResilienceError,
   type ResiliencePolicy,
   type RetryPolicy,
   validateRetryPolicy,
 } from "./resilience.ts";
+import { MAX_TIMER_MS, sleep } from "./timers.ts";
 import type {
   ContractVersion,
   HttpMethod,
@@ -306,7 +306,15 @@ async function runClientRetry(
       if (invocation.deadline !== undefined && Date.now() + delayMs >= invocation.deadline) {
         throw new HttpContractClientError(invocation.name, "deadline", undefined, { cause: error });
       }
-      if (delayMs > 0) await delay(delayMs);
+      if (delayMs > 0) {
+        try {
+          await sleep(delayMs, invocation.init?.signal ?? undefined);
+        } catch {
+          throw new HttpContractClientError(invocation.name, "aborted", undefined, {
+            cause: error,
+          });
+        }
+      }
     }
   }
 }
@@ -409,12 +417,6 @@ async function invokeOnce(
 function resolveDeadline(...deadlines: Array<number | undefined>): number | undefined {
   const valid = deadlines.filter((deadline): deadline is number => deadline !== undefined);
   return valid.length === 0 ? undefined : Math.min(...valid);
-}
-
-function delay(milliseconds: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, milliseconds);
-  return promise;
 }
 
 function interpolatePath(path: string, params: unknown): string {

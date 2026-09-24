@@ -49,8 +49,18 @@ try {
 }
 ```
 
-`app.close()` runs module and plugin `onClose` hooks in reverse order, closes providers in reverse
-registration order, and closes singleton services.
+`app.close()` shuts down in this order:
+
+1. It stops accepting requests. New requests receive 503 `APPLICATION_UNAVAILABLE`, and
+   `app.health()` reports `unhealthy`, so readiness probes fail while the application drains.
+2. It waits up to `shutdownTimeoutMs` (default 30000 ms) for in-flight requests, including handlers
+   abandoned after a request timeout. Requests still running after that are aborted through
+   `ctx.signal`.
+3. It runs module and plugin `onClose` hooks in reverse order, then closes singleton services and
+   providers in reverse order.
+
+Keep `shutdownTimeoutMs` below your orchestrator's grace period (for example Kubernetes
+`terminationGracePeriodSeconds`, 30 seconds by default).
 
 ### Reverse proxies
 

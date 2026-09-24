@@ -1,6 +1,5 @@
 import type { MaybePromise } from "./types.ts";
-
-export const MAX_TIMER_MS = 2_147_483_647;
+import { MAX_TIMER_MS, sleep } from "./timers.ts";
 
 export interface RetryPolicy {
   readonly maxAttempts: number;
@@ -124,7 +123,7 @@ async function runWithRetry<T>(
         throw error;
       }
       const delayMs = computeRetryDelay(policy, attempt);
-      if (delayMs > 0) await delay(delayMs);
+      if (delayMs > 0) await sleep(delayMs);
     }
   }
 }
@@ -350,10 +349,4 @@ function validatePolicy(policy: ResiliencePolicy): void {
   ) {
     throw new Error("Bulkhead queueSize must be a non-negative integer.");
   }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, milliseconds);
-  return promise;
 }

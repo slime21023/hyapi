@@ -7,8 +7,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- `shutdownTimeoutMs` application setting (default 30000 ms): `app.close()` drains in-flight
+  requests for up to this long, then aborts the remaining ones through `ctx.signal`.
+
+### Changed
+
+- The core runs on one lifecycle state machine: application and request resources are released in
+  reverse order by a shared scope, and every error response comes from one request pipeline.
+- **Breaking:** requests received before start or after `close()` return 503
+  `APPLICATION_UNAVAILABLE`, and `app.health()` reports `unhealthy` once the application stops.
+- **Breaking:** `requestTimeoutMs` also bounds global `onRequest` hooks; `ctx.signal` also aborts
+  when the client disconnects.
+- **Breaking:** when an `onResponse` hook throws, the remaining outer hooks still run and see the
+  error response.
+- **Breaking:** resolving a request-scoped service after its request, or a singleton after
+  `close()`, rejects with `SCOPE_CLOSED`; request cleanup failures only reach `onError`.
+
 ### Fixed
 
+- `close()` no longer closes providers and singletons under running requests, and requests after
+  `close()` no longer reuse closed singletons.
+- Request services created after a request timed out are closed instead of leaked.
+- HTTP client retry backoff stops as soon as the caller aborts.
 - `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
   oversized streamed body returns 413 instead of hanging, and a request timeout cancels a stalled
   body read.
