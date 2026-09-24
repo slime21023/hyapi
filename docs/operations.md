@@ -10,11 +10,16 @@ implementation is the example app in [`apps/example`](../apps/example).
 Run the server with explicit Deno permissions:
 
 ```text
-deno run --allow-net --allow-env src/main.ts
+deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts
 ```
 
 - `--allow-net` is needed by the HTTP listener and by remote providers created with `provideHttp()`.
 - `--allow-env` is needed to read configuration and secrets.
+
+Use `--unstable-no-legacy-abort` with Deno 2.9+ (included in the repository's `dev`/`start` tasks).
+Without it, Deno can abort the incoming `Request.signal` after a successful response, even though
+the client did not disconnect. HyAPI forwards client aborts to `ctx.signal` only while the request
+scope is active; deadline and shutdown aborts remain independently owned by HyAPI.
 
 ### Environment variables
 
@@ -33,34 +38,40 @@ The example app reads the following variables (see [`.env.example`](../.env.exam
 
 ### Graceful shutdown
 
-Pass an abort signal to `Deno.serve()` and close the application after the server finishes, as in
-[`apps/example/src/main.ts`](../apps/example/src/main.ts):
-
-```ts
-const controller = new AbortController();
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => controller.abort());
-}
-const server = Deno.serve({ port, signal: controller.signal }, app.fetch.bind(app));
-try {
-  await server.finished;
-} finally {
-  await app.close();
-}
-```
+On SIGINT/SIGTERM, start `app.close()` immediately and stop the listener after any active
+transmissions complete, as in [`apps/example/src/main.ts`](../apps/example/src/main.ts).
+`info.completed` observes network delivery only; request scopes still close when a `Response`
+returns. Deno 2.9 can raise `BadResource` if the ServeOptions signal aborts during an already
+running `server.shutdown()` with an unfinished stream. Therefore the listener defers
+`server.shutdown()` until active transmissions finish; at the `2 * shutdownTimeoutMs + 1000` ms
+grace deadline, it aborts ServeOptions first, then calls `server.shutdown()`. The shutdown promise
+is memoized across repeated signals and normal `server.finished` completion; both application and
+server errors are retained (as an `AggregateError` when both fail).
 
 `app.close()` shuts down in this order:
 
 1. It stops accepting requests. New requests receive 503 `APPLICATION_UNAVAILABLE`, and
    `app.health()` reports `unhealthy`, so readiness probes fail while the application drains.
 2. It waits up to `shutdownTimeoutMs` (default 30000 ms) for in-flight requests, including handlers
-   abandoned after a request timeout. Requests still running after that are aborted through
-   `ctx.signal`.
-3. It runs module and plugin `onClose` hooks in reverse order, then closes singleton services and
-   providers in reverse order.
+   abandoned after a request timeout. It then aborts remaining requests through `ctx.signal` and
+   waits at most `min(1000, shutdownTimeoutMs)` more for cooperative request cleanup.
+3. It gives module/plugin `onClose`, singleton services, and providers a separate shared
+   `shutdownTimeoutMs` cleanup budget, in reverse acquisition order. Async closers exceeding the
+   budget report `TimeoutError` in the shutdown `AggregateError`; synchronous blocking work cannot
+   be interrupted.
 
-Keep `shutdownTimeoutMs` below your orchestrator's grace period (for example Kubernetes
-`terminationGracePeriodSeconds`, 30 seconds by default).
+The listener's grace deadline is `2 * shutdownTimeoutMs + 1000` ms (61 seconds at defaults). Set the
+orchestrator's termination grace **above 61 seconds plus external overhead**. On forced timeout, an
+uncooperative handler can still run after modules/providers close; resource cleanup is best effort,
+not a guarantee that such code can safely use providers.
+
+If provider connection fails during startup, its original connect exception is first in the reported
+`AggregateError`, followed by provider rollback failures and later plugin/module cleanup failures in
+order. Nested cleanup aggregates are flattened; the failed provider stage remains the startup
+aggregate's `cause`, with the connect exception as its own `cause`.
+
+The ownership and error-routing decisions are recorded in
+[ADR 0001](adr/0001-layered-error-scopes.md).
 
 ### Reverse proxies
 
@@ -80,6 +91,27 @@ const config = defineConfig({
 });
 ```
 
+### Response stream ownership
+
+HyAPI releases request services when a `Response` is returned, not when its body finishes
+transmitting. A lazy `ReadableStream` must own and close its own resources in `pull`/`cancel`; it
+must not access request services, singletons, providers, or `ctx.signal` after return. Example:
+
+```ts
+const payload = new TextEncoder().encode("ready\n");
+return new Response(
+  new ReadableStream({
+    pull(controller) {
+      controller.enqueue(payload);
+      controller.close();
+    },
+  }, { highWaterMark: 0 }),
+);
+```
+
+Errors after HTTP status is committed propagate to the body consumer or Deno transport, not to
+HyAPI's `onError` or a new problem+json response.
+
 ## Observability
 
 ### Request IDs
@@ -96,6 +128,13 @@ Use global lifecycle hooks from a plugin to emit logs and metrics. The example a
 time in `onRequest` and logs a structured `request.complete` event with the request ID, method,
 path, status, and duration in `onResponse`. Error responses also pass through `onResponse`, so the
 same hook observes failures; use `onError` to record the underlying error.
+
+`onError` observers are invoked group then global, in order, and each receives the failure being
+reported even if another observer changed `lifecycle.error`. Each is awaited only until it settles
+or the original request deadline/forced shutdown interrupts the wait. Cleanup notifications after
+the request ends use the remaining original deadline. An unsettled observer promise is observed as a
+background task, not allowed to indefinitely delay the selected HTTP failure; it may still run or
+mutate shared lifecycle state later, so do not rely on its completion for critical cleanup.
 
 ### Propagation to downstream services
 

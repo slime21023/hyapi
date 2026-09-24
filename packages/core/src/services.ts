@@ -50,10 +50,6 @@ export class ServiceContainer {
   }
 
   resolve<T>(service: ServiceReference<T>, requestServices?: RequestServices): Promise<T> {
-    if (service.name && this.#overrides.has(service.name)) {
-      return Promise.resolve(this.#overrides.get(service.name) as T);
-    }
-    if (service.scope === "transient") return this.#create(service, requestServices);
     if (service.scope === "request" && !requestServices) {
       return Promise.reject(
         new ConfigurationError(
@@ -61,8 +57,14 @@ export class ServiceContainer {
         ),
       );
     }
-    const owner = service.scope === "singleton" ? this.#singletonScope : requestServices!.scope;
-    if (owner.state !== "open") return Promise.reject(scopeClosedError());
+    if (service.scope !== "transient") {
+      const owner = service.scope === "singleton" ? this.#singletonScope : requestServices!.scope;
+      if (owner.state !== "open") return Promise.reject(scopeClosedError());
+    }
+    if (service.name && this.#overrides.has(service.name)) {
+      return Promise.resolve(this.#overrides.get(service.name) as T);
+    }
+    if (service.scope === "transient") return this.#create(service, requestServices);
     const cache = service.scope === "singleton" ? this.#singletons : requestServices!.cache;
     const key = service as ServiceReference<unknown>;
     const existing = cache.get(key);

@@ -40,7 +40,7 @@ export class ProviderRegistry {
   }
 
   /** Connects providers in registration order; once all connect, they close with `owner`. */
-  async connect(owner: Scope): Promise<void> {
+  async connect(owner: Scope, rollbackTimeoutMs: number): Promise<void> {
     const connected = new Scope("Provider shutdown failed.");
     try {
       for (const provider of this.#providers.values()) {
@@ -50,7 +50,7 @@ export class ProviderRegistry {
     } catch (error) {
       const rollbackErrors: unknown[] = [];
       try {
-        await connected.close();
+        await connected.close(Date.now() + rollbackTimeoutMs);
       } catch (closeError) {
         collectError(rollbackErrors, closeError);
       }
@@ -58,7 +58,7 @@ export class ProviderRegistry {
         cause: error,
       });
     }
-    owner.defer(() => connected.close());
+    owner.defer((deadline) => connected.close(deadline));
   }
 
   async health(): Promise<HealthReport> {

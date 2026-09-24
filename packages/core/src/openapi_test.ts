@@ -187,3 +187,27 @@ Deno.test("OpenAPI - documents 413 and 415 problems for routes with request bodi
   assertEquals(list.responses["413"], undefined);
   assertEquals(list.responses["415"], undefined);
 });
+
+Deno.test("OpenAPI does not invent a problem-only body for an untyped failure fallback", () => {
+  const document = buildOpenApiDocument(
+    [{
+      method: "get",
+      path: "/fallback",
+      responseStatus: 404,
+      handler: () => ({ message: "missing" }),
+    }],
+    new SchemaValidator(),
+    {
+      info: { title: "Test", version: "1.0.0" },
+      path: "/openapi.json",
+    },
+  ) as {
+    paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
+  };
+
+  const fallback = document.paths["/fallback"]?.get;
+  assert(fallback);
+  assertEquals(fallback.responses["404"], {
+    description: "Status 404 response",
+  });
+});

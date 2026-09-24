@@ -26,6 +26,7 @@ import type { RequestServices, ServiceContainer } from "./services.ts";
 import { Scope } from "./scope.ts";
 import { sleep } from "./timers.ts";
 import {
+  assertSupportedRequestMediaType,
   headerObject,
   limitRequestBody,
   parseRequestBody,
@@ -66,6 +67,16 @@ export function errorResponse(error: unknown, request: Request, requestId: strin
   return new Response(JSON.stringify(problem), { status: problem.status, headers });
 }
 
+/** Discard only bodies no longer returned to the caller; cancellation is best effort. */
+function discardResponseBody(response: Response): void {
+  if (!response.body || response.body.locked) return;
+  try {
+    void response.body.cancel().catch(() => undefined);
+  } catch {
+    // A broken stream must not replace or delay the selected error response.
+  }
+}
+
 async function runHookList(
   hooks: readonly LifecycleHook[],
   lifecycle: LifecycleContext,
@@ -90,6 +101,9 @@ export class RequestScope {
   readonly deadline: number;
   readonly deadlineSource: "header" | "timeout";
   readonly controller = new AbortController();
+  readonly #disconnect = new AbortController();
+  readonly #onDisconnect: () => void;
+  #lifecycleRequest: Request;
   /** Aborted by the deadline, by a forced shutdown, or when the client disconnects. */
   readonly signal: AbortSignal;
   readonly lifecycle: LifecycleContext;
@@ -97,6 +111,8 @@ export class RequestScope {
   readonly #requestTimeoutMs: number;
   readonly #expired: Promise<never>;
   readonly #cancelTimer: () => void;
+  #ended = false;
+  failureSelected = false;
 
   constructor(
     request: Request,
@@ -113,9 +129,16 @@ export class RequestScope {
     const fromHeader = headerDeadline !== undefined && headerDeadline <= timeoutDeadline;
     this.deadline = fromHeader ? headerDeadline : timeoutDeadline;
     this.deadlineSource = fromHeader ? "header" : "timeout";
-    this.signal = AbortSignal.any([this.controller.signal, request.signal]);
+    this.signal = AbortSignal.any([this.controller.signal, this.#disconnect.signal]);
+    this.#lifecycleRequest = request;
+    this.#onDisconnect = () => this.#disconnect.abort(request.signal.reason);
+    if (request.signal.aborted) this.#onDisconnect();
+    else request.signal.addEventListener("abort", this.#onDisconnect, { once: true });
+    const lifecycleRequest = () => this.#lifecycleRequest;
     this.lifecycle = {
-      request,
+      get request() {
+        return lifecycleRequest();
+      },
       requestId,
       state: new Map(),
       route: null,
@@ -136,6 +159,10 @@ export class RequestScope {
       Math.max(0, this.deadline - Date.now()),
     );
     this.#cancelTimer = () => clearTimeout(timer);
+  }
+
+  setLifecycleRequest(request: Request): void {
+    this.#lifecycleRequest = request;
   }
 
   deadlineError(): AppError {
@@ -164,8 +191,37 @@ export class RequestScope {
     }
   }
 
+  /**
+   * Observe a notification only while the request is live. Cleanup notifications run after end()
+   * stops the request timer, so they need their own cancellable wait for the same deadline.
+   */
+  async observe(task: Promise<void>, tasks: TaskTracker): Promise<void> {
+    let deadlineWait: Promise<unknown> = this.#expired;
+    let timer: AbortController | undefined;
+    if (this.#ended) {
+      const remaining = this.deadline - Date.now();
+      if (remaining <= 0 || this.controller.signal.aborted) {
+        tasks.track(task);
+        return;
+      }
+      timer = new AbortController();
+      deadlineWait = Promise.race([this.#expired, sleep(remaining, timer.signal)]);
+    }
+    try {
+      const completed = await Promise.race([
+        task.then(() => true, () => true),
+        deadlineWait.then(() => false, () => false),
+      ]);
+      if (!completed) tasks.track(task);
+    } finally {
+      timer?.abort();
+    }
+  }
+
   end(): void {
+    this.#ended = true;
     this.#cancelTimer();
+    this.request.signal.removeEventListener("abort", this.#onDisconnect);
   }
 }
 
@@ -253,14 +309,33 @@ export class RequestPipeline {
         response = await this.failure(scope, error);
       }
       response = await this.#runOnResponse(host.globalHooks("onResponse"), scope, response);
-      return withHeader(response, host.config.requestIdHeader, requestId);
+      if (scope.controller.signal.aborted && !scope.failureSelected) {
+        discardResponseBody(response);
+        response = await this.failure(scope, scope.controller.signal.reason);
+      }
+      try {
+        return withHeader(response, host.config.requestIdHeader, requestId);
+      } catch (error) {
+        discardResponseBody(response);
+        const fallback = await this.failure(scope, error);
+        return withHeader(fallback, host.config.requestIdHeader, requestId);
+      }
     } finally {
       scope.end();
+      const cleanup = scope.services.scope.close(
+        scope.controller.signal.aborted ? Math.min(scope.deadline, Date.now()) : scope.deadline,
+      );
       try {
-        await scope.services.scope.close();
+        if (scope.controller.signal.aborted) await cleanup;
+        else await scope.race(() => cleanup, host.tasks);
       } catch (cleanupError) {
-        // A cleanup failure is reported but never replaces the response.
-        await this.#notifyError(scope, cleanupError);
+        if (scope.controller.signal.aborted && cleanupError === scope.controller.signal.reason) {
+          // Shutdown can release the chosen response before cleanup finishes. Keep the abandoned
+          // close tracked and report an eventual closer failure without changing that response.
+          void cleanup.catch((error) => this.#notifyError(scope, error));
+        } else {
+          await this.#notifyError(scope, cleanupError);
+        }
       }
       host.tasks.unregister(scope);
     }
@@ -285,16 +360,30 @@ export class RequestPipeline {
 
   /** The only place error responses are created; runs onError hooks first. */
   async failure(scope: RequestScope, error: unknown): Promise<Response> {
+    scope.failureSelected = true;
     await this.#notifyError(scope, error);
     return errorResponse(error, scope.request, scope.requestId);
   }
 
   /** Runs route-scoped and global onError hooks; hook failures are swallowed. */
   async #notifyError(scope: RequestScope, error: unknown): Promise<void> {
-    scope.lifecycle.error = error;
-    const route = scope.lifecycle.route;
-    if (route) await runHookList(this.#host.routeHooks(route).onError, scope.lifecycle, true);
-    await runHookList(this.#host.globalHooks("onError"), scope.lifecycle, true);
+    const lifecycle = scope.lifecycle;
+    const observeHooks = async (hooks: readonly LifecycleHook[]) => {
+      for (const hook of hooks) {
+        // Hooks share state, but each must observe the failure being reported even if a prior
+        // hook replaced lifecycle.error (or an abandoned hook later mutates it).
+        lifecycle.error = error;
+        try {
+          await scope.observe(Promise.resolve(hook(lifecycle)), this.#host.tasks);
+        } catch {
+          // Error observers cannot replace or re-notify the selected failure.
+        }
+      }
+    };
+    const route = lifecycle.route;
+    if (route) await observeHooks(this.#host.routeHooks(route).onError);
+    await observeHooks(this.#host.globalHooks("onError"));
+    lifecycle.error = error;
   }
 
   /** A failing hook replaces the response with a problem response; outer hooks still run. */
@@ -304,13 +393,30 @@ export class RequestPipeline {
     response: Response,
   ): Promise<Response> {
     let current = response;
+    if (scope.controller.signal.aborted && !scope.failureSelected) {
+      discardResponseBody(current);
+      current = await this.failure(scope, scope.controller.signal.reason);
+    }
     for (const hook of hooks) {
       scope.lifecycle.response = current;
+      if (scope.controller.signal.aborted) {
+        // A failure is already selected. Let outer hooks inspect it, but do not let an abandoned
+        // hook replace it or trigger another error notification after the deadline.
+        try {
+          await scope.observe(Promise.resolve(hook(scope.lifecycle)), this.#host.tasks);
+        } catch {
+          // The abort reason has precedence over a late observer failure.
+        }
+        continue;
+      }
       try {
-        await hook(scope.lifecycle);
+        await scope.race(() => Promise.resolve(hook(scope.lifecycle)), this.#host.tasks);
       } catch (error) {
-        await current.body?.cancel().catch(() => undefined);
-        current = await this.failure(scope, error);
+        discardResponseBody(current);
+        current = await this.failure(
+          scope,
+          scope.controller.signal.aborted ? scope.controller.signal.reason : error,
+        );
       }
     }
     scope.lifecycle.response = current;
@@ -341,9 +447,11 @@ export class RequestPipeline {
     let handlerRequest = boundedRequest;
     let rawBody: unknown;
     if (requestSchemas?.body && boundedRequest.body !== null) {
-      const bytes = await boundedRequest.arrayBuffer();
+      assertSupportedRequestMediaType(boundedRequest);
+      const bytes = new Uint8Array(await boundedRequest.arrayBuffer());
       handlerRequest = new Request(boundedRequest, { body: bytes });
-      rawBody = await parseRequestBody(new Request(boundedRequest, { body: bytes }));
+      scope.setLifecycleRequest(new Request(boundedRequest, { body: bytes }));
+      rawBody = await parseRequestBody(boundedRequest, bytes);
     }
     if (requestSchemas?.body && rawBody === undefined && requestSchemas.bodyRequired !== false) {
       throw new ValidationError("body", [{
@@ -358,7 +466,11 @@ export class RequestPipeline {
       ? host.validator.validate(requestSchemas.body, rawBody, "body")
       : rawBody;
     const headers = requestSchemas?.headers
-      ? host.validator.validate(requestSchemas.headers, headerObject(request.headers), "headers")
+      ? host.validator.validate(
+        requestSchemas.headers,
+        headerObject(request.headers, requestSchemas.headers),
+        "headers",
+      )
       : headerObject(request.headers);
 
     const routeContext: RequestContext = {
@@ -431,7 +543,7 @@ export class RequestPipeline {
 
     const declaredResponses = route.responses;
     if (declaredResponses && !Object.hasOwn(declaredResponses, status)) {
-      if (result instanceof Response) await result.body?.cancel().catch(() => undefined);
+      if (result instanceof Response) discardResponseBody(result);
       throw new ResponseContractError(
         `Response status ${status} is not declared for '${route.method.toUpperCase()} ${route.path}'.`,
         { status, declaredStatuses: Object.keys(declaredResponses).map(Number) },

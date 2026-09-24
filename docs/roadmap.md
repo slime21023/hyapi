@@ -154,9 +154,12 @@ deno task publish:check
 ```
 
 `deno task verify` covers formatting, linting, type checking, the complete test suite, the example
-`doctor` report, and a generated starter project (check, test, and doctor). CI runs the gate on
-Ubuntu and Windows, and a release-checks job runs a whole-tree whitespace check and the JSR publish
-dry-run. Performance results are recorded in
+`doctor` report, and a generated starter checked against local core source (the generated project's
+`verify` task, including formatting, type checking, and tests, plus CLI `doctor`). It does not
+establish that JSR dependencies resolve; after publishing, run
+`deno run --allow-read --allow-write --allow-run --allow-env scripts/verify-starter.ts --published`
+to check an unmodified starter. CI runs the gate on Ubuntu and Windows, and a release-checks job
+runs a whole-tree whitespace check and the JSR publish dry-run. Performance results are recorded in
 [docs/baselines/performance.md](baselines/performance.md).
 
 ## v1.0.0-rc.1 verification record

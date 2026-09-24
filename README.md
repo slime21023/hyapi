@@ -14,13 +14,15 @@ are in scope before v1.0.0.
 
 Read the [roadmap](docs/roadmap.md), [v1.0.0 migration guide](docs/migrations/v1.0.0.md),
 [changelog](CHANGELOG.md), [contribution/release policy](CONTRIBUTING.md),
-[security policy](SECURITY.md), [operations guide](docs/operations.md), and
+[security policy](SECURITY.md), [operations guide](docs/operations.md),
+[error-scope ADR](docs/adr/0001-layered-error-scopes.md), and
 [performance baseline](docs/baselines/performance.md).
 
 ## Key Features
 
-- **Schema-Driven Contracts**: TypeBox schemas derive both static TypeScript types and native JIT
-  validation with zero external validator dependencies.
+- **Schema-Driven Contracts**: TypeBox schemas infer request `params`, `query`, and `body` types;
+  framework-serialized responses are schema-validated at runtime, not statically checked against
+  response schemas. Native `Response` bodies remain opaque.
 - **Hierarchical Route Groups (`module.group`)**: Nested path prefixes, OpenAPI tags, auth scope
   union inheritance, and group-scoped lifecycle hooks.
 - **Multi-Format Request Body Parsing**: Automatic Content-Type parsing for `application/json`,
@@ -51,13 +53,32 @@ apps/example    health, JWT-protected users, and orders API composed through a P
 
 ```text
 deno run -A jsr:@hyapi/cli new my-api              create a starter project
+cd my-api
 deno run -A jsr:@hyapi/cli generate module billing create src/modules/billing
-deno run -A jsr:@hyapi/cli inspect my-api          list modules, ports, and boundaries
-deno run -A jsr:@hyapi/cli doctor my-api           diagnose boundary and structure problems
+deno run -A jsr:@hyapi/cli inspect .                list modules, ports, and boundaries
+deno run -A jsr:@hyapi/cli doctor .                 diagnose boundary and structure problems
 ```
+
+The JSR CLI command requires a published `@hyapi/cli` package. From a checkout, use
+`deno run --allow-read --allow-write packages/cli/mod.ts new my-api`; then `cd my-api` before
+running `deno run --allow-read --allow-write ../packages/cli/mod.ts generate module billing`. The
+generated starter depends on `jsr:@hyapi/core@^1.0.0-rc.2` and cannot check or start independently
+until that version is published. `deno task verify:starter` checks a local-source substitution, not
+registry availability; after publishing, run
+`deno run --allow-read --allow-write --allow-run --allow-env scripts/verify-starter.ts --published`
+to check an unmodified starter.
 
 `generate module` prints the import line and the `createApplication({ modules })` entry to add to
 `src/app.ts`. Shared ports belong in `src/contracts/`.
+
+Creating a module does not register it: add the printed import and `modules` array entry manually.
+`doctor` checks project structure and Port boundaries heuristically; a healthy report does not prove
+every module under `src/modules/` is included in `createApplication()`.
+
+In a generated project, `deno task verify` checks formatting, types, and tests; generated module
+tests exercise their GET routes even before manual registration. `deno task start` listens on
+`127.0.0.1:8000` by default; set `HOST` and `PORT` to choose the listener address and port.
+Generated `dev` and `start` tasks grant `--allow-net` and `--allow-env`.
 
 ## Quick start
 
@@ -112,6 +133,17 @@ const itemsModule = defineModule({
 
 const app = await createApplication({ config, modules: [itemsModule] });
 ```
+
+For a statically inspectable TypeBox object `request.params` schema, each required property without
+a default must appear as `{name}` in the **full registered path**, including any group prefix. A
+mismatch rejects route setup with `ConfigurationError`; routes without a params schema and dynamic
+schemas keep their existing behavior. Header schema property names match HTTP headers
+case-insensitively (`X-Tenant-Id` accepts `x-tenant-id`), but duplicate casing aliases within the
+same object schema reject configuration.
+
+Route matching follows registration order. Register a static sibling such as `GET /users/me`
+**before** `GET /users/{id}`: if the parameter route comes first, it can match `/users/me` with
+`id = "me"`, shadowing the static route's auth, hooks, handler, and response status.
 
 ### 2. Route Groups & Scoped Lifecycle Hooks
 
@@ -178,9 +210,21 @@ The handler receives a typed request context:
 - `respond(value, init)` supports custom response objects and headers.
 
 Response schemas use `responses: { status: schema }`; the former single-schema `response` property
-is no longer supported. Response bodies are cleaned against the declared schema, so undeclared
-fields are never sent. A handler that returns a raw `Response` with an undeclared status fails with
-500 `RESPONSE_CONTRACT_ERROR`.
+is no longer supported. Helper results such as `ok(...)`, `respond(...)`, and bare return values are
+cleaned and validated against the declared response schema before serialization, removing undeclared
+fields. Helper payloads are **not** statically checked against response schemas; a mismatch fails at
+runtime with 500 `RESPONSE_VALIDATION_ERROR`.
+
+A native `Response` is an opaque **body** escape hatch: with `responses` declared, HyAPI checks its
+status and returns 500 `RESPONSE_CONTRACT_ERROR` for an undeclared status, but does not validate or
+clean its body. **Security:** `Response.json({ id, passwordHash })` can send `passwordHash` even if
+the response schema declares only `id`. Use `ok({ id, passwordHash })` when schema-based stripping
+and validation are required. Native response streams retain the return-time ownership described
+below.
+
+For a declared 4xx/5xx response status, OpenAPI documents both `application/json` for JSON returned
+by the handler and `application/problem+json` for a thrown `AppError` at that status. It does not
+invent response bodies for success statuses or schemas for untyped fallback statuses.
 
 ### 4. Configuration
 
@@ -191,7 +235,7 @@ const config = defineConfig({
   name: "items-api",
   bodyLimitBytes: 1_048_576, // default 10485760 (10 MiB); larger bodies return 413
   requestTimeoutMs: 30_000, // default 300000 (5 minutes); expiry returns 503
-  shutdownTimeoutMs: 10_000, // default 30000; how long close() waits for in-flight requests
+  shutdownTimeoutMs: 10_000, // default 30000; request drain and separate resource cleanup budgets
   openapi: { enabled: false }, // default true; disables GET /openapi.json
 });
 ```
@@ -202,8 +246,10 @@ const config = defineConfig({
   expiry, `ctx.signal` is aborted and the client receives 503 `REQUEST_TIMEOUT`. A request whose
   upstream `x-hyapi-deadline` has already passed is rejected with 504 `DEADLINE_EXCEEDED` before the
   handler runs.
-- `shutdownTimeoutMs` bounds how long `app.close()` waits for in-flight requests before aborting
-  their `ctx.signal`.
+- `shutdownTimeoutMs` bounds how long `app.close()` drains in-flight requests before aborting their
+  `ctx.signal`; it then waits at most `min(1000, shutdownTimeoutMs)` for cooperative cleanup and
+  gives application resource closers a separate `shutdownTimeoutMs` budget. Uncooperative work can
+  outlive provider closure; see the [operations guide](docs/operations.md#graceful-shutdown).
 - `openapi.enabled: false` removes the OpenAPI document route.
 
 ### 5. Modules, Services, and Plugins
@@ -255,15 +301,61 @@ singleton after `close()`, rejects with `AppError` code `SCOPE_CLOSED`. If start
 and plugins that were already set up are closed in reverse order before `createApplication()`
 rejects.
 
+If provider connection fails, its rollback errors and later plugin/module cleanup errors form one
+flat `AggregateError`: the original connect exception is first, followed by cleanup errors in order,
+including errors from nested aggregates. The original cause chain is retained.
+
 Lifecycle order is
-`global onRequest → deadline/timeout check → group onRequest (outer→inner) → authentication → validation → handler → response validation → group onResponse (inner→outer) → global onResponse`.
-Error responses also pass through group and global `onResponse` hooks (after `onError`); when an
+`global onRequest → deadline/timeout check → group onRequest (outer→inner) → authentication → validation → handler → response contract (declared status; body validation for framework-serialized values) → group onResponse (inner→outer) → global onResponse`.
+Matched-route failures notify group then global `onError` and pass through remaining response hooks.
+Unmatched 404 is a routing result: it skips `onError` but reaches global `onResponse`. When an
 `onResponse` hook throws, its error response replaces the response and the remaining outer hooks
-still run. Everything from global `onRequest` to the handler's response is bounded by the earlier of
-`requestTimeoutMs` and the upstream deadline; on expiry `ctx.signal` is aborted. `ctx.signal` is
-also aborted when the client disconnects. Request-scoped services close after the response hooks,
-and cleanup failures are reported to `onError` without changing the response. Failures use
-`application/problem+json` (RFC 7807) and include the request ID.
+still run; `onError` is observational and cannot swallow that failure. Unknown handler/hook errors
+become hidden 500 `INTERNAL_ERROR` before return. A returned `Response` that cannot accept the
+request ID instead becomes a fresh hidden 500 without rerunning response hooks. Everything from
+global `onRequest` to the handler's response is bounded by the earlier of `requestTimeoutMs` and the
+upstream deadline; on expiry `ctx.signal` is aborted. `ctx.signal` also aborts on a client
+disconnect while the request scope is active, not after it ends. Request-scoped services close after
+response hooks; cleanup failures notify `onError` without changing the selected response. Pre-return
+HTTP failures use `application/problem+json` (RFC 7807) and include the request ID.
+
+`onError` observers run group then global in order, each receiving the failure being reported even
+if a prior observer changed `lifecycle.error`. They are awaited only within the original request
+deadline or until forced shutdown; cleanup notifications use whatever time remains after the request
+ends. Unsettled observer promises do not block the response indefinitely, but can still run and
+mutate shared state later. Their completion is not guaranteed.
+
+For routes with a body schema, HyAPI buffers at most `bodyLimitBytes` once before parsing and gives
+the handler and lifecycle hooks independent requests. After that buffering, hooks can read the
+original body with `await request.clone().text()` (or another clone reader), even when the handler
+consumed its request. Hooks sharing the lifecycle request must clone it themselves; directly
+consuming it prevents subsequent hooks from reading it. Before buffering completes—including 413,
+early validation failures, and routes with streaming bodies but no body schema—hooks cannot assume
+that a complete body can be replayed.
+
+Native `Response` streams are returned without buffering. The request scope and request services
+close when `app.request()`/`app.fetch()` returns, **not** when the body is read. A stream must own
+any resource it needs until `pull`/`cancel` completes; it must not use request services, singletons,
+providers, or `ctx.signal` after return. For example, this stream owns its data:
+
+```ts
+const streamRoute = defineRoute({
+  method: "get",
+  path: "/stream",
+  handler: () =>
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          controller.enqueue(new TextEncoder().encode("ready\n"));
+          controller.close();
+        },
+      }, { highWaterMark: 0 }),
+    ),
+});
+```
+
+Once the response is returned, body read/transport errors belong to the consumer or server; HyAPI
+cannot replace an already committed response with problem+json or invoke `onError` again.
 
 ### 6. Public Module Ports
 
@@ -376,7 +468,7 @@ deno task fmt             format codebase
 deno task fmt:check       verify formatting
 deno task lint            run Oxlint
 deno task doctor:example  run the CLI doctor against apps/example
-deno task verify:starter  generate a starter project and check, test, and doctor it
+deno task verify:starter  generate a starter project and run its verify task and CLI doctor
 deno task bench           run the core performance benchmarks
 deno task publish:check   run the JSR publish dry-run for core and CLI
 deno task verify          run the complete quality gate

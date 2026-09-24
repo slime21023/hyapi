@@ -1,7 +1,8 @@
 import type { MaybePromise } from "./types.ts";
+import { sleep } from "./timers.ts";
 import { AppError } from "./errors.ts";
 
-export type Closer = () => MaybePromise<void>;
+export type Closer = (deadline?: number) => MaybePromise<void>;
 export type ScopeState = "open" | "closing" | "closed";
 
 /** `details` carries the error thrown while closing a value adopted after the scope closed. */
@@ -11,8 +12,15 @@ export function scopeClosedError(details: unknown = undefined): AppError {
 
 /** Appends `error`, expanding AggregateErrors so nested scopes report one flat list. */
 export function collectError(target: unknown[], error: unknown): void {
-  if (error instanceof AggregateError) target.push(...error.errors);
-  else target.push(error);
+  if (error instanceof AggregateError) {
+    for (const nested of error.errors) collectError(target, nested);
+  } else target.push(error);
+}
+
+function cleanupTimeout(): Error {
+  const error = new Error("Resource cleanup timed out.");
+  error.name = "TimeoutError";
+  return error;
 }
 
 function closerOf(value: unknown): Closer | null {
@@ -61,17 +69,42 @@ export class Scope {
     throw scopeClosedError();
   }
 
-  close(): Promise<void> {
-    this.#closing ??= this.#closeAll();
-    return this.#closing;
+  close(deadline?: number): Promise<void> {
+    if (this.#closing) return this.#closing;
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    this.#closing = promise;
+    void this.#closeAll(deadline).then(resolve, reject);
+    return promise;
   }
 
-  async #closeAll(): Promise<void> {
+  async #closeAll(deadline?: number): Promise<void> {
     this.#state = "closing";
     const errors: unknown[] = [];
     for (const closer of this.#closers.reverse()) {
       try {
-        await closer();
+        const result = closer(deadline);
+        // A closer returning its own scope's close promise cannot wait for itself.
+        if (result === undefined || result === this.#closing) continue;
+        if (deadline === undefined) {
+          await result;
+          continue;
+        }
+        const pending = Promise.resolve(result);
+        // The closer may settle after the deadline; do not leave a rejection unobserved.
+        void pending.catch(() => undefined);
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw cleanupTimeout();
+        const timer = new AbortController();
+        try {
+          await Promise.race([
+            pending,
+            sleep(remaining, timer.signal).then(() => {
+              throw cleanupTimeout();
+            }),
+          ]);
+        } finally {
+          timer.abort();
+        }
       } catch (error) {
         collectError(errors, error);
       }

@@ -5,20 +5,83 @@ const config = loadConfig();
 const app = await buildExampleApp(config, requiredEnv("JWT_SECRET"));
 
 const controller = new AbortController();
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => controller.abort());
-}
+const transmissions = new Set<Promise<void>>();
+let notifyIdle: (() => void) | undefined;
 const server = Deno.serve({
   hostname: config.host,
   port: config.port,
   signal: controller.signal,
-}, app.fetch.bind(app));
+}, (request, info) => {
+  const completed = info.completed;
+  transmissions.add(completed);
+  const settled = () => {
+    transmissions.delete(completed);
+    if (transmissions.size === 0) notifyIdle?.();
+  };
+  void completed.then(settled, settled);
+  return app.fetch(request);
+});
 
+let stopping: Promise<void> | undefined;
+function stop(): Promise<void> {
+  return stopping ??= (async () => {
+    // Deno 2.9 can throw BadResource when aborting a server already in shutdown() with
+    // an unfinished stream. Observe transport completion before starting server.shutdown().
+    const closingApp = app.close();
+    const deadline = Date.now() + 2 * (app.config.shutdownTimeoutMs ?? 30_000) + 1_000;
+    const watchdog = new AbortController();
+    const closingServer = (async () => {
+      if (transmissions.size > 0) {
+        const idle = new Promise<void>((resolve) => {
+          notifyIdle = resolve;
+          if (transmissions.size === 0) resolve();
+        });
+        await Promise.race([idle, abortAfter(deadline, watchdog.signal)]);
+      }
+      if (transmissions.size > 0) controller.abort();
+      await server.shutdown();
+      await server.finished;
+    })();
+    try {
+      const results = await Promise.allSettled([closingApp, closingServer]);
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason as unknown] : []
+      );
+      if (errors.length > 1) throw new AggregateError(errors, "Server shutdown failed.");
+      if (errors.length === 1) throw errors[0];
+    } finally {
+      watchdog.abort();
+    }
+  })();
+}
+
+async function abortAfter(deadline: number, signal: AbortSignal): Promise<void> {
+  while (!signal.aborted) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(finish, Math.min(remaining, 2_147_483_647));
+      function finish() {
+        signal.removeEventListener("abort", finish);
+        clearTimeout(timer);
+        resolve();
+      }
+      signal.addEventListener("abort", finish, { once: true });
+      if (signal.aborted) finish();
+    });
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  Deno.addSignalListener(signal, () => {
+    void stop().catch(console.error);
+  });
+}
 console.log(`HyAPI listening on http://${config.host}:${config.port}`);
 try {
   await server.finished;
 } finally {
-  await app.close();
+  await stop();
 }
 
 function loadConfig(): AppConfig & { host: string; port: number } {

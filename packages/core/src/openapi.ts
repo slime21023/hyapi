@@ -33,15 +33,18 @@ export function buildOpenApiDocument(
     for (const [statusCode, schema] of Object.entries(responseSchemas)) {
       const statusNum = Number(statusCode);
       const isNoContent = statusNum === 204;
+      const isFailure = route.responses !== undefined && statusNum >= 400 && statusNum <= 599;
+      const content = !isNoContent && schema
+        ? {
+          "application/json": { schema: schemaValidator.toJsonSchema(schema) },
+          ...(isFailure ? problemContent() : {}),
+        }
+        : isFailure
+        ? problemContent()
+        : undefined;
       responses[String(statusNum)] = {
         description: isNoContent ? "No content" : `Status ${statusNum} response`,
-        ...(!isNoContent && schema
-          ? {
-            content: {
-              "application/json": { schema: schemaValidator.toJsonSchema(schema) },
-            },
-          }
-          : {}),
+        ...(content ? { content } : {}),
       };
     }
 
@@ -164,13 +167,14 @@ export function buildOpenApiDocument(
   };
 }
 
-function problemResponse(description: string): Record<string, unknown> {
+function problemContent(): Record<string, unknown> {
   return {
-    description,
-    content: {
-      "application/problem+json": {
-        schema: { $ref: "#/components/schemas/ProblemDetails" },
-      },
+    "application/problem+json": {
+      schema: { $ref: "#/components/schemas/ProblemDetails" },
     },
   };
+}
+
+function problemResponse(description: string): Record<string, unknown> {
+  return { description, content: problemContent() };
 }

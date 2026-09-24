@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertRejects, assertStringIncludes, assertThrows } from "@std/assert";
 import cliConfig from "../deno.json" with { type: "json" };
 import {
   createModule,
@@ -53,6 +53,36 @@ Deno.test("parseCommand recognizes help version and planned generator commands",
     directory: "demo",
     json: true,
   });
+  assertEquals(parseCommand(["inspect", "--json", "demo"]), {
+    kind: "inspect",
+    directory: "demo",
+    json: true,
+  });
+  assertEquals(parseCommand(["doctor", "--json"]), {
+    kind: "doctor",
+    directory: Deno.cwd(),
+    json: true,
+  });
+});
+
+Deno.test("parseCommand rejects extra arguments, unknown flags, and duplicate options", () => {
+  for (
+    const args of [
+      ["--help", "stray"],
+      ["version", "--json"],
+      ["new", "demo", "stray"],
+      ["new", "--json"],
+      ["generate", "module", "billing", "stray"],
+      ["generate", "module", "--json"],
+      ["inspect", "demo", "stray"],
+      ["inspect", "demo", "--typo"],
+      ["inspect", "--json", "--json"],
+      ["doctor", "demo", "--json", "--typo"],
+      ["doctor", "--json", "--json"],
+    ]
+  ) {
+    assertThrows(() => parseCommand(args), Error, "Unknown or incomplete command");
+  }
 });
 
 Deno.test("doctor identifies missing project structure with actionable findings", () => {
@@ -206,6 +236,21 @@ Deno.test("project and module generators create a minimal structure without over
   );
 });
 
+Deno.test("module generation requires a project root before writing files", async () => {
+  const fileSystem = new MemoryFileSystem();
+  await fileSystem.mkdir("outside/src");
+  await fileSystem.writeTextFile("outside/deno.json", "{}");
+  await assertRejects(
+    () => createModule("outside", "billing", fileSystem),
+    Error,
+    "cd my-api",
+  );
+  assertEquals(fileSystem.files.has("outside/src/modules/billing/billing.module.ts"), false);
+
+  await fileSystem.writeTextFile("outside/src/app.ts", "");
+  assertEquals(await createModule("outside", "billing", fileSystem), "billing");
+});
+
 Deno.test("CLI version matches the published package version", () => {
   assertEquals(cliConfig.version, VERSION);
 });
@@ -214,9 +259,12 @@ Deno.test("new writes the starter project to a real directory", async () => {
   const root = await Deno.makeTempDir({ prefix: "hyapi-cli-" });
   try {
     const directory = `${root}/app`;
-    await main(["new", directory], () => undefined);
+    const output: string[] = [];
+    await main(["new", directory], (line) => output.push(line));
     const stat = await Deno.stat(`${directory}/src/modules/users/users.module.ts`);
     assertEquals(stat.isFile, true);
+    assertStringIncludes(output.join("\n"), `jsr:@hyapi/core@^${VERSION}`);
+    assertStringIncludes(output.join("\n"), "deno task check");
   } finally {
     await Deno.remove(root, { recursive: true });
   }

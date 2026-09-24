@@ -10,8 +10,8 @@
     "typebox/value": "npm:typebox@1/value"
   },
   "tasks": {
-    "dev": "deno run --watch --allow-net --allow-env apps/example/src/main.ts",
-    "start": "deno run --allow-net --allow-env apps/example/src/main.ts",
+    "dev": "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort apps/example/src/main.ts",
+    "start": "deno run --allow-net --allow-env --unstable-no-legacy-abort apps/example/src/main.ts",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno run --allow-read --allow-env --allow-ffi npm:oxlint@1 .",

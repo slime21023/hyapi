@@ -98,6 +98,23 @@ Deno.test("queryObject - aggregates single and multi-value search parameters", (
   });
 });
 
+Deno.test("queryObject - preserves inherited-name keys and duplicate values", () => {
+  const req = new Request(
+    "http://test/api?constructor=first&constructor=second&__proto__=first&__proto__=second&toString=one&tag=a&tag=b",
+  );
+  const query = queryObject(req);
+  assertEquals(
+    query,
+    Object.fromEntries([
+      ["constructor", ["first", "second"]],
+      ["__proto__", ["first", "second"]],
+      ["toString", "one"],
+      ["tag", ["a", "b"]],
+    ]),
+  );
+  assertEquals(Object.getPrototypeOf(query), Object.prototype);
+});
+
 Deno.test("headerObject - extracts all headers into a plain object", () => {
   const headers = new Headers({
     "x-custom-header": "custom-val",
@@ -185,6 +202,29 @@ Deno.test("parseRequestBody - parses multipart/form-data payloads", async () => 
   const result = (await parseRequestBody(multipartReq)) as Record<string, unknown>;
   assertEquals(result.username, "alice");
   assertEquals(result.hobbies, ["coding", "music"]);
+});
+
+Deno.test("parseRequestBody - preserves inherited-name form keys and duplicates", async () => {
+  const expected = Object.fromEntries([
+    ["constructor", ["one", "two"]],
+    ["__proto__", ["one", "two"]],
+    ["toString", "one"],
+  ]);
+  const urlEncoded = new Request("http://test/", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "constructor=one&constructor=two&__proto__=one&__proto__=two&toString=one",
+  });
+  assertEquals(await parseRequestBody(urlEncoded), expected);
+
+  const formData = new FormData();
+  formData.append("constructor", "one");
+  formData.append("constructor", "two");
+  formData.append("__proto__", "one");
+  formData.append("__proto__", "two");
+  formData.append("toString", "one");
+  const multipart = new Request("http://test/", { method: "POST", body: formData });
+  assertEquals(await parseRequestBody(multipart), expected);
 });
 
 Deno.test("parseRequestBody - treats a missing content type as JSON", async () => {

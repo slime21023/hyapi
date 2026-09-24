@@ -27,7 +27,7 @@ import {
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./timers.ts";
-import { SchemaValidator } from "./validation.ts";
+import { objectSchemaProperties, SchemaValidator } from "./validation.ts";
 import {
   type HookPoint,
   ModuleContext,
@@ -144,7 +144,9 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     if (this.config.openapi.enabled !== false) {
       this.http.get(this.config.openapi.path, (context) => context.json(this.openApiDocument!));
     }
-    this.http.notFound((context) => this.pipeline.failure(context.env.scope, new NotFoundError()));
+    this.http.notFound((context) =>
+      errorResponse(new NotFoundError(), context.env.scope.request, context.env.scope.requestId)
+    );
     this.http.onError((error, context) => this.pipeline.failure(context.env.scope, error));
   }
 
@@ -201,6 +203,44 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     }
     if (registeredRoute.method === "get" && registeredRoute.request?.body) {
       throw new ConfigurationError(`Route '${label}' cannot declare a request body.`);
+    }
+    const paramsSchema = registeredRoute.request?.params;
+    if (paramsSchema) {
+      const properties = objectSchemaProperties(paramsSchema);
+      if (properties) {
+        const pathNames = new Set(
+          [...toHonoPath(registeredRoute.path).matchAll(/(?:^|\/):([^/?{]+)/g)].map((match) =>
+            match[1]
+          ),
+        );
+        const required = "required" in paramsSchema ? paramsSchema.required : undefined;
+        for (const name of Array.isArray(required) ? required : []) {
+          if (
+            typeof name !== "string" || pathNames.has(name) ||
+            (properties[name] && Object.hasOwn(properties[name], "default"))
+          ) continue;
+          throw new ConfigurationError(
+            `Route '${label}' request.params requires '${name}', but its path has no matching parameter.`,
+          );
+        }
+      }
+    }
+    const headersSchema = registeredRoute.request?.headers;
+    if (headersSchema) {
+      const properties = objectSchemaProperties(headersSchema);
+      if (properties) {
+        const spellings = new Map<string, string>();
+        for (const name of Object.keys(properties)) {
+          const lower = name.toLowerCase();
+          const previous = spellings.get(lower);
+          if (previous !== undefined) {
+            throw new ConfigurationError(
+              `Route '${label}' request.headers declares '${previous}' and '${name}' for the same HTTP header.`,
+            );
+          }
+          spellings.set(lower, name);
+        }
+      }
     }
     if (
       this.config.openapi.enabled !== false && registeredRoute.method === "get" &&
@@ -316,8 +356,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
 
   request(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const request = input instanceof Request ? new Request(input, init) : new Request(
-      typeof input === "string" && !/^https?:\/\//.test(input)
-        ? new URL(input, "http://localhost")
+      typeof input === "string" && !/^https?:\/\//i.test(input)
+        ? `http://localhost/${input.startsWith("/") ? input.slice(1) : input}`
         : input,
       init,
     );
@@ -336,8 +376,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   private async startup(): Promise<void> {
     try {
       // Registered first so they close last: modules and plugins still reach them in onClose.
-      this.appScope.defer(() => this.providerScope.close());
-      this.appScope.defer(() => this.singletonScope.close());
+      this.appScope.defer((deadline) => this.providerScope.close(deadline));
+      this.appScope.defer((deadline) => this.singletonScope.close(deadline));
 
       this.services.setOverrides(this.options.overrides ?? []);
       const modules = sortModules(this.options.modules ?? []);
@@ -393,7 +433,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         });
       }
 
-      await this.providers.connect(this.providerScope);
+      await this.providers.connect(this.providerScope, this.shutdownTimeoutMs);
       for (const plugin of plugins) await plugin.onStart?.(platform);
       for (const module of modules) await module.onStart?.(contexts.get(module)!);
       this.state = "running";
@@ -401,13 +441,16 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       this.registrationOpen = false;
       const rollbackErrors: unknown[] = [];
       try {
-        await this.appScope.close();
+        await this.appScope.close(Date.now() + this.shutdownTimeoutMs);
       } catch (closeError) {
         collectError(rollbackErrors, closeError);
       }
       this.state = "failed";
       if (rollbackErrors.length === 0) throw error;
-      throw new AggregateError([error, ...rollbackErrors], "Application startup failed.", {
+      const errors: unknown[] = [];
+      collectError(errors, error);
+      errors.push(...rollbackErrors);
+      throw new AggregateError(errors, "Application startup failed.", {
         cause: error,
       });
     }
@@ -423,12 +466,15 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     if (this.state === "running") {
       this.state = "draining";
       const drained = await this.tasks.idle(this.shutdownTimeoutMs);
-      if (!drained) this.tasks.abortAll(unavailableError());
+      if (!drained) {
+        this.tasks.abortAll(unavailableError());
+        await this.tasks.idle(Math.min(1_000, this.shutdownTimeoutMs));
+      }
     }
     this.state = "closing";
     this.registrationOpen = false;
     try {
-      await this.appScope.close();
+      await this.appScope.close(Date.now() + this.shutdownTimeoutMs);
     } finally {
       this.state = "closed";
     }

@@ -19,6 +19,7 @@ import {
   definePortContract,
   defineRoute,
   type Identity,
+  NotFoundError,
   providePort,
   type ProviderHealth,
   provideValue,
@@ -405,6 +406,70 @@ Deno.test("provider connection failure rolls back already connected providers", 
   assertEquals(events, ["connect:first", "connect:second", "close:first"]);
 });
 
+Deno.test("startup flattens provider rollback errors before plugin cleanup errors", async () => {
+  const events: string[] = [];
+  const connectFailure = new Error("provider connect failed");
+  const firstCloseFailure = new Error("first provider close failed");
+  const secondCloseFailure = new Error("second provider close failed");
+  const pluginCloseFailure = new Error("plugin close failed");
+  const error = await assertRejects(() =>
+    createApplication({
+      config,
+      modules: [],
+      providers: [
+        providePort(definePort("first.rollback"), {}, {
+          connect: () => {
+            events.push("connect:first");
+          },
+          close: () => {
+            events.push("close:first");
+            throw firstCloseFailure;
+          },
+        }),
+        providePort(definePort("second.rollback"), {}, {
+          connect: () => {
+            events.push("connect:second");
+          },
+          close: () => {
+            events.push("close:second");
+            throw new AggregateError([
+              new AggregateError([secondCloseFailure], "inner close failure"),
+            ], "outer close failure");
+          },
+        }),
+        providePort(definePort("failed.rollback"), {}, {
+          connect: () => {
+            events.push("connect:failed");
+            throw connectFailure;
+          },
+        }),
+      ],
+      plugins: [definePlugin({
+        name: "failing-cleanup",
+        setup: () => undefined,
+        onClose: () => {
+          events.push("close:plugin");
+          throw pluginCloseFailure;
+        },
+      })],
+    }), AggregateError);
+  assertEquals(error.errors, [
+    connectFailure,
+    secondCloseFailure,
+    firstCloseFailure,
+    pluginCloseFailure,
+  ]);
+  assertStrictEquals((error.cause as AggregateError).cause, connectFailure);
+  assertEquals(events, [
+    "connect:first",
+    "connect:second",
+    "connect:failed",
+    "close:second",
+    "close:first",
+    "close:plugin",
+  ]);
+});
+
 Deno.test("provider minor versions are compatible within the same major", async () => {
   const required = definePort<{ value: string }>("versioned.port", { major: 1, minor: 1 });
   const provided = definePort<{ value: string }>("versioned.port", { major: 1, minor: 2 });
@@ -582,6 +647,7 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
 
   const resWithoutAuth = await app.request("http://test/v1/users");
   assertEquals(resWithoutAuth.status, 401);
+  assertEquals(resWithoutAuth.headers.get("www-authenticate"), "Bearer");
 
   const resWithAuth = await app.request("http://test/v1/users", {
     headers: { authorization: "Bearer valid-token" },
@@ -995,6 +1061,40 @@ Deno.test("app - rejects unsupported request media types", async () => {
   assertEquals((await response.json()).code, "UNSUPPORTED_MEDIA_TYPE");
 });
 
+Deno.test("typed body media rejection precedes an open stream but not the declared byte limit", async () => {
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 80, bodyLimitBytes: 8 },
+  });
+  app.route(defineRoute({
+    method: "post",
+    path: "/media-order",
+    request: { body: Type.Object({ name: Type.String() }) },
+    handler: () => new Response(null, { status: 204 }),
+  }));
+  await app.start();
+
+  const unsupported = await withinOneSecond(app.request("/media-order", {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream" },
+    body: new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(1));
+      },
+    }),
+  }));
+  assertEquals(unsupported.status, 415);
+  assertEquals((await unsupported.json()).code, "UNSUPPORTED_MEDIA_TYPE");
+
+  const oversized = await app.request("/media-order", {
+    method: "POST",
+    headers: { "content-type": "application/octet-stream", "content-length": "9" },
+    body: "x",
+  });
+  assertEquals(oversized.status, 413);
+  assertEquals((await oversized.json()).code, "PAYLOAD_TOO_LARGE");
+  await app.close();
+});
+
 Deno.test("app - rejects duplicate routes", () => {
   const app = createApp({ config });
   const dummyRoute = defineRoute({
@@ -1372,6 +1472,109 @@ Deno.test("app - request cleanup failures reach onError without replacing the re
   assertEquals(errors[0].errors.map((error: Error) => error.message), ["close failed"]);
 });
 
+Deno.test("never-settling cleanup error observer cannot replace or stall a chosen response", async () => {
+  const errors: unknown[] = [];
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 150, shutdownTimeoutMs: 20 },
+  });
+  const connection = app.requestService(() => ({
+    close: () => {
+      throw new Error("close failed");
+    },
+  }));
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+    return new Promise<void>(() => {});
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/cleanup-pending",
+    handler: async ({ services, ok }) => {
+      await services.get(connection);
+      return ok({ ok: true });
+    },
+  }));
+  await app.start();
+
+  const started = Date.now();
+  const response = await withinOneSecond(app.request("/cleanup-pending"));
+  assert(Date.now() - started < 500);
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { ok: true });
+  assertEquals(errors.length, 1);
+  assert(errors[0] instanceof AggregateError);
+  assertEquals(errors[0].errors.map((error: Error) => error.message), ["close failed"]);
+  await withinOneSecond(app.close());
+});
+
+Deno.test("request cleanup bounds stalled closers and returns the chosen response", async () => {
+  const events: string[] = [];
+  const errors: unknown[] = [];
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 80, shutdownTimeoutMs: 20 },
+  });
+  const later = app.requestService(() => ({
+    close: () => void events.push("later"),
+  }));
+  const stalled = app.requestService(() => ({
+    close: () => {
+      events.push("stalled");
+      return new Promise<void>(() => {});
+    },
+  }));
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/stalled-cleanup",
+    handler: async ({ services, ok }) => {
+      await services.get(later);
+      await services.get(stalled);
+      return ok({ ok: true });
+    },
+  }));
+  await app.start();
+
+  const response = await withinOneSecond(app.request("/stalled-cleanup"));
+  assertEquals(response.status, 200);
+  assertEquals(await response.json(), { ok: true });
+  assertEquals(events, ["stalled", "later"]);
+  assertEquals(errors.length, 1);
+  assert(errors[0] instanceof AggregateError);
+  assertEquals(errors[0].errors.map((error: Error) => error.name), ["TimeoutError"]);
+  await withinOneSecond(app.close());
+});
+
+Deno.test("forced shutdown releases a request waiting on its service closer", async () => {
+  const entered = Promise.withResolvers<void>();
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 5_000, shutdownTimeoutMs: 20 },
+  });
+  const stalled = app.requestService(() => ({
+    close: () => {
+      entered.resolve();
+      return new Promise<void>(() => {});
+    },
+  }));
+  app.route(defineRoute({
+    method: "get",
+    path: "/shutdown-cleanup",
+    handler: async ({ services }) => {
+      await services.get(stalled);
+      return new Response("ok");
+    },
+  }));
+  await app.start();
+
+  const pending = app.request("/shutdown-cleanup");
+  await withinOneSecond(entered.promise);
+  await withinOneSecond(app.close());
+  const response = await withinOneSecond(pending);
+  assertEquals(response.status, 200);
+  assertEquals(await response.text(), "ok");
+});
+
 Deno.test("app - handler SyntaxErrors are internal server errors", async () => {
   const app = createApp({ config });
   app.route(defineRoute({
@@ -1425,6 +1628,131 @@ Deno.test("app - response bodies drop properties the schema does not declare", a
   const response = await app.request("http://test/users/me");
   assertEquals(response.status, 200);
   assertEquals(await response.json(), { id: "u1", name: "Ada" });
+});
+
+Deno.test("header schemas match HTTP names regardless of case", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/tenant",
+    request: { headers: Type.Object({ "X-Tenant-Id": Type.String({ minLength: 3 }) }) },
+    responses: { 200: Type.Object({ tenant: Type.String() }) },
+    handler: ({ headers, ok }) => ok({ tenant: headers.get("X-Tenant-Id") }),
+  }));
+  await app.start();
+
+  const valid = await app.request("/tenant", { headers: { "x-tenant-id": "acme" } });
+  assertEquals(valid.status, 200);
+  assertEquals(await valid.json(), { tenant: "acme" });
+
+  const invalid = await app.request("/tenant", { headers: { "X-Tenant-Id": "no" } });
+  assertEquals(invalid.status, 400);
+  assertEquals((await invalid.json()).details.source, "headers");
+  await app.close();
+});
+
+Deno.test("header schemas reject case-colliding declared properties", () => {
+  const app = createApp({ config });
+  assertThrows(
+    () =>
+      app.route(defineRoute({
+        method: "get",
+        path: "/tenant",
+        request: {
+          headers: Type.Object({
+            "X-Tenant-Id": Type.String(),
+            "x-tenant-id": Type.String(),
+          }),
+        },
+        handler: ({ ok }) => ok({ ok: true }),
+      })),
+    ConfigurationError,
+    "X-Tenant-Id",
+  );
+});
+
+Deno.test("required path parameter schema names must match registered path", async () => {
+  const app = createApp({ config });
+  app.group("/v1/{tenantId}", (group) => {
+    assertThrows(
+      () =>
+        group.route(defineRoute({
+          method: "get",
+          path: "/orders/{orderId}",
+          request: { params: Type.Object({ id: Type.String() }) },
+          handler: ({ params, ok }) => ok({ id: params.id }),
+        })),
+      ConfigurationError,
+      "GET /v1/{tenantId}/orders/{orderId}",
+    );
+    group.route(defineRoute({
+      method: "get",
+      path: "/orders/{orderId}",
+      request: {
+        params: Type.Object({ tenantId: Type.String(), orderId: Type.String() }),
+      },
+      handler: ({ params, ok }) => ok({ tenant: params.tenantId, id: params.orderId }),
+    }));
+    group.route(defineRoute({
+      method: "get",
+      path: "/defaulted/{orderId}",
+      request: {
+        params: Type.Object({
+          orderId: Type.String(),
+          locale: Type.String({ default: "en" }),
+        }),
+      },
+      handler: ({ params, ok }) => ok({ locale: params.locale }),
+    }));
+    group.route(defineRoute({
+      method: "get",
+      path: "/untyped/{id}",
+      handler: ({ ok }) => ok({ ok: true }),
+    }));
+  });
+  await app.start();
+  assertEquals(await (await app.request("/v1/acme/orders/42")).json(), {
+    tenant: "acme",
+    id: "42",
+  });
+  assertEquals(await (await app.request("/v1/acme/untyped/42")).json(), { ok: true });
+  assertEquals(await (await app.request("/v1/acme/defaulted/42")).json(), { locale: "en" });
+  await app.close();
+});
+
+Deno.test("declared failure responses document JSON and thrown ProblemDetails", async () => {
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/resources/{id}",
+    request: { params: Type.Object({ id: Type.String() }) },
+    responses: {
+      200: Type.Object({ id: Type.String() }),
+      400: Type.Object({ issue: Type.String() }),
+      404: Type.Object({ message: Type.String() }),
+    },
+    handler: ({ params, ok }) => {
+      if (params.id === "missing") throw new NotFoundError();
+      return ok({ id: params.id });
+    },
+  }));
+  await app.start();
+
+  const document = await (await app.request("/openapi.json")).json();
+  const responses = document.paths["/resources/{id}"].get.responses;
+  for (const status of ["400", "404"]) {
+    assert(responses[status].content["application/json"]);
+    assertEquals(responses[status].content["application/problem+json"].schema, {
+      $ref: "#/components/schemas/ProblemDetails",
+    });
+  }
+  assertEquals(responses["200"].content["application/problem+json"], undefined);
+
+  const missing = await app.request("/resources/missing");
+  assertEquals(missing.status, 404);
+  assertEquals(missing.headers.get("content-type"), "application/problem+json");
+  assertEquals((await missing.json()).code, "NOT_FOUND");
+  await app.close();
 });
 
 Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration", async () => {
@@ -1631,6 +1959,88 @@ Deno.test("group onError and onResponse hooks run when a handler fails", async (
   const response = await app.request("http://test/api/fail");
   assertEquals(response.status, 500);
   assertEquals(log, ["api:error", "api:response:500", "global:response:500"]);
+});
+
+Deno.test("never-settling group onError preserves the selected 401 and notifies global once", async () => {
+  const error = new AppError(401, "AUTH_REQUIRED", "Sign in required.");
+  const observed: unknown[] = [];
+  const responses: Array<{ status: number; code: string; error: unknown }> = [];
+  const lateObserver = Promise.withResolvers<void>();
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 150, shutdownTimeoutMs: 20 },
+  });
+  app.group("/errors", (group) => {
+    group.addHook("onError", (context) => {
+      assertStrictEquals(context.error, error);
+      return new Promise<void>(() => {});
+    });
+    group.route(defineRoute({
+      method: "get",
+      path: "/auth",
+      handler: () => {
+        throw error;
+      },
+    }));
+  });
+  app.addHook("onError", ({ error: observedError }) => {
+    observed.push(observedError);
+    return lateObserver.promise;
+  });
+  app.addHook("onResponse", async ({ response, error: observedError }) => {
+    const problem = await response!.clone().json();
+    responses.push({ status: response!.status, code: problem.code, error: observedError });
+  });
+  await app.start();
+
+  const response = await withinOneSecond(app.request("/errors/auth"));
+  assertEquals(response.status, 401);
+  assertEquals(response.headers.get("content-type"), "application/problem+json");
+  assertEquals(response.headers.get("www-authenticate"), "Bearer");
+  assertEquals((await response.json()).code, "AUTH_REQUIRED");
+  assertEquals(observed, [error]);
+  assertEquals(responses, [{ status: 401, code: "AUTH_REQUIRED", error }]);
+  lateObserver.reject(new Error("late observer rejection"));
+  await sleep(0);
+  await withinOneSecond(app.close());
+});
+
+Deno.test("onError mutations do not hide the original failure from later observers", async () => {
+  const error = new AppError(400, "INVALID_INPUT", "Invalid input.");
+  const observed: unknown[] = [];
+  const app = createApp({ config });
+  app.group("/errors", (group) => {
+    group.addHook("onError", async (context) => {
+      observed.push(context.error);
+      await Promise.resolve();
+      context.error = null;
+    });
+    group.addHook("onError", (context) => {
+      observed.push(context.error);
+      context.error = null;
+    });
+    group.route(defineRoute({
+      method: "get",
+      path: "/bad",
+      handler: () => {
+        throw error;
+      },
+    }));
+  });
+  app.addHook("onError", (context) => {
+    observed.push(context.error);
+    context.error = null;
+  });
+  app.addHook("onResponse", ({ error: observedError, response }) => {
+    observed.push(observedError);
+    assertEquals(response?.status, 400);
+  });
+  await app.start();
+
+  const response = await app.request("/errors/bad");
+  assertEquals(response.status, 400);
+  assertEquals((await response.json()).code, "INVALID_INPUT");
+  assertEquals(observed, [error, error, error, error]);
+  await app.close();
 });
 
 Deno.test("group and route scopes merge as a union", async () => {
@@ -2083,6 +2493,118 @@ Deno.test("a failing onResponse hook still lets outer hooks see the error respon
   await app.close();
 });
 
+Deno.test("timed-out group onResponse does not commit 200 or re-notify its failure", async () => {
+  const events: string[] = [];
+  const errors: unknown[] = [];
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 80, shutdownTimeoutMs: 20 },
+  });
+  app.group("/response-hooks", (group) => {
+    group.addHook("onResponse", () => {
+      events.push("group:pending");
+      return new Promise<void>(() => {});
+    });
+    group.addHook("onResponse", ({ response }) => {
+      events.push(`group:outer:${response?.status}`);
+    });
+    group.route(defineRoute({
+      method: "get",
+      path: "/timeout",
+      handler: () => new Response("ok"),
+    }));
+  });
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.addHook("onResponse", ({ response }) => {
+    events.push(`global:outer:${response?.status}`);
+  });
+  await app.start();
+
+  const response = await withinOneSecond(app.request("/response-hooks/timeout"));
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  assertEquals(events, ["group:pending", "group:outer:503", "global:outer:503"]);
+  assertEquals(errors.length, 1);
+  assert(errors[0] instanceof AppError);
+  assertEquals(errors[0].code, "REQUEST_TIMEOUT");
+  await withinOneSecond(app.close());
+});
+
+Deno.test("late onResponse completion cannot return a stale 200", async () => {
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 60, shutdownTimeoutMs: 20 },
+  });
+  app.addHook("onResponse", async () => {
+    await sleep(120);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/late-response",
+    handler: () => new Response("stale"),
+  }));
+  await app.start();
+
+  const response = await withinOneSecond(app.request("/late-response"));
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
+  await withinOneSecond(app.close());
+});
+
+Deno.test("upstream deadline bounds onResponse with a 504 problem", async () => {
+  const observed: number[] = [];
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 1_000, shutdownTimeoutMs: 20 },
+  });
+  app.addHook("onResponse", () => new Promise<void>(() => {}));
+  app.addHook("onResponse", ({ response }) => {
+    observed.push(response!.status);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/upstream-response",
+    handler: () => new Response("stale"),
+  }));
+  await app.start();
+
+  const response = await withinOneSecond(app.request("/upstream-response", {
+    headers: { "x-hyapi-deadline": String(Date.now() + 150) },
+  }));
+  assertEquals(response.status, 504);
+  assertEquals((await response.json()).code, "DEADLINE_EXCEEDED");
+  assertEquals(observed, [504]);
+  await withinOneSecond(app.close());
+});
+
+Deno.test("app.close releases stalled onResponse with a forced 503", async () => {
+  const entered = Promise.withResolvers<void>();
+  const errors: unknown[] = [];
+  const app = createApp({
+    config: { ...config, requestTimeoutMs: 5_000, shutdownTimeoutMs: 20 },
+  });
+  app.addHook("onResponse", () => {
+    entered.resolve();
+    return new Promise<void>(() => {});
+  });
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/shutdown-response",
+    handler: () => new Response("stale"),
+  }));
+  await app.start();
+
+  const pending = app.request("/shutdown-response");
+  await withinOneSecond(entered.promise);
+  await withinOneSecond(app.close());
+  const response = await withinOneSecond(pending);
+  assertEquals(response.status, 503);
+  assertEquals((await response.json()).code, "APPLICATION_UNAVAILABLE");
+  assertEquals(errors.length, 1);
+});
+
 Deno.test("ctx.signal aborts when the client disconnects", async () => {
   const observed = Promise.withResolvers<boolean>();
   const app = createApp({ config });
@@ -2117,4 +2639,269 @@ Deno.test("createApplication rejects invalid shutdown timeouts", async () => {
       "shutdownTimeoutMs must be a positive integer of at most 2147483647.",
     );
   }
+});
+
+Deno.test("unmatched route bypasses onError and relative requests keep localhost origin", async () => {
+  const errors: unknown[] = [];
+  const statuses: number[] = [];
+  const urls: string[] = [];
+  const app = createApp({ config });
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.addHook("onResponse", ({ response }) => {
+    statuses.push(response!.status);
+  });
+  app.addHook("onRequest", ({ request }) => {
+    urls.push(request.url);
+  });
+  await app.start();
+  for (
+    const input of [
+      "//other/x",
+      "items:batch",
+      new URL("http://elsewhere/x"),
+      new Request("http://other/x"),
+    ]
+  ) {
+    assertEquals((await app.request(input)).status, 404);
+  }
+  assertEquals(errors, []);
+  assertEquals(statuses, [404, 404, 404, 404]);
+  assertEquals(urls, [
+    "http://localhost//other/x",
+    "http://localhost/items:batch",
+    "http://elsewhere/x",
+    "http://other/x",
+  ]);
+  await app.close();
+});
+
+Deno.test("discarded responses cannot stall failure or leak headers", async () => {
+  const statuses: number[] = [];
+  const errors: unknown[] = [];
+  const app = createApp({ config });
+  app.addHook("onResponse", ({ response }) => {
+    if (response?.status === 302) throw new Error("hook failed");
+    statuses.push(response!.status);
+  });
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/discard",
+    handler: () =>
+      new Response(new ReadableStream({ cancel: () => new Promise<void>(() => {}) }), {
+        status: 302,
+        headers: { location: "/old" },
+      }),
+  }));
+  app.route(defineRoute({
+    method: "get",
+    path: "/contract",
+    responses: { 200: Type.String() },
+    handler: () =>
+      new Response(new ReadableStream({ cancel: () => new Promise<void>(() => {}) }), {
+        status: 302,
+      }),
+  }));
+  await app.start();
+  for (const path of ["/discard", "/contract"]) {
+    const response = await withinOneSecond(app.request(path));
+    assertEquals(response.status, 500);
+    assertEquals(
+      (await response.json()).code,
+      path === "/discard" ? "INTERNAL_ERROR" : "RESPONSE_CONTRACT_ERROR",
+    );
+    assertEquals(response.headers.get("location"), null);
+    assert(response.headers.has("x-request-id"));
+  }
+  assertEquals(statuses, [500]);
+  assertEquals(errors.length, 2);
+  await app.close();
+});
+
+Deno.test("nonconstructible Response.error is converted once without rerunning response hooks", async () => {
+  const statuses: number[] = [];
+  const errors: unknown[] = [];
+  const app = createApp({ config });
+  app.addHook("onResponse", ({ response }) => {
+    statuses.push(response!.status);
+  });
+  app.addHook("onError", ({ error }) => {
+    errors.push(error);
+  });
+  app.route(defineRoute({ method: "get", path: "/error", handler: () => Response.error() }));
+  await app.start();
+  const response = await app.request("/error", { headers: { "x-request-id": "trace-1" } });
+  assertEquals(response.status, 500);
+  assertEquals((await response.json()).code, "INTERNAL_ERROR");
+  assertEquals(response.headers.get("x-request-id"), "trace-1");
+  assertEquals(statuses, [0]);
+  assertEquals(errors.length, 1);
+  await app.close();
+});
+
+Deno.test("schema body is independently readable by handler and error hook", async () => {
+  let handlerBody = "";
+  let errorBody = "";
+  const app = createApp({ config });
+  app.addHook("onError", async ({ request }) => {
+    errorBody = await request.clone().text();
+  });
+  app.route(defineRoute({
+    method: "post",
+    path: "/replay",
+    request: { body: Type.Object({ n: Type.Number() }) },
+    handler: async ({ request }) => {
+      handlerBody = await request.text();
+      throw new Error("handler failed");
+    },
+  }));
+  await app.start();
+  const response = await app.request("/replay", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: '{"n":1}',
+  });
+  assertEquals((await response.json()).code, "INTERNAL_ERROR");
+  assertEquals(handlerBody, '{"n":1}');
+  assertEquals(errorBody, '{"n":1}');
+  await app.close();
+});
+
+Deno.test("client disconnect is forwarded only while the request scope is active", async () => {
+  let savedSignal: AbortSignal | undefined;
+  const app = createApp({ config });
+  app.route(defineRoute({
+    method: "get",
+    path: "/signal",
+    handler: ({ signal }) => {
+      savedSignal = signal;
+      return new Response("ok");
+    },
+  }));
+  await app.start();
+  const client = new AbortController();
+  const response = await app.request(new Request("http://test/signal", { signal: client.signal }));
+  assertEquals(await response.text(), "ok");
+  client.abort();
+  assertEquals(savedSignal?.aborted, false);
+  await app.close();
+});
+
+Deno.test("lazy response stream owns its payload after request service cleanup", async () => {
+  const events: string[] = [];
+  const app = createApp({ config });
+  const service = app.requestService(() => ({
+    close: () => {
+      events.push("service:close");
+    },
+  }));
+  app.route(defineRoute({
+    method: "get",
+    path: "/stream",
+    handler: async ({ services }) => {
+      await services.get(service);
+      return new Response(
+        new ReadableStream({
+          pull(controller) {
+            events.push("stream:pull");
+            controller.enqueue(new TextEncoder().encode("independent"));
+            controller.close();
+          },
+        }, { highWaterMark: 0 }),
+      );
+    },
+  }));
+  await app.start();
+  const response = await app.request("/stream");
+  assertEquals(events, ["service:close"]);
+  assertEquals(await response.text(), "independent");
+  assertEquals(events, ["service:close", "stream:pull"]);
+  await app.close();
+});
+
+Deno.test("forced shutdown gives cooperative request cleanup precedence over providers", async () => {
+  const log: string[] = [];
+  const started = Promise.withResolvers<void>();
+  const port = definePort("cooperative.port");
+  const app = createApp({
+    config: { ...config, shutdownTimeoutMs: 20 },
+    providers: [providePort(port, {}, {
+      close: () => {
+        log.push("provider:close");
+      },
+    })],
+  });
+  const service = app.requestService(() => ({
+    close: () => {
+      log.push("request-service:close");
+    },
+  }));
+  app.route(defineRoute({
+    method: "get",
+    path: "/cooperative",
+    handler: async ({ services, signal }) => {
+      await services.get(service);
+      const aborted = Promise.withResolvers<void>();
+      signal.addEventListener("abort", () => aborted.resolve(), { once: true });
+      started.resolve();
+      await aborted.promise;
+      return new Response(null, { status: 204 });
+    },
+  }));
+  await app.start();
+  const request = app.request("/cooperative");
+  await started.promise;
+  await withinOneSecond(app.close());
+  assertEquals((await request).status, 503);
+  assertEquals(log, ["request-service:close", "provider:close"]);
+});
+
+Deno.test("uncooperative handler and closer cannot hold running app shutdown indefinitely", async () => {
+  const started = Promise.withResolvers<void>();
+  const app = createApp({
+    config: { ...config, shutdownTimeoutMs: 20 },
+    providers: [providePort(definePort("stalled.close"), {}, {
+      close: () => new Promise<void>(() => {}),
+    })],
+  });
+  app.route(defineRoute({
+    method: "get",
+    path: "/uncooperative",
+    handler: async () => {
+      started.resolve();
+      await new Promise<void>(() => {});
+    },
+  }));
+  await app.start();
+  void app.request("/uncooperative");
+  await started.promise;
+  const failure = await assertRejects(() => withinOneSecond(app.close()), AggregateError);
+  assertEquals(failure.errors.map((error: Error) => error.name), ["TimeoutError"]);
+  assertEquals((await app.request("/uncooperative")).status, 503);
+});
+
+Deno.test("provider connection rollback respects the cleanup deadline and preserves the setup error", async () => {
+  const connectFailure = new Error("connection failed");
+  const error = await assertRejects(() =>
+    createApplication({
+      config: { ...config, shutdownTimeoutMs: 20 },
+      modules: [],
+      providers: [
+        providePort(definePort("connected"), {}, {
+          connect: () => undefined,
+          close: () => new Promise<void>(() => {}),
+        }),
+        providePort(definePort("broken"), {}, {
+          connect: () => {
+            throw connectFailure;
+          },
+        }),
+      ],
+    }), AggregateError);
+  assertStrictEquals(error.errors[0], connectFailure);
+  assertEquals(error.errors[1].name, "TimeoutError");
 });

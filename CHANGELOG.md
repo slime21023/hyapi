@@ -10,7 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 
 - `shutdownTimeoutMs` application setting (default 30000 ms): `app.close()` drains in-flight
-  requests for up to this long, then aborts the remaining ones through `ctx.signal`.
+  requests for up to this long, aborts remaining `ctx.signal`s, then uses a separate cleanup budget
+  of the same length for application resources.
+- [ADR 0001](docs/adr/0001-layered-error-scopes.md) records the error owners, request/stream
+  lifetimes, bounded cleanup, and Deno listener tradeoffs.
 
 ### Changed
 
@@ -24,11 +27,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   error response.
 - **Breaking:** resolving a request-scoped service after its request, or a singleton after
   `close()`, rejects with `SCOPE_CLOSED`; request cleanup failures only reach `onError`.
+- Application cleanup and startup rollback use bounded asynchronous closer deadlines; shutdown gives
+  cooperative aborted requests a short final drain before closing providers. Native `Response`
+  streams remain caller-owned after the request returns.
 
 ### Fixed
 
-- `close()` no longer closes providers and singletons under running requests, and requests after
-  `close()` no longer reuse closed singletons.
+- `close()` drains cooperative requests before closing providers and singletons; timed-out
+  uncooperative work may still run after resource closure. Requests after `close()` never reuse
+  closed singletons.
 - Request services created after a request timed out are closed instead of leaked.
 - HTTP client retry backoff stops as soon as the caller aborts.
 - `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
@@ -40,6 +47,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   hook) no longer inherit its headers such as `Set-Cookie` or `Location`.
 - `createApplication` fills defaults for partial configs that set `requestIdHeader` and
   `openapi.path`.
+- Unmatched 404s bypass `onError` while retaining global `onResponse`; relative request strings
+  retain the localhost origin, including `//` paths and colon-containing segments.
+- Discarded response stream cancellation cannot block error serialization; nonconstructible
+  responses produce a fresh hidden 500 while immutable redirects retain their status and headers.
+- Body-schema routes can replay bounded content independently to handler and lifecycle hooks, and
+  client aborts no longer change `ctx.signal` after request-scope cleanup.
+- Asynchronous `onError` observers no longer hold failed requests or cleanup notifications past the
+  request deadline or forced shutdown. Group then global hooks each see the original failure even if
+  a preceding hook changed `lifecycle.error`; abandoned observers may continue later.
+- Startup failures flatten nested provider rollback and plugin/module cleanup errors in order, with
+  the original connect exception first and the cause chain preserved.
+- Example and generated Deno listeners avoid legacy successful-response aborts and defer
+  `server.shutdown()` until transmission finishes or the forced-stop deadline expires.
 
 ## [1.0.0-rc.2] - 2026-09-23
 

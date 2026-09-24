@@ -6,6 +6,18 @@ import { AppError, ResponseValidationError, ValidationError } from "./errors.ts"
 
 export type ValidationSource = "params" | "query" | "body" | "headers" | "response";
 
+export function objectSchemaProperties(schema: Schema): Record<string, Schema> | undefined {
+  if (!("type" in schema) || schema.type !== "object" || !("properties" in schema)) {
+    return undefined;
+  }
+  const properties = schema.properties;
+  return properties !== null && typeof properties === "object" && !Array.isArray(properties)
+    ? properties as Record<string, Schema>
+    : undefined;
+}
+
+const headerPropertyNames = new WeakMap<object, ReadonlyMap<string, string>>();
+
 export class SchemaValidator {
   private readonly validators = new WeakMap<object, Validator>();
 
@@ -56,10 +68,18 @@ export function entriesToObject<T = unknown>(
 ): Record<string, T | T[]> {
   const result: Record<string, T | T[]> = {};
   for (const [key, value] of entries) {
-    const current = result[key];
-    if (current === undefined) result[key] = value;
-    else if (Array.isArray(current)) current.push(value);
-    else result[key] = [current, value];
+    if (!Object.hasOwn(result, key)) {
+      Object.defineProperty(result, key, {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    } else {
+      const current = result[key]!;
+      if (Array.isArray(current)) current.push(value);
+      else result[key] = [current, value];
+    }
   }
   return result;
 }
@@ -71,8 +91,25 @@ export function queryObject(request: Request): Record<string, string | string[]>
   >;
 }
 
-export function headerObject(headers: Headers): Record<string, string> {
-  return Object.fromEntries(headers.entries());
+export function headerObject(headers: Headers, schema?: Schema): Record<string, string> {
+  const result: Record<string, string> = Object.fromEntries(headers.entries());
+  if (!schema) return result;
+
+  let names = headerPropertyNames.get(schema);
+  if (!names) {
+    const declared = new Map<string, string>();
+    for (const name of Object.keys(objectSchemaProperties(schema) ?? {})) {
+      if (name !== name.toLowerCase()) declared.set(name.toLowerCase(), name);
+    }
+    names = declared;
+    headerPropertyNames.set(schema, names);
+  }
+  for (const [lower, declared] of names) {
+    if (!Object.hasOwn(result, lower)) continue;
+    result[declared] = result[lower]!;
+    delete result[lower];
+  }
+  return result;
 }
 
 function payloadTooLarge(limitBytes: number): AppError {
@@ -152,30 +189,44 @@ export function limitRequestBody(
   return new Request(request, { body });
 }
 
-export async function parseRequestBody(request: Request): Promise<unknown> {
-  if (request.method === "GET" || request.method === "HEAD") return undefined;
-  if (request.body === null) return undefined;
+type RequestBodyMediaType = "json" | "form" | "multipart";
 
+function requestBodyMediaType(request: Request): RequestBodyMediaType {
   const contentType = (request.headers.get("content-type") ?? "")
     .split(";", 1)[0]
     ?.trim()
     .toLowerCase() ?? "";
-  const isJson = !contentType || contentType === "application/json" ||
-    /^application\/[\w.!#$&^-]+\+json$/.test(contentType);
-  const isFormUrlEncoded = contentType === "application/x-www-form-urlencoded";
-  const isMultipart = contentType === "multipart/form-data";
+  if (
+    !contentType || contentType === "application/json" ||
+    /^application\/[\w.!#$&^-]+\+json$/.test(contentType)
+  ) return "json";
+  if (contentType === "application/x-www-form-urlencoded") return "form";
+  if (contentType === "multipart/form-data") return "multipart";
+  throw new AppError(
+    415,
+    "UNSUPPORTED_MEDIA_TYPE",
+    "The request body media type is not supported.",
+  );
+}
 
-  if (!isJson && !isFormUrlEncoded && !isMultipart) {
-    throw new AppError(
-      415,
-      "UNSUPPORTED_MEDIA_TYPE",
-      "The request body media type is not supported.",
-    );
-  }
+/** Rejects known unsupported media types without consuming a streamed request body. */
+export function assertSupportedRequestMediaType(request: Request): void {
+  if (request.method === "GET" || request.method === "HEAD" || request.body === null) return;
+  requestBodyMediaType(request);
+}
 
-  const bytes = new Uint8Array(await request.arrayBuffer());
+export async function parseRequestBody(
+  request: Request,
+  bytes?: Uint8Array<ArrayBuffer>,
+): Promise<unknown> {
+  if (request.method === "GET" || request.method === "HEAD") return undefined;
+  if (bytes === undefined && request.body === null) return undefined;
 
-  if (isJson) {
+  const mediaType = requestBodyMediaType(request);
+
+  bytes ??= new Uint8Array(await request.arrayBuffer());
+
+  if (mediaType === "json") {
     const text = new TextDecoder().decode(bytes);
     if (!text.trim()) return undefined;
     try {
@@ -185,7 +236,7 @@ export async function parseRequestBody(request: Request): Promise<unknown> {
     }
   }
 
-  if (isFormUrlEncoded) {
+  if (mediaType === "form") {
     const text = new TextDecoder().decode(bytes);
     if (!text) return undefined;
     return entriesToObject(new URLSearchParams(text).entries());

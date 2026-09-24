@@ -61,20 +61,22 @@ does not represent a business module.
 
 ## Service scope semantics
 
-| Scope       | Resolution                          | Lifetime                                     | Cleanup                                                     |
-| ----------- | ----------------------------------- | -------------------------------------------- | ----------------------------------------------------------- |
-| `singleton` | One lazy instance per application   | application start through close              | close in reverse creation order during application shutdown |
-| `request`   | One lazy instance per request       | request dispatch through response completion | close in reverse creation order after response hooks run    |
-| `transient` | New instance on every resolver call | caller-owned                                 | HyAPI performs no automatic cleanup                         |
+| Scope       | Resolution                          | Lifetime                         | Cleanup                                                     |
+| ----------- | ----------------------------------- | -------------------------------- | ----------------------------------------------------------- |
+| `singleton` | One lazy instance per application   | application start through close  | close in reverse creation order during application shutdown |
+| `request`   | One lazy instance per request       | dispatch through response return | close in reverse creation order after response hooks run    |
+| `transient` | New instance on every resolver call | caller-owned                     | HyAPI performs no automatic cleanup                         |
 
 A singleton cannot depend on a request service. The application rejects this scope violation when
 the singleton factory resolves the request service. Factories can be synchronous or asynchronous;
 concurrent resolution of the same singleton or request service shares one initialization result. A
 failed initialization is not cached: the next resolution runs the factory again.
 
-Automatic cleanup applies to values implementing `close(): void | Promise<void>`. Cleanup failures
-are collected, logged through the platform error hook, and do not prevent remaining resources from
-closing.
+Automatic cleanup applies to values implementing `close(): void | Promise<void>`. Request cleanup
+errors reach `onError` without replacing the response; application shutdown collects closer errors
+and uses a bounded asynchronous cleanup deadline. Later
+[ADR 0001](../adr/0001-layered-error-scopes.md) records the exact return-time stream ownership and
+forced-shutdown limits.
 
 ## Application lifecycle and validation
 

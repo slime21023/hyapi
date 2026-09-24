@@ -84,20 +84,35 @@ const denoFileSystem: FileSystem = {
 
 export function parseCommand(args: readonly string[]): CliCommand {
   const [command, ...rest] = args;
-  if (command === undefined || command === "help" || command === "--help" || command === "-h") {
-    return { kind: "help" };
-  }
-  if (command === "--version" || command === "-v" || command === "version") {
-    return { kind: "version" };
-  }
-  if (command === "new" && rest[0]) return { kind: "new", directory: rest[0] };
-  if (command === "generate" && rest[0] && rest[1]) {
-    return { kind: "generate", generator: rest[0], name: rest[1] };
-  }
-  if (command === "inspect" || command === "doctor") {
-    const json = rest.includes("--json");
-    const directory = rest.find((value) => value !== "--json") ?? Deno.cwd();
-    return { kind: command, directory, json };
+  if (command === undefined) return { kind: "help" };
+  if (command === "help" || command === "--help" || command === "-h") {
+    if (rest.length === 0) return { kind: "help" };
+  } else if (command === "--version" || command === "-v" || command === "version") {
+    if (rest.length === 0) return { kind: "version" };
+  } else if (command === "new") {
+    if (rest.length === 1 && rest[0] && !rest[0].startsWith("-")) {
+      return { kind: "new", directory: rest[0] };
+    }
+  } else if (command === "generate") {
+    if (
+      rest.length === 2 && rest[0] && !rest[0].startsWith("-") &&
+      rest[1] && !rest[1].startsWith("-")
+    ) {
+      return { kind: "generate", generator: rest[0], name: rest[1] };
+    }
+  } else if (command === "inspect" || command === "doctor") {
+    const jsonArgs = rest.filter((value) => value === "--json");
+    const directories = rest.filter((value) => value !== "--json");
+    if (
+      jsonArgs.length <= 1 && directories.length <= 1 &&
+      !directories[0]?.startsWith("-")
+    ) {
+      return {
+        kind: command,
+        directory: directories[0] ?? Deno.cwd(),
+        json: jsonArgs.length === 1,
+      };
+    }
   }
   throw new Error(
     `Unknown or incomplete command: ${args.join(" ") || "(empty)"}. Run 'hyapi --help'.`,
@@ -119,6 +134,10 @@ export async function main(
     case "new":
       await createProject(command.directory, denoFileSystem);
       write(`Created HyAPI project in ${command.directory}.`);
+      write(
+        `The starter requires jsr:@hyapi/core@^${VERSION}; publication was not checked. ` +
+          "Run 'deno task check' in the project before starting it.",
+      );
       return;
     case "generate":
       if (command.generator !== "module") {
@@ -454,6 +473,15 @@ export async function createModule(
   fileSystem: FileSystem,
 ): Promise<string> {
   const normalized = normalizeName(name);
+  if (
+    !(await fileSystem.exists(`${root}/deno.json`)) ||
+    !(await fileSystem.exists(`${root}/src/app.ts`))
+  ) {
+    throw new Error(
+      `Cannot generate module outside a HyAPI project root: '${root}' needs deno.json and src/app.ts. ` +
+        "Run 'cd my-api' (or your project directory) and retry.",
+    );
+  }
   const directory = `${root}/src/modules/${normalized}`;
   if (await fileSystem.exists(directory)) {
     throw new Error(`Cannot create module: '${directory}' already exists.`);
@@ -501,8 +529,8 @@ function projectConfig(): string {
         "typebox": "npm:typebox@1",
       },
       tasks: {
-        dev: "deno run --watch --allow-net src/main.ts",
-        start: "deno run --allow-net src/main.ts",
+        dev: "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
+        start: "deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
         test: "deno test",
         check: "deno check src/main.ts",
         verify: "deno fmt --check && deno check src/main.ts && deno test",
@@ -514,11 +542,96 @@ function projectConfig(): string {
 }
 
 function projectMain(): string {
-  return [
-    'import { app } from "./app.ts";',
-    "",
-    "Deno.serve({ port: 8000 }, app.fetch);",
-  ].join("\n") + "\n";
+  return `import { app } from "./app.ts";
+
+const host = Deno.env.get("HOST") ?? "127.0.0.1";
+const port = Number(Deno.env.get("PORT") ?? "8000");
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error("PORT must be a valid TCP port.");
+}
+
+const controller = new AbortController();
+const transmissions = new Set<Promise<void>>();
+let notifyIdle: (() => void) | undefined;
+const server = Deno.serve(
+  { hostname: host, port, signal: controller.signal },
+  (request, info) => {
+    const completed = info.completed;
+    transmissions.add(completed);
+    const settled = () => {
+      transmissions.delete(completed);
+      if (transmissions.size === 0) notifyIdle?.();
+    };
+    void completed.then(settled, settled);
+    return app.fetch(request);
+  },
+);
+
+let stopping: Promise<void> | undefined;
+function stop(): Promise<void> {
+  return stopping ??= (async () => {
+    const closingApp = app.close();
+    const deadline = Date.now() + 2 * (app.config.shutdownTimeoutMs ?? 30_000) +
+      1_000;
+    const watchdog = new AbortController();
+    const closingServer = (async () => {
+      if (transmissions.size > 0) {
+        const idle = new Promise<void>((resolve) => {
+          notifyIdle = resolve;
+          if (transmissions.size === 0) resolve();
+        });
+        await Promise.race([idle, abortAfter(deadline, watchdog.signal)]);
+      }
+      if (transmissions.size > 0) controller.abort();
+      await server.shutdown();
+      await server.finished;
+    })();
+    try {
+      const results = await Promise.allSettled([closingApp, closingServer]);
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason as unknown] : []
+      );
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "Server shutdown failed.");
+      }
+      if (errors.length === 1) throw errors[0];
+    } finally {
+      watchdog.abort();
+    }
+  })();
+}
+
+async function abortAfter(
+  deadline: number,
+  signal: AbortSignal,
+): Promise<void> {
+  while (!signal.aborted) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(finish, Math.min(remaining, 2_147_483_647));
+      function finish() {
+        signal.removeEventListener("abort", finish);
+        clearTimeout(timer);
+        resolve();
+      }
+      signal.addEventListener("abort", finish, { once: true });
+      if (signal.aborted) finish();
+    });
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  Deno.addSignalListener(signal, () => {
+    void stop().catch(console.error);
+  });
+}
+try {
+  await server.finished;
+} finally {
+  await stop();
+}
+`;
 }
 
 function projectApp(): string {
@@ -553,7 +666,13 @@ function healthModule(): string {
     "export const healthModule = defineModule({",
     '  name: "health",',
     "  setup(module) {",
-    '    module.route(defineRoute({ method: "get", path: "/health/live", handler: ({ ok }) => ok({ status: "ok" }) }));',
+    "    module.route(",
+    "      defineRoute({",
+    '        method: "get",',
+    '        path: "/health/live",',
+    '        handler: ({ ok }) => ok({ status: "ok" }),',
+    "      }),",
+    "    );",
     "  },",
     "});",
   ].join("\n") + "\n";
@@ -602,10 +721,21 @@ function schemaTemplate(name: string): string {
 function testTemplate(name: string): string {
   return [
     'import { assertEquals } from "@std/assert";',
+    'import { createApplication, defineConfig } from "@hyapi/core";',
     `import { ${camelCase(name)}Module } from "./${name}.module.ts";`,
     "",
-    `Deno.test("${name} module is defined", () => {`,
-    `  assertEquals(${camelCase(name)}Module.name, "${name}");`,
+    `Deno.test("${name} responds on /${name}", async () => {`,
+    "  const app = await createApplication({",
+    `    config: defineConfig({ name: "${name}-test" }),`,
+    `    modules: [${camelCase(name)}Module],`,
+    "  });",
+    "  try {",
+    `    const response = await app.request("http://test/${name}");`,
+    "    assertEquals(response.status, 200);",
+    `    assertEquals(await response.json(), { module: "${name}" });`,
+    "  } finally {",
+    "    await app.close();",
+    "  }",
     "});",
   ].join("\n") + "\n";
 }
@@ -615,8 +745,10 @@ function pascalCase(value: string): string {
 }
 
 function camelCase(value: string): string {
-  const pascal = pascalCase(value);
-  return pascal[0]?.toLowerCase() + pascal.slice(1);
+  return value.split("-").map((part, index) => {
+    if (index === 0) return part;
+    return /^[0-9]/.test(part) ? `_${part}` : part[0]?.toUpperCase() + part.slice(1);
+  }).join("");
 }
 
 function helpText(): string {
