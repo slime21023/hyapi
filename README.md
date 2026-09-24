@@ -9,9 +9,9 @@ public API.
 ## Current status
 
 HyAPI is preparing **v1.0.0-rc.3** as the next release candidate. It includes lifecycle correctness
-changes since rc.2. The local `deno task verify` gate passed with 200 tests, including the generated
-starter's live listener and shutdown; `deno publish --dry-run --allow-dirty` also passed. The clean
-checkout publish check and JSR publication have not yet completed.
+changes since rc.2. Local `deno task verify` and `deno publish --dry-run --allow-dirty` passed
+before the final CLI doctor regression fix; the final clean-checkout gate and JSR publication are
+pending.
 
 Read the [roadmap](docs/roadmap.md), [v1.0.0 migration guide](docs/migrations/v1.0.0.md),
 [changelog](CHANGELOG.md), [contribution/release policy](CONTRIBUTING.md),

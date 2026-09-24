@@ -152,8 +152,8 @@ with an explicit migration path and a release gate that cannot publish mismatche
 - [x] Verify the generated starter's actual listener response and graceful shutdown, in addition to
       its `verify` task and CLI `doctor` report.
 - [x] Require the publish workflow's tag to match both package versions.
-- [x] Run `deno task verify` in the working checkout (200 tests, including generated listener and
-      shutdown) and `deno publish --dry-run --allow-dirty` for a non-publishing preflight.
+- [x] Run `deno task verify` in the working checkout before the final CLI doctor regression fix, and
+      `deno publish --dry-run --allow-dirty` as a non-publishing preflight.
 - [ ] Run `deno task verify`, `deno task publish:check`, and `git diff --check` in a clean checkout.
       Record results before tagging; do not publish until the clean gate passes.
 
@@ -170,7 +170,7 @@ deno task publish:check
 `doctor` report, and a generated starter checked against local core source (the generated project's
 `verify` task, including formatting, type checking, and tests, plus CLI `doctor`). It does not
 establish that JSR dependencies resolve; after publishing, run
-`deno run --allow-read --allow-write --allow-run --allow-env scripts/verify-starter.ts --published`
+`deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts --published`
 to check an unmodified starter. CI runs the gate on Ubuntu and Windows, and a release-checks job
 runs a whole-tree whitespace check and the JSR publish dry-run. Performance results are recorded in
 [docs/baselines/performance.md](baselines/performance.md).

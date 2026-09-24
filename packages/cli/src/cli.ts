@@ -307,6 +307,31 @@ export function inspectModuleBoundaries(
       }
     }
   }
+  const sourcesByPath = new Map(
+    allSources.map((source) => [source.path.replaceAll("\\", "/"), source]),
+  );
+  const importedPortNames = new Map<ModuleSource, Map<string, string | undefined>>();
+  for (const source of allSources) {
+    const imports = new Map<string, string | undefined>();
+    importedPortNames.set(source, imports);
+    for (
+      const match of source.text.matchAll(
+        /\bimport\s+(?:type\s+)?\{([^}]+)\}\s*from\s*["']([^"']+)["']/g,
+      )
+    ) {
+      const target = sourcesByPath.get(resolveImportedPath(source, match[2] ?? "") ?? "");
+      for (const entry of (match[1] ?? "").split(",")) {
+        const binding = /^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/
+          .exec(entry.trim());
+        if (binding?.[1]) {
+          imports.set(
+            binding[2] ?? binding[1],
+            target ? sourcePortNames.get(target)?.get(binding[1]) : undefined,
+          );
+        }
+      }
+    }
+  }
 
   const crossModuleImports: CrossModuleImport[] = [];
   const requiredPorts: PortRequirement[] = [];
@@ -324,6 +349,7 @@ export function inspectModuleBoundaries(
         const port = resolvePortReference(
           reference,
           sourcePortNames.get(source)!,
+          importedPortNames.get(source)!,
           modulePortNames.get(source.module)!,
           portNames,
         );
@@ -343,6 +369,7 @@ export function inspectModuleBoundaries(
       const port = resolvePortReference(
         match[1] ?? "",
         sourcePortNames.get(source)!,
+        importedPortNames.get(source)!,
         modulePortNames.get(source.module)!,
         portNames,
       );
@@ -390,6 +417,18 @@ function importedSpecifiers(source: string): readonly string[] {
 }
 
 function resolveImportedModule(source: ModuleSource, specifier: string): string | undefined {
+  const path = resolveImportedPath(source, specifier);
+  if (!path) return undefined;
+  const segments = path.split("/");
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    if (segments[index] === "modules" && segments[index - 1] === "src") {
+      return segments[index + 1];
+    }
+  }
+  return undefined;
+}
+
+function resolveImportedPath(source: ModuleSource, specifier: string): string | undefined {
   if (!specifier.startsWith(".")) return undefined;
   const segments = source.path.replaceAll("\\", "/").split("/").slice(0, -1);
   for (const segment of specifier.split("/")) {
@@ -397,12 +436,7 @@ function resolveImportedModule(source: ModuleSource, specifier: string): string 
     if (segment === "..") segments.pop();
     else segments.push(segment);
   }
-  for (let index = segments.length - 1; index > 0; index -= 1) {
-    if (segments[index] === "modules" && segments[index - 1] === "src") {
-      return segments[index + 1];
-    }
-  }
-  return undefined;
+  return segments.join("/");
 }
 
 function rememberPortName(
@@ -417,6 +451,7 @@ function rememberPortName(
 function resolvePortReference(
   reference: string,
   local: ReadonlyMap<string, string>,
+  imports: ReadonlyMap<string, string | undefined>,
   moduleNames: ReadonlyMap<string, string | undefined>,
   globalNames: ReadonlyMap<string, string | undefined>,
 ): string | undefined {
@@ -424,6 +459,7 @@ function resolvePortReference(
   const stringMatch = /^["']([^"']+)["']$/.exec(trimmed);
   if (stringMatch) return stringMatch[1];
   if (local.has(trimmed)) return local.get(trimmed);
+  if (imports.has(trimmed)) return imports.get(trimmed);
   if (moduleNames.has(trimmed)) return moduleNames.get(trimmed);
   return globalNames.get(trimmed);
 }

@@ -209,6 +209,64 @@ Deno.test("doctor resolves same-named ports within each module", () => {
   );
 });
 
+Deno.test("doctor resolves imported shared ports before same-named module ports", () => {
+  const sources = [
+    {
+      module: "orders",
+      path: "src/modules/orders/local.port.ts",
+      text: 'export const port = definePort("orders.local");\nprovidePort(port, {});',
+    },
+    {
+      module: "orders",
+      path: "src/modules/orders/orders.module.ts",
+      text: 'import { port } from "../../contracts/shared.ts";\n' +
+        "export const orders = defineModule({ requires: [port] });",
+    },
+  ];
+  const shared = [{
+    module: "contracts",
+    path: "src/contracts/shared.ts",
+    text: 'export const port = definePort("shared.remote");',
+  }];
+  const boundaries = inspectModuleBoundaries(sources, shared);
+  assertEquals(boundaries.requiredPorts.map(({ port }) => port), ["shared.remote"]);
+  assertEquals(boundaries.providedPorts.map(({ port }) => port), ["orders.local"]);
+  assertEquals(
+    doctor({
+      root: "demo",
+      modules: ["orders"],
+      hasDenoConfig: true,
+      hasApplicationEntry: true,
+      boundaries,
+    }).map(({ code }) => code),
+    ["PORT_PROVIDER_MISSING"],
+  );
+  const alias = inspectModuleBoundaries([
+    sources[0]!,
+    {
+      ...sources[1]!,
+      text: 'import { port as remotePort } from "../../contracts/shared.ts";\n' +
+        "export const orders = defineModule({ requires: [remotePort] });",
+    },
+  ], shared);
+  assertEquals(alias.requiredPorts.map(({ port }) => port), ["shared.remote"]);
+
+  const missing = inspectModuleBoundaries([
+    sources[0]!,
+    {
+      ...sources[1]!,
+      text: 'import { port } from "../../contracts/missing.ts";\n' +
+        "export const orders = defineModule({ requires: [port] });",
+    },
+  ], shared);
+  assertEquals(missing.requiredPorts, []);
+  assertEquals(missing.unresolvedReferences, [{
+    module: "orders",
+    path: "src/modules/orders/orders.module.ts",
+    reference: "port",
+  }]);
+});
+
 Deno.test("boundary inspection marks heuristic analysis and unresolved references", () => {
   const boundaries = inspectModuleBoundaries([{
     module: "orders",
