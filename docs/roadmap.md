@@ -154,8 +154,10 @@ with an explicit migration path and a release gate that cannot publish mismatche
 - [x] Require the publish workflow's tag to match both package versions.
 - [x] Run `deno task verify` in the working checkout before the final CLI doctor regression fix, and
       `deno publish --dry-run --allow-dirty` as a non-publishing preflight.
-- [ ] Run `deno task verify`, `deno task publish:check`, and `git diff --check` in a clean checkout.
-      Record results before tagging; do not publish until the clean gate passes.
+- [x] On an isolated clean checkout, `deno task verify` passed (201 tests, 0 failed, including the
+      starter listener and shutdown); `deno task publish:check` completed a dry-run for
+      `@hyapi/core@1.0.0-rc.3` and `@hyapi/cli@1.0.0-rc.3`; `git diff --check` reported no errors.
+      No JSR package was published.
 
 ## v1.0.0-rc.2 verification record
 
