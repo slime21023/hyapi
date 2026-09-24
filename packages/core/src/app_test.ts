@@ -1072,18 +1072,24 @@ Deno.test("typed body media rejection precedes an open stream but not the declar
     handler: () => new Response(null, { status: 204 }),
   }));
   await app.start();
+  let cancelled = false;
 
   const unsupported = await withinOneSecond(app.request("/media-order", {
     method: "POST",
     headers: { "content-type": "application/octet-stream" },
     body: new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(1));
+      pull() {
+        return Promise.withResolvers<void>().promise;
+      },
+      cancel() {
+        cancelled = true;
+        return Promise.withResolvers<void>().promise;
       },
     }),
   }));
   assertEquals(unsupported.status, 415);
   assertEquals((await unsupported.json()).code, "UNSUPPORTED_MEDIA_TYPE");
+  assertEquals(cancelled, true);
 
   const oversized = await app.request("/media-order", {
     method: "POST",

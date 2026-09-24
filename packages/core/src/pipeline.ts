@@ -447,7 +447,18 @@ export class RequestPipeline {
     let handlerRequest = boundedRequest;
     let rawBody: unknown;
     if (requestSchemas?.body && boundedRequest.body !== null) {
-      assertSupportedRequestMediaType(boundedRequest);
+      try {
+        assertSupportedRequestMediaType(boundedRequest);
+      } catch (error) {
+        // The limiter has acquired the original reader; rejection must release it without
+        // waiting for an uncooperative stream to acknowledge cancellation.
+        try {
+          void boundedRequest.body.cancel().catch(() => undefined);
+        } catch {
+          // A broken source must not replace the unsupported-media response.
+        }
+        throw error;
+      }
       const bytes = new Uint8Array(await boundedRequest.arrayBuffer());
       handlerRequest = new Request(boundedRequest, { body: bytes });
       scope.setLifecycleRequest(new Request(boundedRequest, { body: bytes }));

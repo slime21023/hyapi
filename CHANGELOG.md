@@ -41,6 +41,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
   oversized streamed body returns 413 instead of hanging, and a request timeout cancels a stalled
   body read.
+- Unsupported media types on typed-body routes now best-effort cancel the request source without
+  delaying 415; oversized bodies still take precedence with 413.
 - Resilience timeouts count as circuit-breaker failures and release their half-open probe and
   bulkhead slot even if the abandoned operation never settles.
 - Error responses that replace a handler response (for example after a failing global `onResponse`
