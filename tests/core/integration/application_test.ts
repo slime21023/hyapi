@@ -19,7 +19,7 @@ import {
   type Identity,
   NotFoundError,
   providePort,
-  type ProviderHealth,
+  type ProviderHealthCheck,
   type RouteGroupApi,
   verifyPortContract,
   verifyPortContracts,
@@ -452,7 +452,7 @@ Deno.test("providers connect, report health, and close in lifecycle order", asyn
       connect: () => {
         events.push("connect");
       },
-      health: () => ({ status: "healthy", provider: "lifecycle.port" }),
+      health: () => ({ status: "healthy" }),
       close: () => {
         events.push("close");
       },
@@ -2332,9 +2332,12 @@ Deno.test("health aggregates degraded providers and rejects invalid reports", as
     config,
     modules: [],
     providers: [
-      providePort(definePort("ok"), {}, { health: () => ({ status: "healthy", provider: "ok" }) }),
+      providePort(definePort("ok"), {}, { health: () => ({ status: "healthy" }) }),
       providePort(definePort("slow"), {}, {
-        health: () => ({ status: "degraded", provider: "slow", detail: "lagging" }),
+        health: () => ({ status: "degraded", detail: "lagging" }),
+      }),
+      providePort(definePort("mapped"), {}, {
+        health: () => ({ status: "healthy", provider: "wrong" }) as unknown as ProviderHealthCheck,
       }),
       providePort(definePort("plain"), {}),
     ],
@@ -2344,6 +2347,7 @@ Deno.test("health aggregates degraded providers and rejects invalid reports", as
     providers: [
       { status: "healthy", provider: "ok" },
       { status: "degraded", provider: "slow", detail: "lagging" },
+      { status: "healthy", provider: "mapped" },
       { status: "healthy", provider: "plain" },
     ],
   });
@@ -2352,15 +2356,24 @@ Deno.test("health aggregates degraded providers and rejects invalid reports", as
   const invalid = await createApplication({
     config,
     modules: [],
-    providers: [providePort(definePort("bogus"), {}, {
-      health: () => ({ status: "fine", provider: "bogus" }) as unknown as ProviderHealth,
-    })],
+    providers: [
+      providePort(definePort("bogus-status"), {}, {
+        health: () => ({ status: "fine" }) as unknown as ProviderHealthCheck,
+      }),
+      providePort(definePort("bogus-detail"), {}, {
+        health: () => ({ status: "healthy", detail: 42 }) as unknown as ProviderHealthCheck,
+      }),
+    ],
   });
   assertEquals(await invalid.health(), {
     status: "unhealthy",
     providers: [{
       status: "unhealthy",
-      provider: "bogus",
+      provider: "bogus-status",
+      detail: "Health check returned an invalid report.",
+    }, {
+      status: "unhealthy",
+      provider: "bogus-detail",
       detail: "Health check returned an invalid report.",
     }],
   });
@@ -2372,7 +2385,7 @@ Deno.test("health reports providers whose checks time out as unhealthy", async (
     config,
     modules: [],
     providers: [providePort(definePort("hung"), {}, {
-      health: () => Promise.withResolvers<ProviderHealth>().promise,
+      health: () => Promise.withResolvers<ProviderHealthCheck>().promise,
     })],
   });
   assertEquals(await app.health(), {
@@ -2447,7 +2460,8 @@ Deno.test("request services outliving their request are closed and never created
     log.push("request:create");
     return { close: () => void log.push("request:close") };
   });
-  const code = (error: unknown) => error instanceof AppError ? error.code : error;
+  const code = (error: unknown) =>
+    typeof error === "object" && error !== null && "code" in error ? error.code : error;
   app.route({
     method: "get",
     path: "/slow",
@@ -2562,7 +2576,7 @@ Deno.test("health reports unhealthy without probing providers after close", asyn
     providers: [providePort(definePort("probed"), {}, {
       health: () => {
         probes += 1;
-        return { status: "healthy", provider: "probed" };
+        return { status: "healthy" };
       },
     })],
   });
@@ -2632,11 +2646,13 @@ Deno.test("timed-out group onResponse does not commit 200 or re-notify its failu
 });
 
 Deno.test("late onResponse completion cannot return a stale 200", async () => {
+  const finished = Promise.withResolvers<void>();
   const app = createApp({
     config: { ...config, requestTimeoutMs: 60, shutdownTimeoutMs: 20 },
   });
   app.addHook("onResponse", async () => {
     await sleep(120);
+    finished.resolve();
   });
   app.route({
     method: "get",
@@ -2649,6 +2665,7 @@ Deno.test("late onResponse completion cannot return a stale 200", async () => {
   assertEquals(response.status, 503);
   assertEquals((await response.json()).code, "REQUEST_TIMEOUT");
   await withinOneSecond(app.close());
+  await withinOneSecond(finished.promise);
 });
 
 Deno.test("upstream deadline bounds onResponse with a 504 problem", async () => {

@@ -127,13 +127,11 @@ Deno.test("provideHttp supports an optional health endpoint under the base URL p
   });
   assertEquals(await provider.lifecycle?.health?.(), {
     status: "healthy",
-    provider: "users.directory",
   });
   assertEquals(healthUrl, "http://gateway/users-service/health");
   status = 503;
   assertEquals(await provider.lifecycle?.health?.(), {
     status: "unhealthy",
-    provider: "users.directory",
     detail: "Health endpoint returned 503.",
   });
   assertThrows(

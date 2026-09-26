@@ -1,12 +1,12 @@
 import { assertEquals, assertRejects, assertThrows } from "@std/assert";
 import Type from "typebox";
+import { SchemaValidationError, SchemaValidator } from "../../../../packages/core/src/schema.ts";
 import {
   headerObject,
   parseRequestBody,
   queryObject,
-  SchemaValidator,
-} from "../../../../packages/core/src/http/validation.ts";
-import { AppError, ResponseValidationError, ValidationError } from "@hyapi/core";
+} from "../../../../packages/core/src/http/request.ts";
+import { AppError } from "@hyapi/core";
 
 Deno.test("SchemaValidator - validates valid payloads and coerces types", () => {
   const validator = new SchemaValidator();
@@ -25,7 +25,7 @@ Deno.test("SchemaValidator - validates valid payloads and coerces types", () => 
     tags: ["math", "logic"],
   };
 
-  const result = validator.validate(schema, input, "query");
+  const result = validator.validateInput(schema, input);
   assertEquals(result, {
     name: "Ada",
     age: 36,
@@ -41,11 +41,11 @@ Deno.test("SchemaValidator - applies request defaults before coercion", () => {
     active: Type.Optional(Type.Boolean({ default: true })),
   });
 
-  const result = validator.validate(schema, {}, "query");
+  const result = validator.validateInput(schema, {});
   assertEquals(result, { limit: 10, active: true });
 });
 
-Deno.test("SchemaValidator - throws ValidationError for invalid inputs", () => {
+Deno.test("SchemaValidator - reports generic schema issues for invalid inputs", () => {
   const validator = new SchemaValidator();
   const schema = Type.Object({
     email: Type.String({ format: "email" }),
@@ -54,42 +54,40 @@ Deno.test("SchemaValidator - throws ValidationError for invalid inputs", () => {
   });
 
   // Valid formats
-  const valid = validator.validate<{ email: string; id: string; created: string }>(
+  const valid = validator.validateInput<{ email: string; id: string; created: string }>(
     schema,
     {
       email: "user@example.com",
       id: "550e8400-e29b-41d4-a716-446655440000",
       created: "2026-08-28T12:00:00Z",
     },
-    "body",
   );
   assertEquals(valid.email, "user@example.com");
 
   // Invalid formats
   assertThrows(
     () =>
-      validator.validate(
+      validator.validateInput(
         schema,
         {
           email: "not-an-email",
           id: "not-uuid",
           created: "invalid-date",
         },
-        "body",
       ),
-    ValidationError,
+    SchemaValidationError,
   );
 });
 
-Deno.test("SchemaValidator - throws ResponseValidationError when source is response", () => {
+Deno.test("SchemaValidator - validates output without HTTP error semantics", () => {
   const validator = new SchemaValidator();
   const schema = Type.Object({
     success: Type.Boolean(),
   });
 
   assertThrows(
-    () => validator.validate(schema, { success: "not-boolean" }, "response"),
-    ResponseValidationError,
+    () => validator.validateOutput(schema, { success: "not-boolean" }),
+    SchemaValidationError,
   );
 });
 

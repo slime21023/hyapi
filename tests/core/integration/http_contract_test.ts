@@ -406,6 +406,39 @@ Deno.test("HTTP clients report caller cancellation as aborted without fetching",
   assertEquals(calls, 0);
 });
 
+Deno.test("HTTP clients reject unserializable bodies as client errors", async () => {
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  const client = createHttpContractClient(orderContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+  });
+
+  const error = await assertRejects(
+    () => client.createOrder({ body: circular } as never),
+    HttpContractClientError,
+  );
+  assertEquals(error.reason, "client");
+});
+
+Deno.test("HTTP clients honor caller aborts when a custom fetch returns a late response", async () => {
+  const controller = new AbortController();
+  const client = createHttpContractClient(catalogContract, {
+    baseUrl: "http://test",
+    timeoutMs: 100,
+    fetch: () => {
+      controller.abort();
+      return Response.json({ id: "k", name: "Keyboard" });
+    },
+  });
+
+  const error = await assertRejects(
+    () => client.getItem({ params: { id: "k" } }, { signal: controller.signal }),
+    HttpContractClientError,
+  );
+  assertEquals(error.reason, "aborted");
+});
+
 Deno.test("HTTP clients stop retrying when the caller aborts during backoff", async () => {
   let calls = 0;
   const client = createHttpContractClient(catalogContract, {

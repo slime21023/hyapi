@@ -9,8 +9,7 @@ import {
   isCompatibleHttpContractVersion,
   resolveContractUrl,
 } from "./contract.ts";
-import { type Port, type PortProvider, type ProviderHealth } from "../types.ts";
-import { providePort } from "../port.ts";
+import { type Port, type PortProvider, providePort, type ProviderHealthCheck } from "../port.ts";
 
 export interface HttpPortOptions<TPort, TRoutes extends HttpContractRoutes>
   extends HttpContractClientOptions {
@@ -40,8 +39,8 @@ export function provideHttp<TPort, TRoutes extends HttpContractRoutes>(
     );
   }
   const provider = options.adapt(createHttpContractClient(options.contract, options));
-  const health = async (): Promise<ProviderHealth> => {
-    if (!healthPath) return { status: "healthy", provider: port.id };
+  const health = async (): Promise<ProviderHealthCheck> => {
+    if (!healthPath) return { status: "healthy" };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs);
     try {
@@ -50,15 +49,13 @@ export function provideHttp<TPort, TRoutes extends HttpContractRoutes>(
         { method: "GET", signal: controller.signal },
       );
       await response.body?.cancel().catch(() => undefined);
-      return response.ok ? { status: "healthy", provider: port.id } : {
+      return response.ok ? { status: "healthy" } : {
         status: "unhealthy",
-        provider: port.id,
         detail: `Health endpoint returned ${response.status}.`,
       };
     } catch (error) {
       return {
         status: "unhealthy",
-        provider: port.id,
         detail: error instanceof Error ? error.message : "Health endpoint request failed.",
       };
     } finally {

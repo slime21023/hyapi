@@ -9,8 +9,8 @@ import {
   validateRetryPolicy,
 } from "../resilience.ts";
 import { MAX_TIMER_MS, sleep } from "../runtime/timers.ts";
+import type { ContractVersion } from "../port.ts";
 import type {
-  ContractVersion,
   HttpMethod,
   InferSchema,
   MaybePromise,
@@ -22,7 +22,7 @@ import type {
   RouteRequestSchemas,
   Schema,
 } from "../types.ts";
-import { SchemaValidator } from "./validation.ts";
+import { SchemaValidator } from "../schema.ts";
 
 export interface HttpContractRoute<
   TParams extends Schema | undefined = Schema | undefined,
@@ -257,7 +257,15 @@ export function createHttpContractClient<TRoutes extends HttpContractRoutes>(
     const url = resolveContractUrl(options.baseUrl, interpolatePath(route.path, request.params));
     appendQuery(url, request.query);
     const headers = new Headers(init?.headers);
-    const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+    let body: string | undefined;
+    if (request.body !== undefined) {
+      try {
+        body = JSON.stringify(request.body);
+      } catch (error) {
+        throw new HttpContractClientError(name, "client", undefined, { cause: error });
+      }
+      if (body === undefined) throw new HttpContractClientError(name, "client");
+    }
     if (body !== undefined && !headers.has("content-type")) {
       headers.set("content-type", "application/json");
     }
@@ -390,10 +398,11 @@ async function invokeOnce(
     ...(body === undefined ? {} : { body }),
   };
   try {
+    const beforeFetchAbort = abortReason(init, guardSignal, timeoutController, deadlineBound);
+    if (beforeFetchAbort) throw new HttpContractClientError(name, beforeFetchAbort);
     const response = await (options.fetch ?? fetch)(url, requestInit);
-    if (timeoutController.signal.aborted) {
-      throw new HttpContractClientError(name, deadlineBound ? "deadline" : "timeout");
-    }
+    const afterFetchAbort = abortReason(init, guardSignal, timeoutController, deadlineBound);
+    if (afterFetchAbort) throw new HttpContractClientError(name, afterFetchAbort);
     const schema = route.responses[response.status];
     if (!schema) {
       await response.body?.cancel().catch(() => undefined);
@@ -419,27 +428,32 @@ async function invokeOnce(
       }
     }
     try {
-      result = validator.validate(schema, result, "response");
+      result = validator.validateOutput(schema, result);
     } catch (error) {
       throw new HttpContractClientError(name, "contract", response.status, { cause: error });
     }
-    if (timeoutController.signal.aborted) {
-      throw new HttpContractClientError(name, deadlineBound ? "deadline" : "timeout");
-    }
+    const afterBodyAbort = abortReason(init, guardSignal, timeoutController, deadlineBound);
+    if (afterBodyAbort) throw new HttpContractClientError(name, afterBodyAbort);
     return { status: response.status, body: result } as HttpInvocationResult;
   } catch (error) {
     if (error instanceof HttpContractClientError) throw error;
-    const reason = init?.signal?.aborted
-      ? "aborted"
-      : guardSignal?.aborted
-      ? "timeout"
-      : timeoutController.signal.aborted
-      ? deadlineBound ? "deadline" : "timeout"
-      : "network";
+    const reason = abortReason(init, guardSignal, timeoutController, deadlineBound) ?? "network";
     throw new HttpContractClientError(name, reason, undefined, { cause: error });
   } finally {
     clearTimeout(timer);
   }
+}
+
+function abortReason(
+  init: RequestInit | undefined,
+  guardSignal: AbortSignal | undefined,
+  timeoutController: AbortController,
+  deadlineBound: boolean,
+): HttpContractClientError["reason"] | undefined {
+  if (init?.signal?.aborted) return "aborted";
+  if (guardSignal?.aborted) return "timeout";
+  if (timeoutController.signal.aborted) return deadlineBound ? "deadline" : "timeout";
+  return undefined;
 }
 
 function resolveDeadline(...deadlines: Array<number | undefined>): number | undefined {

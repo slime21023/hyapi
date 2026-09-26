@@ -1,4 +1,5 @@
 import { AppError } from "../errors.ts";
+import { ScopeClosedError } from "../runtime/scope.ts";
 
 export interface ProblemDetails {
   readonly type: string;
@@ -13,6 +14,9 @@ export interface ProblemDetails {
 
 function asAppError(error: unknown): AppError {
   if (error instanceof AppError) return error;
+  if (error instanceof ScopeClosedError) {
+    return new AppError(500, error.code, error.message, error.details, false);
+  }
   const message = error instanceof Error ? error.message : "An unexpected error occurred.";
   return new AppError(500, "INTERNAL_ERROR", message, undefined, false);
 }
@@ -46,4 +50,11 @@ export function toProblemDetails(
     if (details !== undefined) return { ...result, details };
   }
   return result;
+}
+
+export function errorResponse(error: unknown, request: Request, requestId: string): Response {
+  const problem = toProblemDetails(error, request, requestId);
+  const headers = new Headers({ "content-type": "application/problem+json" });
+  if (problem.status === 401) headers.set("www-authenticate", "Bearer");
+  return Response.json(problem, { status: problem.status, headers });
 }

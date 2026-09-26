@@ -1,15 +1,22 @@
-import type { HealthReport, Port, PortProvider, ProviderHealth } from "../types.ts";
 import { ConfigurationError } from "../errors.ts";
 import { collectError, Scope } from "./scope.ts";
-import { formatContractVersion, isCompatibleContractVersion } from "../port.ts";
+import {
+  formatContractVersion,
+  type HealthReport,
+  isCompatibleContractVersion,
+  type Port,
+  type PortProvider,
+  type ProviderHealth,
+  type ProviderHealthCheck,
+} from "../port.ts";
 
 const PROVIDER_HEALTH_TIMEOUT_MS = 5_000;
 
-function isProviderHealth(value: unknown): value is ProviderHealth {
+function isProviderHealthCheck(value: unknown): value is ProviderHealthCheck {
   if (typeof value !== "object" || value === null) return false;
-  if (!("status" in value) || !("provider" in value)) return false;
+  if (!("status" in value)) return false;
   return (value.status === "healthy" || value.status === "degraded" ||
-    value.status === "unhealthy") && typeof value.provider === "string";
+    value.status === "unhealthy") && (!("detail" in value) || typeof value.detail === "string");
 }
 
 export class ProviderRegistry {
@@ -89,14 +96,14 @@ export class ProviderRegistry {
         Promise.resolve().then(() => lifecycle.health?.()),
         timedOut,
       ]);
-      if (!isProviderHealth(report)) {
+      if (!isProviderHealthCheck(report)) {
         return {
           status: "unhealthy",
           provider: id,
           detail: "Health check returned an invalid report.",
         };
       }
-      return report;
+      return { ...report, provider: id };
     } catch (error) {
       return {
         status: "unhealthy",

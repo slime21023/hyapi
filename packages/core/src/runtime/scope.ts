@@ -1,13 +1,19 @@
 import type { MaybePromise } from "../types.ts";
 import { sleep } from "./timers.ts";
-import { AppError } from "../errors.ts";
 
-export type Closer = (deadline?: number) => MaybePromise<void>;
-export type ScopeState = "open" | "closing" | "closed";
+type Closer = (deadline?: number) => MaybePromise<void>;
+type ScopeState = "open" | "closing" | "closed";
 
 /** `details` carries the error thrown while closing a value adopted after the scope closed. */
-export function scopeClosedError(details: unknown = undefined): AppError {
-  return new AppError(500, "SCOPE_CLOSED", "The scope has already been closed.", details, false);
+export class ScopeClosedError extends Error {
+  readonly code = "SCOPE_CLOSED";
+  readonly details: unknown;
+
+  constructor(details: unknown = undefined) {
+    super("The scope has already been closed.");
+    this.name = "ScopeClosedError";
+    this.details = details;
+  }
 }
 
 /** Appends `error`, expanding AggregateErrors so nested scopes report one flat list. */
@@ -48,7 +54,7 @@ export class Scope {
   }
 
   defer(closer: Closer): void {
-    if (this.#state !== "open") throw scopeClosedError();
+    if (this.#state !== "open") throw new ScopeClosedError();
     this.#closers.push(closer);
   }
 
@@ -63,54 +69,78 @@ export class Scope {
       try {
         await closer();
       } catch (error) {
-        throw scopeClosedError(error);
+        throw new ScopeClosedError(error);
       }
     }
-    throw scopeClosedError();
+    throw new ScopeClosedError();
   }
 
-  close(deadline?: number): Promise<void> {
+  close(deadline?: number, signal?: AbortSignal): Promise<void> {
     if (this.#closing) return this.#closing;
     const { promise, resolve, reject } = Promise.withResolvers<void>();
     this.#closing = promise;
-    void this.#closeAll(deadline).then(resolve, reject);
+    void this.#closeAll(deadline, signal).then(resolve, reject);
     return promise;
   }
 
-  async #closeAll(deadline?: number): Promise<void> {
+  async #closeAll(deadline?: number, signal?: AbortSignal): Promise<void> {
     this.#state = "closing";
     const errors: unknown[] = [];
+    let aborted = false;
+    let abortReason: unknown;
+    const noteAbort = () => {
+      if (aborted || !signal?.aborted) return;
+      aborted = true;
+      abortReason = signal.reason;
+    };
     for (const closer of this.#closers.reverse()) {
       try {
+        noteAbort();
         const result = closer(deadline);
         // A closer returning its own scope's close promise cannot wait for itself.
         if (result === undefined || result === this.#closing) continue;
-        if (deadline === undefined) {
+        if (deadline === undefined && !signal) {
           await result;
           continue;
         }
         const pending = Promise.resolve(result);
         // The closer may settle after the deadline; do not leave a rejection unobserved.
         void pending.catch(() => undefined);
-        const remaining = deadline - Date.now();
-        if (remaining <= 0) throw cleanupTimeout();
-        const timer = new AbortController();
+        if (signal?.aborted) continue;
+        const remaining = deadline === undefined ? undefined : deadline - Date.now();
+        if (remaining !== undefined && remaining <= 0) throw cleanupTimeout();
+        const timer = remaining === undefined ? undefined : new AbortController();
+        const abort = signal ? Promise.withResolvers<never>() : undefined;
+        const onAbort = () => abort?.reject(signal?.reason);
+        if (signal) {
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }
         try {
-          await Promise.race([
+          const waits: Promise<unknown>[] = [
             pending,
-            sleep(remaining, timer.signal).then(() => {
-              throw cleanupTimeout();
-            }),
-          ]);
+          ];
+          if (timer && remaining !== undefined) {
+            waits.push(
+              sleep(remaining, timer.signal).then(() => {
+                throw cleanupTimeout();
+              }),
+            );
+          }
+          if (abort) waits.push(abort.promise);
+          await Promise.race(waits);
         } finally {
-          timer.abort();
+          timer?.abort();
+          signal?.removeEventListener("abort", onAbort);
         }
       } catch (error) {
-        collectError(errors, error);
+        if (signal?.aborted && error === signal.reason) noteAbort();
+        else collectError(errors, error);
       }
     }
     this.#closers.length = 0;
     this.#state = "closed";
+    if (aborted) collectError(errors, abortReason);
     if (errors.length > 0) throw new AggregateError(errors, this.#message);
   }
 }

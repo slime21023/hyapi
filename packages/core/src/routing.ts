@@ -5,7 +5,6 @@ import type {
   Module,
   ModuleApi,
   Plugin,
-  Port,
   ResponseSchemas,
   RouteDefinition,
   RouteGroupApi,
@@ -15,6 +14,7 @@ import type {
   ServiceReference,
 } from "./types.ts";
 import { ConfigurationError } from "./errors.ts";
+import type { Port } from "./port.ts";
 
 export type HookPoint = "onRequest" | "onResponse" | "onError";
 export type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;

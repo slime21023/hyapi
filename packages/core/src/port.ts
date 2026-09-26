@@ -1,11 +1,46 @@
-import type {
-  ContractVersion,
-  MaybePromise,
-  Port,
-  PortProvider,
-  ProviderLifecycle,
-} from "./types.ts";
+import type { MaybePromise } from "./types.ts";
 import { ConfigurationError } from "./errors.ts";
+
+export interface ContractVersion {
+  readonly major: number;
+  readonly minor: number;
+}
+
+export interface Port<T> {
+  readonly id: string;
+  readonly version: ContractVersion;
+  readonly __type?: T;
+}
+
+export type HealthStatus = "healthy" | "degraded" | "unhealthy";
+
+/** A provider's own health result; its port ID is assigned by the registry. */
+export interface ProviderHealthCheck {
+  readonly status: HealthStatus;
+  readonly detail?: string;
+}
+
+/** A health result associated with the port that supplied it. */
+export interface ProviderHealth extends ProviderHealthCheck {
+  readonly provider: string;
+}
+
+export interface ProviderLifecycle {
+  connect?(): MaybePromise<void>;
+  health?(): MaybePromise<ProviderHealthCheck>;
+  close?(): MaybePromise<void>;
+}
+
+export interface PortProvider<T> {
+  readonly port: Port<T>;
+  readonly value: T;
+  readonly lifecycle?: ProviderLifecycle;
+}
+
+export interface HealthReport {
+  readonly status: HealthStatus;
+  readonly providers: readonly ProviderHealth[];
+}
 
 export interface PortContract<T> {
   readonly name: string;

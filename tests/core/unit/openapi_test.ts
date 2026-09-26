@@ -1,7 +1,7 @@
 import { assert, assertEquals } from "@std/assert";
 import Type from "typebox";
 import { buildOpenApiDocument } from "../../../packages/core/src/openapi.ts";
-import { SchemaValidator } from "../../../packages/core/src/http/validation.ts";
+import { SchemaValidator } from "../../../packages/core/src/schema.ts";
 import type { AnyRouteDefinition } from "@hyapi/core";
 
 Deno.test("OpenAPI - builds standard OpenAPI 3.1 document with ProblemDetails component", () => {

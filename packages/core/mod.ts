@@ -36,8 +36,6 @@ export type {
   ApplicationOptions,
   AuthProvider,
   AuthRequirement,
-  ContractVersion,
-  HealthReport,
   HyApplication,
   Identity,
   LifecycleContext,
@@ -46,10 +44,6 @@ export type {
   ModuleApi,
   PlatformApi,
   Plugin,
-  Port,
-  PortProvider,
-  ProviderHealth,
-  ProviderLifecycle,
   RequestContext,
   ResponseResult,
   ResponseSchemas,
@@ -70,7 +64,17 @@ export type {
   OpenApiDocument,
   OpenApiDocumentOptions,
 } from "./src/openapi.ts";
-export type { PortContract } from "./src/port.ts";
+export type {
+  ContractVersion,
+  HealthReport,
+  HealthStatus,
+  Port,
+  PortContract,
+  PortProvider,
+  ProviderHealth,
+  ProviderHealthCheck,
+  ProviderLifecycle,
+} from "./src/port.ts";
 export type {
   BulkheadPolicy,
   CircuitBreakerPolicy,

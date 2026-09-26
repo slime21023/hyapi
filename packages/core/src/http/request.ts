@@ -1,67 +1,9 @@
-import "typebox/format";
-import { Compile, type Validator } from "typebox/compile";
-import { Value } from "typebox/value";
+import { AppError } from "../errors.ts";
+import { objectSchemaProperties } from "../schema.ts";
 import type { Schema } from "../types.ts";
-import { AppError, ResponseValidationError, ValidationError } from "../errors.ts";
-
-export type ValidationSource = "params" | "query" | "body" | "headers" | "response";
-
-export function objectSchemaProperties(schema: Schema): Record<string, Schema> | undefined {
-  if (!("type" in schema) || schema.type !== "object" || !("properties" in schema)) {
-    return undefined;
-  }
-  const properties = schema.properties;
-  return properties !== null && typeof properties === "object" && !Array.isArray(properties)
-    ? properties as Record<string, Schema>
-    : undefined;
-}
 
 const headerPropertyNames = new WeakMap<object, ReadonlyMap<string, string>>();
-
-export class SchemaValidator {
-  private readonly validators = new WeakMap<object, Validator>();
-
-  validate<T>(schema: Schema, value: unknown, source: ValidationSource): T {
-    let targetValue = value;
-    if (source === "response") {
-      targetValue = Value.Clean(schema, Value.Clone(value));
-    } else {
-      try {
-        targetValue = Value.Convert(schema, Value.Default(schema, value));
-      } catch {
-        targetValue = value;
-      }
-    }
-
-    const validator = this.compile(schema);
-    if (validator.Check(targetValue)) return targetValue as T;
-
-    const errors = [...validator.Errors(targetValue)].map((error) => ({
-      keyword: error.keyword,
-      instancePath: error.instancePath,
-      schemaPath: error.schemaPath,
-      params: error.params,
-      message: error.message,
-    }));
-
-    if (source === "response") {
-      throw new ResponseValidationError(errors);
-    }
-    throw new ValidationError(source, errors);
-  }
-
-  toJsonSchema(schema: Schema): Record<string, unknown> {
-    return JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
-  }
-
-  private compile(schema: Schema): Validator {
-    const cached = this.validators.get(schema);
-    if (cached) return cached;
-    const validator = Compile(schema);
-    this.validators.set(schema, validator);
-    return validator;
-  }
-}
+const textDecoder = new TextDecoder();
 
 export function entriesToObject<T = unknown>(
   entries: Iterable<[string, T]>,
@@ -223,11 +165,10 @@ export async function parseRequestBody(
   if (bytes === undefined && request.body === null) return undefined;
 
   const mediaType = requestBodyMediaType(request);
-
   bytes ??= new Uint8Array(await request.arrayBuffer());
 
   if (mediaType === "json") {
-    const text = new TextDecoder().decode(bytes);
+    const text = textDecoder.decode(bytes);
     if (!text.trim()) return undefined;
     try {
       return JSON.parse(text) as unknown;
@@ -237,7 +178,7 @@ export async function parseRequestBody(
   }
 
   if (mediaType === "form") {
-    const text = new TextDecoder().decode(bytes);
+    const text = textDecoder.decode(bytes);
     if (!text) return undefined;
     return entriesToObject(new URLSearchParams(text).entries());
   }

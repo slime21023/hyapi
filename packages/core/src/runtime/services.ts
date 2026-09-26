@@ -6,7 +6,7 @@ import type {
   ServiceScope,
 } from "../types.ts";
 import { ConfigurationError } from "../errors.ts";
-import { type Scope, scopeClosedError } from "./scope.ts";
+import { Scope, ScopeClosedError } from "./scope.ts";
 
 /** Request-scoped service instances and the scope that closes them when the request ends. */
 export interface RequestServices {
@@ -21,8 +21,11 @@ export class ServiceContainer {
 
   constructor(singletonScope: Scope) {
     this.#singletonScope = singletonScope;
-    // Registered first, so it runs last: the cache is dropped once every singleton has closed.
-    singletonScope.defer(() => this.#singletons.clear());
+    // Registered first, so it runs last: values close before their retained references are dropped.
+    singletonScope.defer(() => {
+      this.#singletons.clear();
+      this.#overrides.clear();
+    });
   }
 
   setOverrides(overrides: readonly ServiceOverride[]): void {
@@ -59,10 +62,7 @@ export class ServiceContainer {
     }
     if (service.scope !== "transient") {
       const owner = service.scope === "singleton" ? this.#singletonScope : requestServices!.scope;
-      if (owner.state !== "open") return Promise.reject(scopeClosedError());
-    }
-    if (service.name && this.#overrides.has(service.name)) {
-      return Promise.resolve(this.#overrides.get(service.name) as T);
+      if (owner.state !== "open") return Promise.reject(new ScopeClosedError());
     }
     if (service.scope === "transient") return this.#create(service, requestServices);
     const cache = service.scope === "singleton" ? this.#singletons : requestServices!.cache;
@@ -79,9 +79,11 @@ export class ServiceContainer {
   }
 
   async #create<T>(service: ServiceReference<T>, requestServices?: RequestServices): Promise<T> {
-    const value = await service.factory(
-      this.resolver(service.scope === "singleton" ? undefined : requestServices),
-    );
+    const value = service.name && this.#overrides.has(service.name)
+      ? this.#overrides.get(service.name) as T
+      : await service.factory(
+        this.resolver(service.scope === "singleton" ? undefined : requestServices),
+      );
     if (service.scope === "singleton") return await this.#singletonScope.adopt(value);
     if (service.scope === "request") return await requestServices!.scope.adopt(value);
     return value;

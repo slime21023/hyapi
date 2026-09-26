@@ -1,5 +1,6 @@
 import type { Static, TSchema } from "typebox";
 import type { AppConfig, AppConfigOptions } from "./config.ts";
+import type { HealthReport, Port, PortProvider } from "./port.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 export type Schema = TSchema;
@@ -189,35 +190,6 @@ export interface ModuleApi extends RouteGroupApi {
   use<T>(port: Port<T>): T;
 }
 
-export interface Port<T> {
-  readonly id: string;
-  readonly version: ContractVersion;
-  readonly __type?: T;
-}
-
-export interface ContractVersion {
-  readonly major: number;
-  readonly minor: number;
-}
-
-export interface ProviderHealth {
-  readonly status: "healthy" | "degraded" | "unhealthy";
-  readonly provider: string;
-  readonly detail?: string;
-}
-
-export interface ProviderLifecycle {
-  connect?(): MaybePromise<void>;
-  health?(): MaybePromise<ProviderHealth>;
-  close?(): MaybePromise<void>;
-}
-
-export interface PortProvider<T> {
-  readonly port: Port<T>;
-  readonly value: T;
-  readonly lifecycle?: ProviderLifecycle;
-}
-
 export interface Module {
   readonly name: string;
   readonly dependencies?: readonly string[];
@@ -234,11 +206,6 @@ export interface HyApplication {
   request(input: RequestInfo | URL, init?: RequestInit): MaybePromise<Response>;
   health(): Promise<HealthReport>;
   close(): Promise<void>;
-}
-
-export interface HealthReport {
-  readonly status: "healthy" | "degraded" | "unhealthy";
-  readonly providers: readonly ProviderHealth[];
 }
 
 export interface ApplicationOptions {

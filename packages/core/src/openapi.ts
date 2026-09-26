@@ -1,5 +1,5 @@
 import { type AnyRouteDefinition } from "./types.ts";
-import type { SchemaValidator } from "./http/validation.ts";
+import type { SchemaValidator } from "./schema.ts";
 import { isProtectedAuth, resolveResponseSchemas } from "./routing.ts";
 
 export interface OpenApiDocument {

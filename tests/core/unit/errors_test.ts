@@ -11,6 +11,7 @@ import {
   ValidationError,
 } from "../../../packages/core/src/errors.ts";
 import { toProblemDetails } from "../../../packages/core/src/http/problem.ts";
+import { ScopeClosedError } from "../../../packages/core/src/runtime/scope.ts";
 
 Deno.test("AppError rejects invalid HTTP status codes", () => {
   assertThrows(
@@ -126,6 +127,15 @@ Deno.test("toProblemDetails sanitizes unexposed internal server errors", () => {
   // Should NOT leak internal error message
   assertEquals(problem.detail, "An unexpected error occurred.");
   assertEquals(problem.requestId, "req-err-1");
+});
+
+Deno.test("toProblemDetails translates runtime scope errors without giving runtime HTTP details", () => {
+  const req = new Request("http://test/v1/users");
+  const problem = toProblemDetails(new ScopeClosedError(), req, "req-scope-1");
+
+  assertEquals(problem.status, 500);
+  assertEquals(problem.code, "SCOPE_CLOSED");
+  assertEquals(problem.detail, "An unexpected error occurred.");
 });
 
 Deno.test("toProblemDetails handles non-Error thrown values", () => {

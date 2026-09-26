@@ -1,6 +1,5 @@
 import { assertEquals, assertRejects, assertStrictEquals, assertThrows } from "@std/assert";
-import { AppError } from "@hyapi/core";
-import { Scope } from "../../../../packages/core/src/runtime/scope.ts";
+import { Scope, ScopeClosedError } from "../../../../packages/core/src/runtime/scope.ts";
 
 Deno.test("Scope closes resources once in reverse registration order", async () => {
   const closed: string[] = [];
@@ -62,13 +61,13 @@ Deno.test("Scope rejects registrations after it closes", async () => {
   const scope = new Scope("closing failed");
   await scope.close();
 
-  const error = assertThrows(() => scope.defer(() => undefined), AppError);
+  const error = assertThrows(() => scope.defer(() => undefined), ScopeClosedError);
   assertEquals(error.code, "SCOPE_CLOSED");
 
   let closed = false;
   const adopted = await assertRejects(
     () => scope.adopt({ close: () => void (closed = true) }),
-    AppError,
+    ScopeClosedError,
   );
   assertEquals(adopted.code, "SCOPE_CLOSED");
   assertEquals(closed, true);
@@ -98,4 +97,25 @@ Deno.test("Scope deadline bounds async cleanup and still invokes later closers",
   assertStrictEquals(scope.close(), scope.close(Date.now() + 100));
   pending.reject(new Error("late failure"));
   await new Promise((resolve) => setTimeout(resolve, 1));
+});
+
+Deno.test("Scope abort stops waiting but still invokes later closers", async () => {
+  const entered = Promise.withResolvers<void>();
+  const controller = new AbortController();
+  const reason = new Error("shutdown");
+  const calls: string[] = [];
+  const scope = new Scope("closing failed");
+  scope.defer(() => void calls.push("later"));
+  scope.defer(() => {
+    calls.push("stalled");
+    entered.resolve();
+    return new Promise<void>(() => {});
+  });
+
+  const closing = scope.close(Date.now() + 1_000, controller.signal);
+  await entered.promise;
+  controller.abort(reason);
+  const error = await assertRejects(() => closing, AggregateError);
+  assertEquals(calls, ["stalled", "later"]);
+  assertEquals(error.errors, [reason]);
 });

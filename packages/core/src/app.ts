@@ -3,13 +3,11 @@ import {
   type AnyRouteDefinition,
   type ApplicationOptions,
   type AuthProvider,
-  type HealthReport,
   type HyApiOptions,
   type HyApplication,
   type LifecycleHook,
   type Module,
   type PlatformApi,
-  type Port,
   type ResponseSchemas,
   type RouteDefinition,
   type RouteGroupApi,
@@ -18,6 +16,7 @@ import {
   type ServiceFactory,
   type ServiceReference,
 } from "./types.ts";
+import type { HealthReport, Port } from "./port.ts";
 import {
   type AppConfig,
   DEFAULT_BODY_LIMIT_BYTES,
@@ -28,7 +27,7 @@ import {
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
 import { buildOpenApiDocument, selectOpenApiRoutes } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./runtime/timers.ts";
-import { objectSchemaProperties, SchemaValidator } from "./http/validation.ts";
+import { objectSchemaProperties, SchemaValidator } from "./schema.ts";
 import {
   type HookPoint,
   isProtectedAuth,
@@ -44,13 +43,12 @@ import {
 import { collectError, Scope } from "./runtime/scope.ts";
 import { ServiceContainer } from "./runtime/services.ts";
 import { ProviderRegistry } from "./runtime/providers.ts";
+import { type HttpPipelineEnv, HttpTaskTracker } from "./http/lifecycle.ts";
+import { errorResponse } from "./http/problem.ts";
 import {
-  errorResponse,
-  type PipelineEnv,
   type PipelineHost,
   RequestPipeline,
   resolveRequestId,
-  TaskTracker,
   withHeader,
 } from "./http/pipeline.ts";
 
@@ -99,10 +97,10 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   readonly requestTimeoutMs: number;
   readonly shutdownTimeoutMs: number;
   readonly services: ServiceContainer;
-  readonly tasks = new TaskTracker();
+  readonly tasks = new HttpTaskTracker();
 
   private readonly options: HyApiOptions;
-  private readonly http = new Hono<PipelineEnv>();
+  private readonly http = new Hono<HttpPipelineEnv>();
   private readonly pipeline: RequestPipeline;
   private readonly providers = new ProviderRegistry();
   private readonly appScope = new Scope("Application shutdown failed.");

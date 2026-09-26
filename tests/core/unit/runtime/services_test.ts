@@ -1,15 +1,22 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { createApp } from "../../../../packages/core/src/app.ts";
-import { AppError } from "@hyapi/core";
 import { defineConfig } from "@hyapi/core";
 import type { ServiceResolver } from "../../../../packages/core/src/types.ts";
+import { ScopeClosedError } from "../../../../packages/core/src/runtime/scope.ts";
 
 Deno.test("named overrides obey request and application service lifetimes", async () => {
+  const closed: string[] = [];
   const app = createApp({
     config: defineConfig({ name: "override-lifetime", openapi: { enabled: false } }),
     overrides: [
-      { name: "request-dependency", value: { id: "request" } },
-      { name: "singleton-dependency", value: { id: "singleton" } },
+      {
+        name: "request-dependency",
+        value: { id: "request", close: () => void closed.push("request") },
+      },
+      {
+        name: "singleton-dependency",
+        value: { id: "singleton", close: () => void closed.push("singleton") },
+      },
     ],
   });
   const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
@@ -31,11 +38,13 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
   await app.start();
   assertEquals((await app.request("/capture")).status, 204);
   assertEquals(active, ["request", "singleton"]);
+  assertEquals(closed, ["request"]);
 
-  const afterRequest = await assertRejects(() => resolver!.get(request), AppError);
+  const afterRequest = await assertRejects(() => resolver!.get(request), ScopeClosedError);
   assertEquals(afterRequest.code, "SCOPE_CLOSED");
   await app.close();
-  const afterClose = await assertRejects(() => resolver!.get(singleton), AppError);
+  assertEquals(closed, ["request", "singleton"]);
+  const afterClose = await assertRejects(() => resolver!.get(singleton), ScopeClosedError);
   assertEquals(afterClose.code, "SCOPE_CLOSED");
 });
 
