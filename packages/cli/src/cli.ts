@@ -148,7 +148,7 @@ export async function main(
         const camel = camelCase(name);
         write(`Created module '${name}'.`);
         write(
-          `Register it in src/app.ts: import { ${camel}Module } from "./modules/${name}/${name}.module.ts";`,
+          `Register it in src/app.ts: import { ${camel}Module } from "./modules/${name}/module.ts";`,
         );
         write(`Then add ${camel}Module to createApplication({ modules }).`);
       }
@@ -531,12 +531,12 @@ export async function createProject(directory: string, fileSystem: FileSystem): 
     "deno.json": projectConfig(),
     "src/main.ts": projectMain(),
     "src/app.ts": projectApp(),
-    "src/app_test.ts": projectAppTest(),
-    "src/modules/health/health.module.ts": healthModule(),
-    "src/modules/users/users.module.ts": moduleTemplate("users"),
-    "src/modules/users/users.routes.ts": routeTemplate("users"),
-    "src/modules/users/users.schemas.ts": schemaTemplate("users"),
-    "src/modules/users/users_test.ts": testTemplate("users"),
+    "tests/app_test.ts": projectAppTest(),
+    "src/modules/health/module.ts": healthModule(),
+    "src/modules/users/module.ts": moduleTemplate("users"),
+    "src/modules/users/routes.ts": routeTemplate("users"),
+    "src/modules/users/schema.ts": schemaTemplate("users"),
+    "tests/modules/users_test.ts": testTemplate("users"),
   });
 }
 
@@ -561,10 +561,12 @@ export async function createModule(
   }
   await fileSystem.mkdir(directory);
   await writeFiles(fileSystem, directory, {
-    [`${normalized}.module.ts`]: moduleTemplate(normalized),
-    [`${normalized}.routes.ts`]: routeTemplate(normalized),
-    [`${normalized}.schemas.ts`]: schemaTemplate(normalized),
-    [`${normalized}_test.ts`]: testTemplate(normalized),
+    "module.ts": moduleTemplate(normalized),
+    "routes.ts": routeTemplate(normalized),
+    "schema.ts": schemaTemplate(normalized),
+  });
+  await writeFiles(fileSystem, root, {
+    [`tests/modules/${normalized}_test.ts`]: testTemplate(normalized),
   });
   return normalized;
 }
@@ -710,8 +712,8 @@ try {
 function projectApp(): string {
   return [
     'import { createApplication, defineConfig } from "@hyapi/core";',
-    'import { healthModule } from "./modules/health/health.module.ts";',
-    'import { usersModule } from "./modules/users/users.module.ts";',
+    'import { healthModule } from "./modules/health/module.ts";',
+    'import { usersModule } from "./modules/users/module.ts";',
     "",
     "export const app = await createApplication({",
     '  config: defineConfig({ name: "hyapi-app" }),',
@@ -723,7 +725,7 @@ function projectApp(): string {
 function projectAppTest(): string {
   return [
     'import { assertEquals } from "@std/assert";',
-    'import { app } from "./app.ts";',
+    'import { app } from "../src/app.ts";',
     "",
     'Deno.test("starter application exposes health and OpenAPI", async () => {',
     '  assertEquals((await app.request("http://test/health/live")).status, 200);',
@@ -754,7 +756,7 @@ function healthModule(): string {
 function moduleTemplate(name: string): string {
   return [
     'import { defineModule } from "@hyapi/core";',
-    `import { register${pascalCase(name)}Routes } from "./${name}.routes.ts";`,
+    `import { register${pascalCase(name)}Routes } from "./routes.ts";`,
     "",
     `export const ${camelCase(name)}Module = defineModule({`,
     `  name: "${name}",`,
@@ -768,7 +770,7 @@ function moduleTemplate(name: string): string {
 function routeTemplate(name: string): string {
   return [
     'import { defineRoute, type ModuleApi } from "@hyapi/core";',
-    `import { ${pascalCase(name)}ResponseSchema } from "./${name}.schemas.ts";`,
+    `import { ${pascalCase(name)}ResponseSchema } from "./schema.ts";`,
     "",
     `export function register${pascalCase(name)}Routes(module: ModuleApi): void {`,
     "  module.route(defineRoute({",
@@ -795,7 +797,7 @@ function testTemplate(name: string): string {
   return [
     'import { assertEquals } from "@std/assert";',
     'import { createApplication, defineConfig } from "@hyapi/core";',
-    `import { ${camelCase(name)}Module } from "./${name}.module.ts";`,
+    `import { ${camelCase(name)}Module } from "../../src/modules/${name}/module.ts";`,
     "",
     `Deno.test("${name} responds on /${name}", async () => {`,
     "  const app = await createApplication({",

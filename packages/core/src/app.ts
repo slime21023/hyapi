@@ -1,13 +1,8 @@
 import { Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
-  type AppConfig,
   type ApplicationOptions,
   type AuthProvider,
-  DEFAULT_BODY_LIMIT_BYTES,
-  DEFAULT_REQUEST_TIMEOUT_MS,
-  DEFAULT_SHUTDOWN_TIMEOUT_MS,
-  defineConfig,
   type HealthReport,
   type HyApiOptions,
   type HyApplication,
@@ -24,10 +19,17 @@ import {
   type ServiceFactory,
   type ServiceReference,
 } from "./types.ts";
+import {
+  type AppConfig,
+  DEFAULT_BODY_LIMIT_BYTES,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  defineConfig,
+} from "./config.ts";
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
 import { buildOpenApiDocument } from "./openapi.ts";
-import { MAX_TIMER_MS } from "./timers.ts";
-import { objectSchemaProperties, SchemaValidator } from "./validation.ts";
+import { MAX_TIMER_MS } from "./runtime/timers.ts";
+import { objectSchemaProperties, SchemaValidator } from "./http/validation.ts";
 import {
   type HookPoint,
   ModuleContext,
@@ -39,9 +41,9 @@ import {
   sortPlugins,
   toHonoPath,
 } from "./routing.ts";
-import { collectError, Scope } from "./scope.ts";
-import { ServiceContainer } from "./services.ts";
-import { ProviderRegistry } from "./providers.ts";
+import { collectError, Scope } from "./runtime/scope.ts";
+import { ServiceContainer } from "./runtime/services.ts";
+import { ProviderRegistry } from "./runtime/providers.ts";
 import {
   errorResponse,
   type PipelineEnv,
@@ -50,7 +52,7 @@ import {
   resolveRequestId,
   TaskTracker,
   withHeader,
-} from "./pipeline.ts";
+} from "./http/pipeline.ts";
 
 type AppLifecycleState =
   | "configuring"

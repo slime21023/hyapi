@@ -4,7 +4,7 @@ import {
   isProtectedAuth,
   type OpenApiOptions,
 } from "./types.ts";
-import type { SchemaValidator } from "./validation.ts";
+import type { SchemaValidator } from "./http/validation.ts";
 
 interface OpenApiOperation {
   operationId?: string;

@@ -1,9 +1,9 @@
 # Performance baseline
 
 This file records the reference results of `deno task bench`
-([`packages/core/bench/app_bench.ts`](../../packages/core/bench/app_bench.ts)). The benchmarks run
-in-memory requests through `app.request()` against a production-configured application with the JWT
-plugin and read every response body to completion:
+([`bench/core/app_bench.ts`](../../bench/core/app_bench.ts)). The benchmarks run in-memory requests
+through `app.request()` against a production-configured application with the JWT plugin and read
+every response body to completion:
 
 - `GET with params+query validation`: `GET /items/{id}` with params, query, and 200 response
   validation.

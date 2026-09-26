@@ -1,5 +1,5 @@
 import type { MaybePromise } from "./types.ts";
-import { MAX_TIMER_MS, sleep } from "./timers.ts";
+import { MAX_TIMER_MS, sleep } from "./runtime/timers.ts";
 
 export interface RetryPolicy {
   readonly maxAttempts: number;

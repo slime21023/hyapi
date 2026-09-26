@@ -5,9 +5,9 @@ import {
   type HyApplication,
   jwtPlugin,
 } from "@hyapi/core";
-import { createHealthModule } from "./modules/health/health.module.ts";
-import { ordersModule } from "./modules/orders/orders.module.ts";
-import { createUsersModule } from "./modules/users/users.module.ts";
+import { createHealthModule } from "./modules/health/module.ts";
+import { ordersModule } from "./modules/orders/module.ts";
+import { createUsersModule } from "./modules/users/module.ts";
 
 export interface ExampleAppOptions {
   readonly enableRequestLogging?: boolean;

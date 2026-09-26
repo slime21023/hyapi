@@ -50,6 +50,9 @@ packages/cli    project/module generator, inspect, and doctor (@hyapi/cli)
 apps/example    health, JWT-protected users, and orders API composed through a Port
 ```
 
+Workspace-level tests live under `tests/` and benchmarks under `bench/`; package directories contain
+only their public entry points, package metadata, and production source.
+
 ## CLI
 
 ```text
@@ -372,7 +375,7 @@ export interface UserDirectory {
 }
 export const userDirectory = definePort<UserDirectory>("users.directory");
 
-// src/modules/orders/orders.module.ts
+// src/modules/orders/module.ts
 export const ordersModule = defineModule({
   name: "orders",
   requires: [userDirectory],
