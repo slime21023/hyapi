@@ -5,7 +5,6 @@ import {
   ConfigurationError,
   createApplication,
   defineHttpContract,
-  defineModule,
   definePort,
   definePortContract,
   provideHttp,
@@ -18,7 +17,16 @@ const config: AppConfig = {
   version: "0.5.0",
   environment: "test",
   requestIdHeader: "x-request-id",
-  openapi: { title: "HTTP provider test", version: "0.5.0", path: "/openapi.json" },
+  openapi: {
+    enabled: true,
+    defaultDocument: "default",
+    documents: [{
+      id: "default",
+      title: "HTTP provider test",
+      version: "0.5.0",
+      path: "/openapi.json",
+    }],
+  },
 };
 
 interface UserDirectory {
@@ -42,14 +50,14 @@ const usersContract = defineHttpContract({
 Deno.test("provideHttp adapts a shared HTTP contract into a required module port", async () => {
   const usersService = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "users-service",
       setup(module) {
         registerHttpContract(module, usersContract, {
           find: ({ params, ok }) => ok({ id: params.id }),
         });
       },
-    })],
+    }],
   });
   const remoteDirectory = provideHttp(userDirectory, {
     contract: usersContract,
@@ -63,7 +71,7 @@ Deno.test("provideHttp adapts a shared HTTP contract into a required module port
   const orders = await createApplication({
     config,
     providers: [remoteDirectory],
-    modules: [defineModule({
+    modules: [{
       name: "orders",
       requires: [userDirectory],
       setup(module) {
@@ -75,7 +83,7 @@ Deno.test("provideHttp adapts a shared HTTP contract into a required module port
           handler: async ({ params, ok }) => ok(await users.find(params.id)),
         });
       },
-    })],
+    }],
   });
 
   assertEquals(await (await orders.request("http://test/orders/ada")).json(), { id: "ada" });
@@ -145,14 +153,14 @@ Deno.test("provideHttp supports an optional health endpoint under the base URL p
 Deno.test("provideHttp providers pass the shared port contract at the contract version", async () => {
   const usersService = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "users-service",
       setup(module) {
         registerHttpContract(module, usersContract, {
           find: ({ params, ok }) => ok({ id: params.id }),
         });
       },
-    })],
+    }],
   });
   const directoryContract = definePortContract<UserDirectory>(
     "users.directory",

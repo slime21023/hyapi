@@ -1,4 +1,4 @@
-import { type AuthProvider, definePlugin, type Identity, type Plugin } from "./types.ts";
+import { type AuthProvider, type Identity, type Plugin } from "./types.ts";
 import { ConfigurationError, UnauthorizedError } from "./errors.ts";
 
 export interface JwtOptions {
@@ -125,13 +125,13 @@ export class JwtAuthProvider implements AuthProvider {
 }
 
 export function jwtPlugin(options: JwtOptions): Plugin {
-  return definePlugin({
+  return {
     name: "jwt",
     async setup(platform) {
       const provider = await JwtAuthProvider.create(options);
       platform.setAuthProvider(provider);
     },
-  });
+  };
 }
 
 function audienceIncludes(audience: unknown, expected: string): boolean {

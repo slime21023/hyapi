@@ -33,7 +33,7 @@ export interface HttpContractRoute<
 > {
   readonly method: HttpMethod;
   readonly path: string;
-  readonly request?: RouteRequestSchemas<TParams, TQuery, TBody, Schema | undefined, TBodyRequired>;
+  readonly request?: RouteRequestSchemas<TParams, TQuery, TBody, TBodyRequired>;
   readonly responses: TResponse;
   readonly metadata?: RouteMetadata;
 }

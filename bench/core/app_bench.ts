@@ -1,5 +1,5 @@
 import Type from "typebox";
-import { createApplication, defineConfig, defineModule, defineRoute, jwtPlugin } from "@hyapi/core";
+import { createApplication, defineConfig, jwtPlugin, type Module } from "@hyapi/core";
 
 const SECRET = "bench-secret-with-at-least-32-characters!!";
 
@@ -9,10 +9,10 @@ const ItemSchema = Type.Object({
   limit: Type.Integer(),
 }, { additionalProperties: false });
 
-const itemsModule = defineModule({
+const itemsModule: Module = {
   name: "items",
   setup(module) {
-    module.route(defineRoute({
+    module.route({
       method: "get",
       path: "/items/{id}",
       request: {
@@ -24,8 +24,8 @@ const itemsModule = defineModule({
       responses: { 200: ItemSchema },
       handler: ({ params, query, ok }) =>
         ok({ id: params.id, name: "item", limit: query.limit ?? 20 }),
-    }));
-    module.route(defineRoute({
+    });
+    module.route({
       method: "post",
       path: "/items",
       request: {
@@ -36,16 +36,16 @@ const itemsModule = defineModule({
       },
       responses: { 201: ItemSchema },
       handler: ({ body, created }) => created({ id: "new", name: body.name, limit: body.limit }),
-    }));
-    module.route(defineRoute({
+    });
+    module.route({
       method: "get",
       path: "/secure",
       auth: { scopes: ["items:read"] },
       responses: { 200: Type.Object({ ok: Type.Boolean() }) },
       handler: ({ ok }) => ok({ ok: true }),
-    }));
+    });
   },
-});
+};
 
 const app = await createApplication({
   config: defineConfig({ name: "bench", environment: "production" }),

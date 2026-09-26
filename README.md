@@ -111,15 +111,15 @@ Routes use `{name}` path parameters. The same route metadata is used for runtime
 OpenAPI 3.1 generation. `GET` routes cannot declare a request body.
 
 ```ts
-import { createApplication, defineConfig, defineModule, defineRoute } from "@hyapi/core";
+import { createApplication, defineConfig, type Module } from "@hyapi/core";
 import Type from "typebox";
 
 const config = defineConfig({ name: "items-api" });
 
-const itemsModule = defineModule({
+const itemsModule: Module = {
   name: "items",
   setup(module) {
-    module.route(defineRoute({
+    module.route({
       method: "get",
       path: "/items/{id}",
       request: {
@@ -131,9 +131,9 @@ const itemsModule = defineModule({
         404: Type.Object({ message: Type.String() }),
       },
       handler: ({ params, query, ok }) => ok({ id: params.id, limit: query.limit ?? 10 }),
-    }));
+    });
   },
-});
+};
 
 const app = await createApplication({ config, modules: [itemsModule] });
 ```
@@ -154,7 +154,7 @@ Route matching follows registration order. Register a static sibling such as `GE
 Route groups support nested prefixes, tags, auth scope inheritance, and group-scoped hooks:
 
 ```ts
-export const usersModule = defineModule({
+export const usersModule: Module = {
   name: "users",
   setup(module) {
     module.group("/v1/users", { tags: ["users"] }, (users) => {
@@ -177,7 +177,7 @@ export const usersModule = defineModule({
       });
     });
   },
-});
+};
 ```
 
 Auth requirements are merged as a **union**: a route requires every scope declared by its enclosing
@@ -240,7 +240,10 @@ const config = defineConfig({
   bodyLimitBytes: 1_048_576, // default 10485760 (10 MiB); larger bodies return 413
   requestTimeoutMs: 30_000, // default 300000 (5 minutes); expiry returns 503
   shutdownTimeoutMs: 10_000, // default 30000; request drain and separate resource cleanup budgets
-  openapi: { enabled: false }, // default true; disables GET /openapi.json
+  openapi: {
+    defaultDocument: "public",
+    documents: [{ id: "public", path: "/openapi.json", title: "Items API" }],
+  },
 });
 ```
 
@@ -254,7 +257,9 @@ const config = defineConfig({
   `ctx.signal`; it then waits at most `min(1000, shutdownTimeoutMs)` for cooperative cleanup and
   gives application resource closers a separate `shutdownTimeoutMs` budget. Uncooperative work can
   outlive provider closure; see the [operations guide](docs/operations.md#graceful-shutdown).
-- `openapi.enabled: false` removes the OpenAPI document route.
+- `openapi.enabled: false` removes all OpenAPI document routes.
+- `openapi.documents` defines independent documents. A route without `metadata.documentIds` belongs
+  only to `openapi.defaultDocument`; an empty array excludes it from every document.
 
 ### 5. Modules, Services, and Plugins
 
@@ -264,29 +269,31 @@ as authentication, logging, and observability. Plugin `setup`, `onStart`, and `o
 register routes or reach the underlying HTTP runtime.
 
 ```ts
-const databasePlugin = definePlugin({
+import type { Module, Plugin } from "@hyapi/core";
+
+const databasePlugin: Plugin = {
   name: "database",
   setup(platform) {
     platform.addHook("onResponse", ({ requestId, response }) => {
       console.log({ requestId, status: response?.status });
     });
   },
-});
+};
 
-const usersModule = defineModule({
+const usersModule: Module = {
   name: "users",
   setup(module) {
     const repository = module.singleton(() => new UserRepository());
     const service = module.request(async (services) =>
       new UserService(await services.get(repository))
     );
-    module.route(defineRoute({
+    module.route({
       method: "get",
       path: "/v1/users",
       handler: async ({ services, ok }) => ok(await (await services.get(service)).list()),
-    }));
+    });
   },
-});
+};
 
 const app = await createApplication({
   config,
@@ -343,7 +350,7 @@ any resource it needs until `pull`/`cancel` completes; it must not use request s
 providers, or `ctx.signal` after return. For example, this stream owns its data:
 
 ```ts
-const streamRoute = defineRoute({
+const streamRoute = {
   method: "get",
   path: "/stream",
   handler: () =>
@@ -355,7 +362,7 @@ const streamRoute = defineRoute({
         },
       }, { highWaterMark: 0 }),
     ),
-});
+};
 ```
 
 Once the response is returned, body read/transport errors belong to the consumer or server; HyAPI
@@ -376,14 +383,14 @@ export interface UserDirectory {
 export const userDirectory = definePort<UserDirectory>("users.directory");
 
 // src/modules/orders/module.ts
-export const ordersModule = defineModule({
+export const ordersModule: Module = {
   name: "orders",
   requires: [userDirectory],
   setup(module) {
     const users = module.use(userDirectory);
     // use `users` in order use cases
   },
-});
+};
 
 const app = await createApplication({
   config,

@@ -736,49 +736,47 @@ function projectAppTest(): string {
 
 function healthModule(): string {
   return [
-    'import { defineModule, defineRoute } from "@hyapi/core";',
+    'import type { Module } from "@hyapi/core";',
     "",
-    "export const healthModule = defineModule({",
+    "export const healthModule: Module = {",
     '  name: "health",',
     "  setup(module) {",
-    "    module.route(",
-    "      defineRoute({",
-    '        method: "get",',
-    '        path: "/health/live",',
-    '        handler: ({ ok }) => ok({ status: "ok" }),',
-    "      }),",
-    "    );",
+    "    module.route({",
+    '      method: "get",',
+    '      path: "/health/live",',
+    '      handler: ({ ok }) => ok({ status: "ok" }),',
+    "    });",
     "  },",
-    "});",
+    "};",
   ].join("\n") + "\n";
 }
 
 function moduleTemplate(name: string): string {
   return [
-    'import { defineModule } from "@hyapi/core";',
+    'import type { Module } from "@hyapi/core";',
     `import { register${pascalCase(name)}Routes } from "./routes.ts";`,
     "",
-    `export const ${camelCase(name)}Module = defineModule({`,
+    `export const ${camelCase(name)}Module: Module = {`,
     `  name: "${name}",`,
     "  setup(module) {",
     "    register" + pascalCase(name) + "Routes(module);",
     "  },",
-    "});",
+    "};",
   ].join("\n") + "\n";
 }
 
 function routeTemplate(name: string): string {
   return [
-    'import { defineRoute, type ModuleApi } from "@hyapi/core";',
+    'import type { ModuleApi } from "@hyapi/core";',
     `import { ${pascalCase(name)}ResponseSchema } from "./schema.ts";`,
     "",
     `export function register${pascalCase(name)}Routes(module: ModuleApi): void {`,
-    "  module.route(defineRoute({",
+    "  module.route({",
     '    method: "get",',
     `    path: "/${name}",`,
     `    responses: { 200: ${pascalCase(name)}ResponseSchema },`,
     `    handler: ({ ok }) => ok({ module: "${name}" }),`,
-    "  }));",
+    "  });",
     "}",
   ].join("\n") + "\n";
 }

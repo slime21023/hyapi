@@ -1,15 +1,31 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
+  AppError,
   ConfigurationError,
   ConflictError,
   ForbiddenError,
   NotFoundError,
   ResponseContractError,
   ResponseValidationError,
-  toProblemDetails,
   UnauthorizedError,
   ValidationError,
 } from "../../../packages/core/src/errors.ts";
+import { toProblemDetails } from "../../../packages/core/src/http/problem.ts";
+
+Deno.test("AppError rejects invalid HTTP status codes", () => {
+  assertThrows(
+    () => new AppError(399, "INVALID", "Invalid status"),
+    RangeError,
+  );
+  assertThrows(
+    () => new AppError(600, "INVALID", "Invalid status"),
+    RangeError,
+  );
+  assertThrows(
+    () => new AppError(400.5, "INVALID", "Invalid status"),
+    RangeError,
+  );
+});
 
 Deno.test("AppError subclasses set appropriate status codes, codes and expose flags", () => {
   const validation = new ValidationError("body", [{ path: "/name", message: "required" }]);
@@ -56,6 +72,19 @@ Deno.test("AppError subclasses set appropriate status codes, codes and expose fl
   assertEquals(config.statusCode, 500);
   assertEquals(config.code, "CONFIGURATION_ERROR");
   assertEquals(config.expose, false);
+});
+
+Deno.test("Problem details expose only explicitly safe details", () => {
+  const req = new Request("http://test/v1/users");
+  const conflict = new ConflictError("Email already in use", { secret: "hidden" });
+  const conflictProblem = toProblemDetails(conflict, req, "req-conflict-1");
+  assertEquals(conflictProblem.details, undefined);
+
+  const circular: Record<string, unknown> = {};
+  circular.self = circular;
+  const internal = new AppError(400, "SAFE_DETAILS", "Bad input", circular, true, true);
+  const internalProblem = toProblemDetails(internal, req, "req-circular-1");
+  assertEquals(internalProblem.details, undefined);
 });
 
 Deno.test("toProblemDetails formats AppErrors correctly with RFC 7807 schema", () => {

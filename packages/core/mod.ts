@@ -31,13 +31,6 @@ export { provideHttp } from "./src/http/provider.ts";
 export { expectStatus, requestJson } from "./src/testing.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
-export {
-  defineModule,
-  definePlugin,
-  defineRoute,
-  isProtectedAuth,
-  provideValue,
-} from "./src/types.ts";
 export type {
   AnyRouteDefinition,
   ApplicationOptions,
@@ -71,6 +64,12 @@ export type {
   ServiceReference,
 } from "./src/types.ts";
 export type { AppConfig, AppConfigOptions } from "./src/config.ts";
+export type {
+  OpenApiConfig,
+  OpenApiConfigOptions,
+  OpenApiDocument,
+  OpenApiDocumentOptions,
+} from "./src/openapi.ts";
 export type { PortContract } from "./src/port.ts";
 export type {
   BulkheadPolicy,

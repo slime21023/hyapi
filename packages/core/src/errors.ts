@@ -1,19 +1,9 @@
-export interface ProblemDetails {
-  type: string;
-  title: string;
-  status: number;
-  detail: string;
-  instance: string;
-  code: string;
-  requestId: string;
-  details?: unknown;
-}
-
 export class AppError extends Error {
   readonly statusCode: number;
   readonly code: string;
   readonly details: unknown;
   readonly expose: boolean;
+  readonly exposeDetails: boolean;
 
   constructor(
     statusCode: number,
@@ -21,13 +11,18 @@ export class AppError extends Error {
     message: string,
     details: unknown = undefined,
     expose = statusCode < 500,
+    exposeDetails = false,
   ) {
     super(message);
+    if (!Number.isInteger(statusCode) || statusCode < 400 || statusCode > 599) {
+      throw new RangeError("AppError statusCode must be an integer between 400 and 599.");
+    }
     this.name = "AppError";
     this.statusCode = statusCode;
     this.code = code;
     this.details = details;
     this.expose = expose;
+    this.exposeDetails = exposeDetails;
   }
 }
 
@@ -68,7 +63,14 @@ export class ConflictError extends AppError {
 
 export class ValidationError extends AppError {
   constructor(source: string, details: unknown) {
-    super(400, "VALIDATION_ERROR", "Request validation failed.", { source, errors: details });
+    super(
+      400,
+      "VALIDATION_ERROR",
+      "Request validation failed.",
+      { source, errors: details },
+      true,
+      true,
+    );
     this.name = "ValidationError";
   }
 }
@@ -91,30 +93,4 @@ export class ResponseContractError extends AppError {
     super(500, "RESPONSE_CONTRACT_ERROR", message, details, false);
     this.name = "ResponseContractError";
   }
-}
-
-export function asAppError(error: unknown): AppError {
-  if (error instanceof AppError) return error;
-  const message = error instanceof Error ? error.message : "An unexpected error occurred.";
-  return new AppError(500, "INTERNAL_ERROR", message, undefined, false);
-}
-
-export function toProblemDetails(
-  error: unknown,
-  request: Request,
-  requestId: string,
-): ProblemDetails {
-  const appError = asAppError(error);
-  const detail = appError.expose ? appError.message : "An unexpected error occurred.";
-  const result: ProblemDetails = {
-    type: `https://hyapi.dev/problems/${appError.code.toLowerCase()}`,
-    title: appError.code.replaceAll("_", " "),
-    status: appError.statusCode,
-    detail,
-    instance: new URL(request.url).pathname,
-    code: appError.code,
-    requestId,
-  };
-  if (appError.expose && appError.details !== undefined) result.details = appError.details;
-  return result;
 }

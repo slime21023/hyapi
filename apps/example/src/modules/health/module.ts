@@ -1,16 +1,16 @@
-import { defineModule, defineRoute, type HealthReport, type Module } from "@hyapi/core";
+import { type HealthReport, type Module } from "@hyapi/core";
 import { HealthResponseSchema, NotReadyResponseSchema, ReadyResponseSchema } from "./schema.ts";
 
 export function createHealthModule(
   serviceName: string,
   readiness: () => Promise<HealthReport>,
 ): Module {
-  return defineModule({
+  return {
     name: "health",
     setup(module) {
       module.group("/health", { tags: ["health"] }, (health) => {
         health.route(
-          defineRoute({
+          {
             method: "get",
             path: "/live",
             responses: { 200: HealthResponseSchema },
@@ -21,10 +21,10 @@ export function createHealthModule(
                 service: serviceName,
                 timestamp: new Date().toISOString(),
               }),
-          }),
+          },
         );
         health.route(
-          defineRoute({
+          {
             method: "get",
             path: "/ready",
             responses: { 200: ReadyResponseSchema, 503: NotReadyResponseSchema },
@@ -42,9 +42,9 @@ export function createHealthModule(
               }
               return ok({ status: "ready" as const, service: serviceName, timestamp });
             },
-          }),
+          },
         );
       });
     },
-  });
+  };
 }

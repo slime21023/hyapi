@@ -1,10 +1,47 @@
-import {
-  type AnyRouteDefinition,
-  extractResponseSchemas,
-  isProtectedAuth,
-  type OpenApiOptions,
-} from "./types.ts";
+import { type AnyRouteDefinition } from "./types.ts";
 import type { SchemaValidator } from "./http/validation.ts";
+import { isProtectedAuth, resolveResponseSchemas } from "./routing.ts";
+
+export interface OpenApiDocument {
+  readonly id: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly version: string;
+  readonly path: string;
+}
+
+export interface OpenApiDocumentOptions {
+  readonly id: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly version?: string;
+  readonly path: string;
+}
+
+export interface OpenApiConfig {
+  readonly enabled: boolean;
+  readonly defaultDocument: string;
+  readonly documents: readonly OpenApiDocument[];
+}
+
+export interface OpenApiConfigOptions {
+  readonly enabled?: boolean;
+  readonly defaultDocument?: string;
+  readonly documents?: readonly OpenApiDocumentOptions[];
+}
+
+export function selectOpenApiRoutes(
+  routes: readonly AnyRouteDefinition[],
+  documentId: string,
+  defaultDocument: string,
+): AnyRouteDefinition[] {
+  return routes.filter((route) => {
+    const documentIds = route.metadata?.documentIds;
+    return documentIds === undefined
+      ? documentId === defaultDocument
+      : documentIds.includes(documentId);
+  });
+}
 
 interface OpenApiOperation {
   operationId?: string;
@@ -21,7 +58,7 @@ interface OpenApiOperation {
 export function buildOpenApiDocument(
   routes: readonly AnyRouteDefinition[],
   schemaValidator: SchemaValidator,
-  options: OpenApiOptions,
+  document: Pick<OpenApiDocument, "title" | "description" | "version">,
 ): Record<string, unknown> {
   const paths: Record<string, Record<string, OpenApiOperation>> = {};
 
@@ -29,7 +66,7 @@ export function buildOpenApiDocument(
     const { operationId, summary, description, tags, deprecated } = route.metadata ?? {};
     const responses: Record<string, unknown> = {};
 
-    const responseSchemas = extractResponseSchemas(route);
+    const responseSchemas = resolveResponseSchemas(route);
     for (const [statusCode, schema] of Object.entries(responseSchemas)) {
       const statusNum = Number(statusCode);
       const isNoContent = statusNum === 204;
@@ -136,7 +173,11 @@ export function buildOpenApiDocument(
 
   return {
     openapi: "3.1.0",
-    info: options.info,
+    info: {
+      title: document.title,
+      ...(document.description === undefined ? {} : { description: document.description }),
+      version: document.version,
+    },
     paths,
     components: {
       securitySchemes: {

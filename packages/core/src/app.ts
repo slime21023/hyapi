@@ -6,7 +6,6 @@ import {
   type HealthReport,
   type HyApiOptions,
   type HyApplication,
-  isProtectedAuth,
   type LifecycleHook,
   type Module,
   type PlatformApi,
@@ -27,11 +26,12 @@ import {
   defineConfig,
 } from "./config.ts";
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
-import { buildOpenApiDocument } from "./openapi.ts";
+import { buildOpenApiDocument, selectOpenApiRoutes } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./runtime/timers.ts";
 import { objectSchemaProperties, SchemaValidator } from "./http/validation.ts";
 import {
   type HookPoint,
+  isProtectedAuth,
   ModuleContext,
   normalizeGroupArgs,
   type RouteHooks,
@@ -121,7 +121,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   private registrationOpen = true;
   private starting: Promise<void> | null = null;
   private closing: Promise<void> | null = null;
-  private openApiDocument: Record<string, unknown> | null = null;
+  private readonly openApiDocuments = new Map<string, Record<string, unknown>>();
 
   constructor(options: HyApiOptions) {
     this.options = options;
@@ -144,7 +144,12 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     this.pipeline = new RequestPipeline(this);
 
     if (this.config.openapi.enabled !== false) {
-      this.http.get(this.config.openapi.path, (context) => context.json(this.openApiDocument!));
+      for (const document of this.config.openapi.documents) {
+        this.http.get(
+          document.path,
+          (context) => context.json(this.openApiDocuments.get(document.id)!),
+        );
+      }
     }
     this.http.notFound((context) =>
       errorResponse(new NotFoundError(), context.env.scope.request, context.env.scope.requestId)
@@ -186,12 +191,11 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     this.hooks[point].push(hook);
   }
 
-  route(route: AnyRouteDefinition, scope?: RouterGroup): void;
   route<
-    TParams extends Schema | undefined,
-    TQuery extends Schema | undefined,
-    TBody extends Schema | undefined,
-    TResponse extends ResponseSchemas | undefined,
+    TParams extends Schema | undefined = undefined,
+    TQuery extends Schema | undefined = undefined,
+    TBody extends Schema | undefined = undefined,
+    TResponse extends ResponseSchemas | undefined = undefined,
     TBodyRequired extends boolean = true,
   >(
     route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>,
@@ -244,9 +248,29 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         }
       }
     }
+    const documentIds = registeredRoute.metadata?.documentIds;
+    if (documentIds) {
+      const knownDocumentIds = new Set(
+        this.config.openapi.documents.map((document) => document.id),
+      );
+      const seenDocumentIds = new Set<string>();
+      for (const documentId of documentIds) {
+        if (!knownDocumentIds.has(documentId)) {
+          throw new ConfigurationError(
+            `Route '${label}' references unknown OpenAPI document '${documentId}'.`,
+          );
+        }
+        if (seenDocumentIds.has(documentId)) {
+          throw new ConfigurationError(
+            `Route '${label}' references OpenAPI document '${documentId}' more than once.`,
+          );
+        }
+        seenDocumentIds.add(documentId);
+      }
+    }
     if (
       this.config.openapi.enabled !== false && registeredRoute.method === "get" &&
-      registeredRoute.path === this.config.openapi.path
+      this.config.openapi.documents.some((document) => document.path === registeredRoute.path)
     ) {
       throw new ConfigurationError(`Route '${label}' conflicts with the OpenAPI document route.`);
     }
@@ -423,16 +447,20 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         );
       }
       if (this.config.openapi.enabled !== false) {
-        this.openApiDocument = buildOpenApiDocument(this.routes, this.validator, {
-          info: {
-            title: this.config.openapi.title,
-            ...(this.config.openapi.description
-              ? { description: this.config.openapi.description }
-              : {}),
-            version: this.config.openapi.version,
-          },
-          path: this.config.openapi.path,
-        });
+        for (const document of this.config.openapi.documents) {
+          this.openApiDocuments.set(
+            document.id,
+            buildOpenApiDocument(
+              selectOpenApiRoutes(
+                this.routes,
+                document.id,
+                this.config.openapi.defaultDocument,
+              ),
+              this.validator,
+              document,
+            ),
+          );
+        }
       }
 
       await this.providers.connect(this.providerScope, this.shutdownTimeoutMs);

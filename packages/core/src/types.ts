@@ -12,14 +12,13 @@ export interface RouteRequestSchemas<
   TParams extends Schema | undefined = Schema | undefined,
   TQuery extends Schema | undefined = Schema | undefined,
   TBody extends Schema | undefined = Schema | undefined,
-  THeaders extends Schema | undefined = Schema | undefined,
   TBodyRequired extends boolean = true,
 > {
   params?: TParams;
   query?: TQuery;
   body?: TBody;
   bodyRequired?: TBodyRequired;
-  headers?: THeaders;
+  headers?: Schema | undefined;
 }
 
 export interface RouteMetadata {
@@ -27,6 +26,8 @@ export interface RouteMetadata {
   description?: string;
   operationId?: string;
   tags?: readonly string[];
+  /** OpenAPI document IDs; omitted routes use the configured default document. */
+  documentIds?: readonly string[];
   deprecated?: boolean;
 }
 
@@ -108,12 +109,12 @@ export interface RouteDefinition<
 > {
   method: HttpMethod;
   path: string;
-  request?: RouteRequestSchemas<TParams, TQuery, TBody, Schema | undefined, TBodyRequired>;
+  request?: RouteRequestSchemas<TParams, TQuery, TBody, TBodyRequired>;
   responses?: TResponse;
   responseStatus?: number;
   auth?: AuthRequirement;
   metadata?: RouteMetadata;
-  handler(context: RequestContext<TParams, TQuery, TBody, TBodyRequired>): MaybePromise<unknown>;
+  handler: RouteHandler<TParams, TQuery, TBody, TBodyRequired>;
 }
 
 export interface RouteGroupOptions {
@@ -125,10 +126,10 @@ export interface RouteGroupOptions {
 export interface RouteGroupApi {
   addHook(point: "onRequest" | "onResponse" | "onError", hook: LifecycleHook): void;
   route<
-    TParams extends Schema | undefined,
-    TQuery extends Schema | undefined,
-    TBody extends Schema | undefined,
-    TResponse extends ResponseSchemas | undefined,
+    TParams extends Schema | undefined = undefined,
+    TQuery extends Schema | undefined = undefined,
+    TBody extends Schema | undefined = undefined,
+    TResponse extends ResponseSchemas | undefined = undefined,
     TBodyRequired extends boolean = true,
   >(route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>): void;
   group(
@@ -256,17 +257,6 @@ export interface HyApiOptions {
   readonly providers?: readonly PortProvider<unknown>[];
 }
 
-export interface OpenApiInfo {
-  title: string;
-  description?: string;
-  version: string;
-}
-
-export interface OpenApiOptions {
-  info: OpenApiInfo;
-  path: string;
-}
-
 export type AnyRouteDefinition = RouteDefinition<
   Schema | undefined,
   Schema | undefined,
@@ -274,34 +264,3 @@ export type AnyRouteDefinition = RouteDefinition<
   ResponseSchemas | undefined,
   boolean
 >;
-
-export const defineRoute = <
-  TParams extends Schema | undefined = undefined,
-  TQuery extends Schema | undefined = undefined,
-  TBody extends Schema | undefined = undefined,
-  TResponse extends ResponseSchemas | undefined = undefined,
-  TBodyRequired extends boolean = true,
->(route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>) => route;
-
-export const defineModule = (module: Module): Module => module;
-
-export const definePlugin = (plugin: Plugin): Plugin => plugin;
-
-export const provideValue = <T>(name: string, value: T): ServiceOverride<T> => ({ name, value });
-
-export function isProtectedAuth(
-  auth: AuthRequirement | undefined,
-): auth is Exclude<AuthRequirement, false> {
-  return auth !== undefined && auth !== false;
-}
-
-export function extractResponseSchemas(
-  route: AnyRouteDefinition,
-): Record<number, Schema | undefined> {
-  if (route.responses) {
-    return route.responses;
-  }
-  const defaultStatus = route.responseStatus ??
-    (route.method === "post" ? 201 : route.method === "delete" ? 204 : 200);
-  return { [defaultStatus]: undefined };
-}

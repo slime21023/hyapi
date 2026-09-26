@@ -6,7 +6,6 @@ import {
   createApplication,
   createHttpContractClient,
   defineHttpContract,
-  defineModule,
   type HttpContract,
   HttpContractClientError,
   type HttpContractRequest,
@@ -21,7 +20,16 @@ const config: AppConfig = {
   version: "0.5.0",
   environment: "test",
   requestIdHeader: "x-request-id",
-  openapi: { title: "HTTP contract test", version: "0.5.0", path: "/openapi.json" },
+  openapi: {
+    enabled: true,
+    defaultDocument: "default",
+    documents: [{
+      id: "default",
+      title: "HTTP contract test",
+      version: "0.5.0",
+      path: "/openapi.json",
+    }],
+  },
 };
 
 const catalogContract = defineHttpContract({
@@ -102,14 +110,14 @@ Deno.test("HTTP contract client types and sends an optional request body", async
 Deno.test("HTTP contracts register server routes and drive a validated typed client", async () => {
   const app = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "catalog",
       setup(module) {
         registerHttpContract(module, catalogContract, {
           getItem: ({ params, ok }) => ok({ id: params.id, name: "Keyboard" }),
         });
       },
-    })],
+    }],
   });
   const client = createHttpContractClient(catalogContract, {
     baseUrl: "http://test",

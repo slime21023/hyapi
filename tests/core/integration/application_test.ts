@@ -8,21 +8,18 @@ import {
   assertThrows,
 } from "@std/assert";
 import {
+  type AnyRouteDefinition,
   type AppConfig,
   AppError,
   type AuthProvider,
   createApplication,
   defineConfig,
-  defineModule,
-  definePlugin,
   definePort,
   definePortContract,
-  defineRoute,
   type Identity,
   NotFoundError,
   providePort,
   type ProviderHealth,
-  provideValue,
   type RouteGroupApi,
   verifyPortContract,
   verifyPortContracts,
@@ -40,9 +37,9 @@ const config: AppConfig = {
   environment: "test",
   requestIdHeader: "x-request-id",
   openapi: {
-    title: "Core test API",
-    version: "0.1.0",
-    path: "/openapi.json",
+    enabled: true,
+    defaultDocument: "default",
+    documents: [{ id: "default", title: "Core test API", version: "0.1.0", path: "/openapi.json" }],
   },
 };
 
@@ -56,7 +53,7 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
     lifecycle.push("response");
   });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/items/{id}",
       request: {
@@ -70,7 +67,7 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
         lifecycle.push("handler");
         return ok({ id: params.id, limit: query.limit ?? 10 });
       },
-    }),
+    },
   );
   await app.start();
 
@@ -99,14 +96,14 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
 Deno.test("request context exposes the effective deadline", async () => {
   let deadline: number | undefined;
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/deadline",
     handler: ({ deadline: value, ok }) => {
       deadline = value;
       return ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   const upstream = Date.now() + 60_000;
@@ -129,8 +126,101 @@ Deno.test("defineConfig provides ergonomic application defaults", () => {
     bodyLimitBytes: 10485760,
     requestTimeoutMs: 300000,
     shutdownTimeoutMs: 30000,
-    openapi: { title: "orders API", version: "0.1.0", path: "/openapi.json" },
+    openapi: {
+      enabled: true,
+      defaultDocument: "default",
+      documents: [{ id: "default", title: "orders API", version: "0.1.0", path: "/openapi.json" }],
+    },
   });
+});
+
+Deno.test("multiple OpenAPI documents select routes by document ids", async () => {
+  const multiConfig = defineConfig({
+    name: "multi-document",
+    openapi: {
+      defaultDocument: "public",
+      documents: [
+        { id: "public", title: "Public API", path: "/openapi.json" },
+        { id: "internal", title: "Internal API", path: "/internal/openapi.json" },
+      ],
+    },
+  });
+  const app = createApp({ config: multiConfig });
+  app.route({
+    method: "get",
+    path: "/shared",
+    handler: ({ ok }) => ok({ route: "shared" }),
+  });
+  app.route({
+    method: "get",
+    path: "/public",
+    metadata: { documentIds: ["public"] },
+    handler: ({ ok }) => ok({ route: "public" }),
+  });
+  app.route({
+    method: "get",
+    path: "/internal",
+    metadata: { documentIds: ["internal"] },
+    handler: ({ ok }) => ok({ route: "internal" }),
+  });
+  app.route({
+    method: "get",
+    path: "/both",
+    metadata: { documentIds: ["public", "internal"] },
+    handler: ({ ok }) => ok({ route: "both" }),
+  });
+  app.route({
+    method: "get",
+    path: "/hidden",
+    metadata: { documentIds: [] },
+    handler: ({ ok }) => ok({ route: "hidden" }),
+  });
+  await app.start();
+
+  const publicDocument = await (await app.request("http://test/openapi.json")).json();
+  assertEquals(publicDocument.info.title, "Public API");
+  assert(publicDocument.paths["/shared"]);
+  assert(publicDocument.paths["/public"]);
+  assert(publicDocument.paths["/both"]);
+  assertEquals(publicDocument.paths["/internal"], undefined);
+  assertEquals(publicDocument.paths["/hidden"], undefined);
+
+  const internalDocument = await (await app.request("http://test/internal/openapi.json")).json();
+  assertEquals(internalDocument.info.title, "Internal API");
+  assert(internalDocument.paths["/internal"]);
+  assert(internalDocument.paths["/both"]);
+  assertEquals(internalDocument.paths["/shared"], undefined);
+  assertEquals(internalDocument.paths["/public"], undefined);
+  assertEquals(internalDocument.paths["/hidden"], undefined);
+  await app.close();
+});
+
+Deno.test("OpenAPI documents reject duplicate paths and unknown route document ids", () => {
+  assertThrows(
+    () =>
+      defineConfig({
+        name: "duplicate-paths",
+        openapi: {
+          documents: [
+            { id: "one", path: "/openapi.json" },
+            { id: "two", path: "/openapi.json" },
+          ],
+        },
+      }),
+    ConfigurationError,
+  );
+
+  const app = createApp({ config });
+  assertThrows(
+    () =>
+      app.route({
+        method: "get",
+        path: "/unknown-document",
+        metadata: { documentIds: ["missing"] },
+        handler: () => undefined,
+      }),
+    ConfigurationError,
+  );
 });
 
 Deno.test("unmatched routes return problem details", async () => {
@@ -148,7 +238,7 @@ Deno.test("createApplication composes ordered plugins and modules", async () => 
   const app = await createApplication({
     config,
     plugins: [
-      definePlugin({
+      {
         name: "logging",
         setup: () => {
           log.push("plugin:setup");
@@ -159,19 +249,19 @@ Deno.test("createApplication composes ordered plugins and modules", async () => 
         onClose: () => {
           log.push("plugin:close");
         },
-      }),
+      },
     ],
     modules: [
-      defineModule({
+      {
         name: "dependent",
         dependencies: ["base"],
         setup: (module) => {
           log.push("module:dependent");
-          module.route(defineRoute({
+          module.route({
             method: "get",
             path: "/modules",
             handler: ({ ok }) => ok({ ok: true }),
-          }));
+          });
         },
         onStart: () => {
           log.push("module:dependent:start");
@@ -179,8 +269,8 @@ Deno.test("createApplication composes ordered plugins and modules", async () => 
         onClose: () => {
           log.push("module:dependent:close");
         },
-      }),
-      defineModule({
+      },
+      {
         name: "base",
         setup: () => {
           log.push("module:base");
@@ -191,7 +281,7 @@ Deno.test("createApplication composes ordered plugins and modules", async () => 
         onClose: () => {
           log.push("module:base:close");
         },
-      }),
+      },
     ],
   });
 
@@ -215,7 +305,7 @@ Deno.test("createApplication rejects invalid module and plugin graphs", async ()
       createApplication({
         config,
         modules: [
-          defineModule({ name: "orders", dependencies: ["users"], setup: () => undefined }),
+          { name: "orders", dependencies: ["users"], setup: () => undefined },
         ],
       }),
     ConfigurationError,
@@ -226,7 +316,7 @@ Deno.test("createApplication rejects invalid module and plugin graphs", async ()
       createApplication({
         config,
         modules: [],
-        plugins: [definePlugin({ name: "a", dependencies: ["b"], setup: () => undefined })],
+        plugins: [{ name: "a", dependencies: ["b"], setup: () => undefined }],
       }),
     ConfigurationError,
     "a",
@@ -238,13 +328,13 @@ Deno.test("module services honor singleton request transient scopes and cleanup"
   const closed: number[] = [];
   const app = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "services",
       setup(module) {
         const singleton = module.singleton(() => ({ id: ++nextId, close: () => closed.push(1) }));
         const request = module.request(() => ({ id: ++nextId, close: () => closed.push(2) }));
         const transient = module.transient(() => ({ id: ++nextId }));
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/services",
           handler: async ({ services, ok }) => {
@@ -259,9 +349,9 @@ Deno.test("module services honor singleton request transient scopes and cleanup"
               transient: [firstTransient.id, secondTransient.id],
             });
           },
-        }));
+        });
       },
-    })],
+    }],
   });
 
   const first = await (await app.request("http://test/services")).json();
@@ -277,21 +367,21 @@ Deno.test("createApplication replaces named services before module setup is used
   let factoryCalls = 0;
   const app = await createApplication({
     config,
-    overrides: [provideValue("clock", { now: () => "test-time" })],
-    modules: [defineModule({
+    overrides: [{ name: "clock", value: { now: () => "test-time" } }],
+    modules: [{
       name: "clock",
       setup(module) {
         const clock = module.singleton("clock", () => {
           factoryCalls += 1;
           return { now: () => "production-time" };
         });
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/clock",
           handler: async ({ services, ok }) => ok({ now: (await services.get(clock)).now() }),
-        }));
+        });
       },
-    })],
+    }],
   });
 
   assertEquals(await (await app.request("http://test/clock")).json(), { now: "test-time" });
@@ -303,19 +393,19 @@ Deno.test("modules resolve explicit ports and reject missing or incompatible pro
   const app = await createApplication({
     config,
     providers: [providePort(userDirectory, { find: (id) => `user:${id}` })],
-    modules: [defineModule({
+    modules: [{
       name: "orders",
       requires: [userDirectory],
       setup(module) {
         const users = module.use(userDirectory);
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/orders/{id}",
           request: { params: Type.Object({ id: Type.String() }) },
           handler: ({ params, ok }) => ok({ owner: users.find(params.id) }),
-        }));
+        });
       },
-    })],
+    }],
   });
   assertEquals(await (await app.request("http://test/orders/1")).json(), { owner: "user:1" });
 
@@ -324,7 +414,7 @@ Deno.test("modules resolve explicit ports and reject missing or incompatible pro
       createApplication({
         config,
         modules: [
-          defineModule({ name: "missing", requires: [userDirectory], setup: () => undefined }),
+          { name: "missing", requires: [userDirectory], setup: () => undefined },
         ],
       }),
     ConfigurationError,
@@ -338,7 +428,7 @@ Deno.test("modules resolve explicit ports and reject missing or incompatible pro
           providePort(definePort("users.directory", { major: 2, minor: 0 }), { find: () => "" }),
         ],
         modules: [
-          defineModule({ name: "version", requires: [userDirectory], setup: () => undefined }),
+          { name: "version", requires: [userDirectory], setup: () => undefined },
         ],
       }),
     ConfigurationError,
@@ -351,13 +441,13 @@ Deno.test("providers connect, report health, and close in lifecycle order", asyn
   const port = definePort<{ value: string }>("lifecycle.port", { major: 1, minor: 1 });
   const app = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "consumer",
       requires: [port],
       setup: (module) => {
         assertEquals(module.use(port).value, "ok");
       },
-    })],
+    }],
     providers: [providePort(port, { value: "ok" }, {
       connect: () => {
         events.push("connect");
@@ -444,14 +534,14 @@ Deno.test("startup flattens provider rollback errors before plugin cleanup error
           },
         }),
       ],
-      plugins: [definePlugin({
+      plugins: [{
         name: "failing-cleanup",
         setup: () => undefined,
         onClose: () => {
           events.push("close:plugin");
           throw pluginCloseFailure;
         },
-      })],
+      }],
     }), AggregateError);
   assertEquals(error.errors, [
     connectFailure,
@@ -475,7 +565,7 @@ Deno.test("provider minor versions are compatible within the same major", async 
   const provided = definePort<{ value: string }>("versioned.port", { major: 1, minor: 2 });
   const app = await createApplication({
     config,
-    modules: [defineModule({ name: "consumer", requires: [required], setup: () => undefined })],
+    modules: [{ name: "consumer", requires: [required], setup: () => undefined }],
     providers: [providePort(provided, { value: "ok" })],
   });
   await app.close();
@@ -483,7 +573,7 @@ Deno.test("provider minor versions are compatible within the same major", async 
     () =>
       createApplication({
         config,
-        modules: [defineModule({ name: "consumer", requires: [required], setup: () => undefined })],
+        modules: [{ name: "consumer", requires: [required], setup: () => undefined }],
         providers: [
           providePort(definePort("versioned.port", { major: 2, minor: 0 }), { value: "bad" }),
         ],
@@ -514,7 +604,7 @@ Deno.test("port contracts verify local and fake providers with named failures", 
 
 Deno.test("plugins sort topologically, execute onStart and onClose in reverse", async () => {
   const log: string[] = [];
-  const pluginA = definePlugin({
+  const pluginA = {
     name: "pluginA",
     dependencies: ["pluginB"],
     setup: () => {
@@ -526,8 +616,8 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
     onClose: () => {
       log.push("close:A");
     },
-  });
-  const pluginB = definePlugin({
+  };
+  const pluginB = {
     name: "pluginB",
     setup: () => {
       log.push("setup:B");
@@ -538,7 +628,7 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
     onClose: () => {
       log.push("close:B");
     },
-  });
+  };
   const app = await createApplication({ config, modules: [], plugins: [pluginA, pluginB] });
   assertEquals(log, ["setup:B", "setup:A", "start:B", "start:A"]);
   await app.close();
@@ -557,21 +647,21 @@ Deno.test("app - serializes concurrent ready calls and rejects late plugins", as
   const app = await createApplication({
     config,
     modules: [],
-    plugins: [definePlugin({
+    plugins: [{
       name: "slow-plugin",
       setup: async () => {
         setupCount += 1;
         await Promise.resolve();
       },
-    })],
+    }],
   });
   assertEquals(setupCount, 1);
   await app.close();
 });
 
 Deno.test("circular plugin dependencies throw ConfigurationError", async () => {
-  const p1 = definePlugin({ name: "p1", dependencies: ["p2"], setup: () => undefined });
-  const p2 = definePlugin({ name: "p2", dependencies: ["p1"], setup: () => undefined });
+  const p1 = { name: "p1", dependencies: ["p2"], setup: () => undefined };
+  const p2 = { name: "p2", dependencies: ["p1"], setup: () => undefined };
   await assertRejects(
     () => createApplication({ config, modules: [], plugins: [p1, p2] }),
     ConfigurationError,
@@ -579,7 +669,7 @@ Deno.test("circular plugin dependencies throw ConfigurationError", async () => {
 });
 
 Deno.test("missing plugin dependencies throw ConfigurationError", async () => {
-  const p1 = definePlugin({ name: "p1", dependencies: ["missingDep"], setup: () => undefined });
+  const p1 = { name: "p1", dependencies: ["missingDep"], setup: () => undefined };
   await assertRejects(
     () => createApplication({ config, modules: [], plugins: [p1] }),
     ConfigurationError,
@@ -602,30 +692,30 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
   app.group("/v1", (v1) => {
     v1.group("/users", { tags: ["Users"], auth: { scopes: ["users:read"] } }, (users) => {
       users.route(
-        defineRoute({
+        {
           method: "get",
           path: "",
           responses: { 200: Type.Object({ status: Type.String() }) },
           handler: ({ ok }) => ok({ status: "all-users" }),
-        }),
+        },
       );
       users.route(
-        defineRoute({
+        {
           method: "get",
           path: "/{id}",
           request: { params: Type.Object({ id: Type.String() }) },
           responses: { 200: Type.Object({ id: Type.String() }) },
           handler: ({ params, ok }) => ok({ id: params.id }),
-        }),
+        },
       );
       users.group({ auth: { scopes: ["users:write"] } }, (writers) => {
         writers.route(
-          defineRoute({
+          {
             method: "post",
             path: "",
             responses: { 201: Type.Object({ created: Type.Boolean() }) },
             handler: ({ created }) => created({ created: true }),
-          }),
+          },
         );
       });
     });
@@ -671,19 +761,19 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
 
 Deno.test("ready rejects protected routes without an auth provider", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/private",
     auth: {},
     handler: () => "private",
-  }));
+  });
   await assertRejects(() => app.start(), ConfigurationError);
 });
 
 Deno.test("multi-status response schema validates matching status code schema", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/multi/{type}",
       request: { params: Type.Object({ type: Type.String() }) },
@@ -700,7 +790,7 @@ Deno.test("multi-status response schema validates matching status code schema", 
         }
         return ok({ type: "ok", num: 100 });
       },
-    }),
+    },
   );
   await app.start();
 
@@ -723,20 +813,20 @@ Deno.test("app - rejects undeclared statuses and missing response bodies", async
   const responseSchema = Type.Object({ ok: Type.Boolean() });
 
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/undeclared-status",
       responses: { 200: responseSchema },
       handler: ({ json }) => json({ ok: true }, 202),
-    }),
+    },
   );
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/missing-response-body",
       responses: { 200: responseSchema },
       handler: () => undefined,
-    }),
+    },
   );
 
   await app.start();
@@ -753,12 +843,12 @@ Deno.test("app - rejects undeclared statuses and missing response bodies", async
 Deno.test("app - validates composite response schemas", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/composite-response",
       responses: { 200: Type.Union([Type.String(), Type.Number()]) },
       handler: () => true,
-    }),
+    },
   );
   await app.start();
 
@@ -777,7 +867,7 @@ Deno.test("app - validates composite response schemas", async () => {
 Deno.test("query array schema coerces single query param to array", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/tags",
       request: {
@@ -787,7 +877,7 @@ Deno.test("query array schema coerces single query param to array", async () => 
         200: Type.Object({ tags: Type.Array(Type.String()) }),
       },
       handler: ({ query, ok }) => ok({ tags: query.tag }),
-    }),
+    },
   );
   await app.start();
 
@@ -809,7 +899,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
   });
 
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/public",
       responses: { 200: Type.Object({ ok: Type.Boolean() }) },
@@ -817,7 +907,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
         log.push("handler:public");
         return ok({ ok: true });
       },
-    }),
+    },
   );
 
   app.group("/api", (api) => {
@@ -837,7 +927,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
       });
 
       users.route(
-        defineRoute({
+        {
           method: "get",
           path: "",
           responses: { 200: Type.Object({ ok: Type.Boolean() }) },
@@ -845,7 +935,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
             log.push("handler:users");
             return ok({ ok: true });
           },
-        }),
+        },
       );
     });
   });
@@ -876,7 +966,7 @@ Deno.test("group-scoped hooks execute strictly within group hierarchy", async ()
 Deno.test("TypeCompiler validates formats and coerces query params", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/validate",
       request: {
@@ -899,7 +989,7 @@ Deno.test("TypeCompiler validates formats and coerces query params", async () =>
           age: query.age,
           active: query.active,
         }),
-    }),
+    },
   );
   await app.start();
 
@@ -928,7 +1018,7 @@ Deno.test("multi-format body parsing handles form URL-encoded and multipart", as
   const app = createApp({ config });
 
   app.route(
-    defineRoute({
+    {
       method: "post",
       path: "/form",
       request: {
@@ -941,7 +1031,7 @@ Deno.test("multi-format body parsing handles form URL-encoded and multipart", as
         200: Type.Object({ title: Type.String(), count: Type.Integer() }),
       },
       handler: ({ body, ok }) => ok(body),
-    }),
+    },
   );
 
   await app.start();
@@ -972,7 +1062,7 @@ Deno.test("app - enforces required and optional request bodies without consuming
   const bodySchema = Type.Object({ name: Type.String() });
 
   app.route(
-    defineRoute({
+    {
       method: "post",
       path: "/required-body",
       request: { body: bodySchema },
@@ -981,24 +1071,24 @@ Deno.test("app - enforces required and optional request bodies without consuming
         const rawBody = await request.text();
         return ok({ ...body, rawBody: JSON.parse(rawBody).name });
       },
-    }),
+    },
   );
   app.route(
-    defineRoute({
+    {
       method: "post",
       path: "/optional-body",
       request: { body: bodySchema, bodyRequired: false },
       responses: { 200: Type.Object({ present: Type.Boolean() }) },
       handler: ({ body, ok }) => ok({ present: body !== undefined }),
-    }),
+    },
   );
   app.route(
-    defineRoute({
+    {
       method: "post",
       path: "/no-body-schema",
       responses: { 200: Type.Object({ bodyWasParsed: Type.Boolean() }) },
       handler: ({ body, ok }) => ok({ bodyWasParsed: body !== undefined }),
-    }),
+    },
   );
 
   await app.start();
@@ -1043,12 +1133,12 @@ Deno.test("app - enforces required and optional request bodies without consuming
 Deno.test("app - rejects unsupported request media types", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "post",
       path: "/unsupported-body",
       request: { body: Type.Object({ name: Type.String() }) },
       handler: ({ ok }) => ok({ accepted: true }),
-    }),
+    },
   );
   await app.start();
 
@@ -1065,12 +1155,12 @@ Deno.test("typed body media rejection precedes an open stream but not the declar
   const app = createApp({
     config: { ...config, requestTimeoutMs: 80, bodyLimitBytes: 8 },
   });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/media-order",
     request: { body: Type.Object({ name: Type.String() }) },
     handler: () => new Response(null, { status: 204 }),
-  }));
+  });
   await app.start();
   let cancelled = false;
 
@@ -1103,11 +1193,11 @@ Deno.test("typed body media rejection precedes an open stream but not the declar
 
 Deno.test("app - rejects duplicate routes", () => {
   const app = createApp({ config });
-  const dummyRoute = defineRoute({
+  const dummyRoute: AnyRouteDefinition = {
     method: "get",
     path: "/items",
     handler: () => "items",
-  });
+  };
 
   app.route(dummyRoute);
   assertThrows(() => app.route(dummyRoute), ConfigurationError);
@@ -1120,14 +1210,14 @@ Deno.test("app - shares request state across hooks and handler", async () => {
   });
 
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/state-test",
       responses: { 200: Type.Object({ role: Type.String() }) },
       handler: ({ state, ok }) => {
         return ok({ role: state.get("userRole") as string });
       },
-    }),
+    },
   );
   await app.start();
 
@@ -1147,13 +1237,13 @@ Deno.test("app - triggers onError hooks on failures", async () => {
   });
 
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/fail",
       handler: () => {
         throw new Error("Explicit handler failure");
       },
-    }),
+    },
   );
   await app.start();
 
@@ -1176,7 +1266,7 @@ Deno.test("app - supports optional authentication", async () => {
   app.setAuthProvider(mockAuth);
 
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/optional",
       auth: { required: false },
@@ -1189,7 +1279,7 @@ Deno.test("app - supports optional authentication", async () => {
           ...(identity ? { sub: identity.subject } : {}),
         });
       },
-    }),
+    },
   );
   await app.start();
 
@@ -1209,11 +1299,11 @@ Deno.test("app - supports optional authentication", async () => {
 Deno.test("app - supports returning raw Response object from handler", async () => {
   const app = createApp({ config });
   app.route(
-    defineRoute({
+    {
       method: "get",
       path: "/raw-response",
       handler: () => new Response("custom stream or raw body", { status: 202 }),
-    }),
+    },
   );
   await app.start();
 
@@ -1224,13 +1314,13 @@ Deno.test("app - supports returning raw Response object from handler", async () 
 
 Deno.test("app - enforces the configured request body limit", async () => {
   const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/limited",
     request: { body: Type.Object({ name: Type.String() }) },
     responses: { 200: Type.Object({ name: Type.String() }) },
     handler: ({ body, ok }) => ok(body),
-  }));
+  });
   await app.start();
 
   const accepted = await app.request("http://test/limited", {
@@ -1272,20 +1362,20 @@ async function withinOneSecond<T>(promise: Promise<T>): Promise<T> {
 Deno.test("app - enforces bodyLimitBytes on routes without a body schema", async () => {
   let unreadHandlerRan = false;
   const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/raw",
     responses: { 200: Type.Object({ length: Type.Number() }) },
     handler: async ({ request, ok }) => ok({ length: (await request.text()).length }),
-  }));
-  app.route(defineRoute({
+  });
+  app.route({
     method: "post",
     path: "/unread",
     handler: () => {
       unreadHandlerRan = true;
       return new Response(null, { status: 204 });
     },
-  }));
+  });
   await app.start();
 
   const oversized = await app.request("http://test/raw", {
@@ -1317,12 +1407,12 @@ Deno.test("app - enforces bodyLimitBytes on routes without a body schema", async
 Deno.test("app - rejects an oversized open body stream with 413", async () => {
   let cancelled = false;
   const app = createApp({ config: { ...config, bodyLimitBytes: 16 } });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/limited",
     request: { body: Type.Object({ name: Type.String() }) },
     handler: () => new Response(null, { status: 204 }),
-  }));
+  });
   await app.start();
 
   const response = await withinOneSecond(Promise.resolve(app.request("http://test/limited", {
@@ -1345,12 +1435,12 @@ Deno.test("app - rejects an oversized open body stream with 413", async () => {
 Deno.test("app - request timeout cancels a stalled body read", async () => {
   let cancelled = false;
   const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/stalled",
     request: { body: Type.Object({ name: Type.String() }) },
     handler: () => new Response(null, { status: 204 }),
-  }));
+  });
   await app.start();
 
   const response = await withinOneSecond(Promise.resolve(app.request("http://test/stalled", {
@@ -1375,7 +1465,7 @@ Deno.test("app - error responses do not inherit headers from the replaced respon
   app.addHook("onResponse", () => {
     throw new Error("hook failed");
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/redirect",
     handler: () =>
@@ -1383,7 +1473,7 @@ Deno.test("app - error responses do not inherit headers from the replaced respon
         status: 302,
         headers: { location: "/home", "set-cookie": "session=abc; HttpOnly" },
       }),
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/redirect");
@@ -1396,7 +1486,11 @@ Deno.test("app - error responses do not inherit headers from the replaced respon
 });
 
 Deno.test("createApplication fills defaults for partial configs", async () => {
-  const partial = { name: "x", requestIdHeader: "x-id", openapi: { path: "/spec" } };
+  const partial = {
+    name: "x",
+    requestIdHeader: "x-id",
+    openapi: { documents: [{ id: "default", path: "/spec" }] },
+  };
   const app = await createApplication({ config: partial, modules: [] });
   assertEquals(app.config, defineConfig(partial));
   const response = await app.request("http://test/spec");
@@ -1406,13 +1500,13 @@ Deno.test("createApplication fills defaults for partial configs", async () => {
 
 Deno.test("app - accepts structured +json request media types", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "patch",
     path: "/patch",
     request: { body: Type.Object({ name: Type.String() }) },
     responses: { 200: Type.Object({ name: Type.String() }) },
     handler: ({ body, ok }) => ok(body),
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/patch", {
@@ -1426,11 +1520,11 @@ Deno.test("app - accepts structured +json request media types", async () => {
 
 Deno.test("app - replaces malformed request ids and tags immutable responses", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/redirect",
     handler: () => Response.redirect("http://test/elsewhere", 302),
-  }));
+  });
   await app.start();
 
   const malformed = await app.request("http://test/missing", {
@@ -1460,14 +1554,14 @@ Deno.test("app - request cleanup failures reach onError without replacing the re
   app.addHook("onError", ({ error }) => {
     errors.push(error);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/cleanup",
     handler: async ({ services, ok }) => {
       await services.get(connection);
       return ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/cleanup");
@@ -1492,14 +1586,14 @@ Deno.test("never-settling cleanup error observer cannot replace or stall a chose
     errors.push(error);
     return new Promise<void>(() => {});
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/cleanup-pending",
     handler: async ({ services, ok }) => {
       await services.get(connection);
       return ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   const started = Date.now();
@@ -1531,7 +1625,7 @@ Deno.test("request cleanup bounds stalled closers and returns the chosen respons
   app.addHook("onError", ({ error }) => {
     errors.push(error);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/stalled-cleanup",
     handler: async ({ services, ok }) => {
@@ -1539,7 +1633,7 @@ Deno.test("request cleanup bounds stalled closers and returns the chosen respons
       await services.get(stalled);
       return ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   const response = await withinOneSecond(app.request("/stalled-cleanup"));
@@ -1563,14 +1657,14 @@ Deno.test("forced shutdown releases a request waiting on its service closer", as
       return new Promise<void>(() => {});
     },
   }));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/shutdown-cleanup",
     handler: async ({ services }) => {
       await services.get(stalled);
       return new Response("ok");
     },
-  }));
+  });
   await app.start();
 
   const pending = app.request("/shutdown-cleanup");
@@ -1583,11 +1677,11 @@ Deno.test("forced shutdown releases a request waiting on its service closer", as
 
 Deno.test("app - handler SyntaxErrors are internal server errors", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/syntax",
     handler: () => JSON.parse("{"),
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/syntax");
@@ -1598,18 +1692,18 @@ Deno.test("app - handler SyntaxErrors are internal server errors", async () => {
 Deno.test("app - raw Response results must use a declared status", async () => {
   const app = createApp({ config });
   const responses = { 200: Type.Object({ ok: Type.Boolean() }) };
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/raw-undeclared",
     responses,
     handler: () => new Response("accepted", { status: 202 }),
-  }));
-  app.route(defineRoute({
+  });
+  app.route({
     method: "get",
     path: "/raw-declared",
     responses,
     handler: () => Response.json({ ok: true }),
-  }));
+  });
   await app.start();
 
   const undeclared = await app.request("http://test/raw-undeclared");
@@ -1623,12 +1717,12 @@ Deno.test("app - raw Response results must use a declared status", async () => {
 
 Deno.test("app - response bodies drop properties the schema does not declare", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/users/me",
     responses: { 200: Type.Object({ id: Type.String(), name: Type.String() }) },
     handler: ({ ok }) => ok({ id: "u1", name: "Ada", passwordHash: "secret" }),
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/users/me");
@@ -1638,13 +1732,13 @@ Deno.test("app - response bodies drop properties the schema does not declare", a
 
 Deno.test("header schemas match HTTP names regardless of case", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/tenant",
     request: { headers: Type.Object({ "X-Tenant-Id": Type.String({ minLength: 3 }) }) },
     responses: { 200: Type.Object({ tenant: Type.String() }) },
     handler: ({ headers, ok }) => ok({ tenant: headers.get("X-Tenant-Id") }),
-  }));
+  });
   await app.start();
 
   const valid = await app.request("/tenant", { headers: { "x-tenant-id": "acme" } });
@@ -1661,7 +1755,7 @@ Deno.test("header schemas reject case-colliding declared properties", () => {
   const app = createApp({ config });
   assertThrows(
     () =>
-      app.route(defineRoute({
+      app.route({
         method: "get",
         path: "/tenant",
         request: {
@@ -1671,7 +1765,7 @@ Deno.test("header schemas reject case-colliding declared properties", () => {
           }),
         },
         handler: ({ ok }) => ok({ ok: true }),
-      })),
+      }),
     ConfigurationError,
     "X-Tenant-Id",
   );
@@ -1682,24 +1776,24 @@ Deno.test("required path parameter schema names must match registered path", asy
   app.group("/v1/{tenantId}", (group) => {
     assertThrows(
       () =>
-        group.route(defineRoute({
+        group.route({
           method: "get",
           path: "/orders/{orderId}",
           request: { params: Type.Object({ id: Type.String() }) },
           handler: ({ params, ok }) => ok({ id: params.id }),
-        })),
+        }),
       ConfigurationError,
       "GET /v1/{tenantId}/orders/{orderId}",
     );
-    group.route(defineRoute({
+    group.route({
       method: "get",
       path: "/orders/{orderId}",
       request: {
         params: Type.Object({ tenantId: Type.String(), orderId: Type.String() }),
       },
       handler: ({ params, ok }) => ok({ tenant: params.tenantId, id: params.orderId }),
-    }));
-    group.route(defineRoute({
+    });
+    group.route({
       method: "get",
       path: "/defaulted/{orderId}",
       request: {
@@ -1709,12 +1803,12 @@ Deno.test("required path parameter schema names must match registered path", asy
         }),
       },
       handler: ({ params, ok }) => ok({ locale: params.locale }),
-    }));
-    group.route(defineRoute({
+    });
+    group.route({
       method: "get",
       path: "/untyped/{id}",
       handler: ({ ok }) => ok({ ok: true }),
-    }));
+    });
   });
   await app.start();
   assertEquals(await (await app.request("/v1/acme/orders/42")).json(), {
@@ -1728,7 +1822,7 @@ Deno.test("required path parameter schema names must match registered path", asy
 
 Deno.test("declared failure responses document JSON and thrown ProblemDetails", async () => {
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/resources/{id}",
     request: { params: Type.Object({ id: Type.String() }) },
@@ -1741,7 +1835,7 @@ Deno.test("declared failure responses document JSON and thrown ProblemDetails", 
       if (params.id === "missing") throw new NotFoundError();
       return ok({ id: params.id });
     },
-  }));
+  });
   await app.start();
 
   const document = await (await app.request("/openapi.json")).json();
@@ -1765,22 +1859,22 @@ Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration",
   const app = createApp({ config });
   assertThrows(
     () =>
-      app.route(defineRoute({
+      app.route({
         method: "get",
         path: "/search",
         request: { body: Type.Object({ term: Type.String() }) },
         handler: () => undefined,
-      })),
+      }),
     ConfigurationError,
     "Route 'GET /search' cannot declare a request body.",
   );
   assertThrows(
     () =>
-      app.route(defineRoute({
+      app.route({
         method: "get",
         path: "/openapi.json",
         handler: () => undefined,
-      })),
+      }),
     ConfigurationError,
     "Route 'GET /openapi.json' conflicts with the OpenAPI document route.",
   );
@@ -1788,11 +1882,11 @@ Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration",
   const withoutDocs = createApp({
     config: { ...config, openapi: { ...config.openapi, enabled: false } },
   });
-  withoutDocs.route(defineRoute({
+  withoutDocs.route({
     method: "get",
     path: "/openapi.json",
     handler: ({ ok }) => ok({ custom: true }),
-  }));
+  });
   await withoutDocs.start();
   assertEquals(await (await withoutDocs.request("http://test/openapi.json")).json(), {
     custom: true,
@@ -1802,14 +1896,14 @@ Deno.test("app - rejects GET bodies and OpenAPI path conflicts at registration",
 Deno.test("app - rejects requests whose upstream deadline has passed", async () => {
   let calls = 0;
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/late",
     handler: ({ ok }) => {
       calls += 1;
       return ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/late", { headers: { "x-hyapi-deadline": "1" } });
@@ -1823,10 +1917,10 @@ Deno.test("app - aborts ctx.signal and answers 503 when requestTimeoutMs elapses
   const handlerFinished = Promise.withResolvers<boolean>();
   const app = await createApplication({
     config: defineConfig({ name: "t", requestTimeoutMs: 20 }),
-    modules: [defineModule({
+    modules: [{
       name: "slow",
       setup(module) {
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/slow",
           handler: async ({ signal, ok }) => {
@@ -1836,9 +1930,9 @@ Deno.test("app - aborts ctx.signal and answers 503 when requestTimeoutMs elapses
             handlerFinished.resolve(signal.aborted);
             return ok({ ok: true });
           },
-        }));
+        });
       },
-    })],
+    }],
   });
 
   const response = await app.request("http://test/slow");
@@ -1870,7 +1964,7 @@ Deno.test("withHttpContext propagates the effective deadline and request id head
   let outgoing: Headers | undefined;
   let deadline: number | undefined;
   const app = createApp({ config: { ...config, requestIdHeader: "x-correlation-id" } });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/propagate",
     handler: (context) => {
@@ -1878,7 +1972,7 @@ Deno.test("withHttpContext propagates the effective deadline and request id head
       outgoing = new Headers(withHttpContext(context, "svc").headers);
       return context.ok({ ok: true });
     },
-  }));
+  });
   await app.start();
 
   await app.request("http://test/propagate", { headers: { "x-correlation-id": "corr-1" } });
@@ -1891,14 +1985,14 @@ Deno.test("group hooks registered after a route still run for that route", async
   const log: string[] = [];
   const app = createApp({ config });
   app.group("/late", (group) => {
-    group.route(defineRoute({
+    group.route({
       method: "get",
       path: "",
       handler: ({ ok }) => {
         log.push("handler");
         return ok({ ok: true });
       },
-    }));
+    });
     group.addHook("onRequest", () => {
       log.push("late:request");
     });
@@ -1928,7 +2022,7 @@ Deno.test("app rejects hook, route, and auth provider registration after start",
     "Cannot register hooks after the application has started.",
   );
   assertThrows(
-    () => app.route(defineRoute({ method: "get", path: "/late", handler: () => undefined })),
+    () => app.route({ method: "get", path: "/late", handler: () => undefined }),
     ConfigurationError,
     "Cannot register routes after the application has started.",
   );
@@ -1952,13 +2046,13 @@ Deno.test("group onError and onResponse hooks run when a handler fails", async (
     api.addHook("onResponse", ({ response }) => {
       log.push(`api:response:${response?.status}`);
     });
-    api.route(defineRoute({
+    api.route({
       method: "get",
       path: "/fail",
       handler: () => {
         throw new Error("boom");
       },
-    }));
+    });
   });
   await app.start();
 
@@ -1980,13 +2074,13 @@ Deno.test("never-settling group onError preserves the selected 401 and notifies 
       assertStrictEquals(context.error, error);
       return new Promise<void>(() => {});
     });
-    group.route(defineRoute({
+    group.route({
       method: "get",
       path: "/auth",
       handler: () => {
         throw error;
       },
-    }));
+    });
   });
   app.addHook("onError", ({ error: observedError }) => {
     observed.push(observedError);
@@ -2024,13 +2118,13 @@ Deno.test("onError mutations do not hide the original failure from later observe
       observed.push(context.error);
       context.error = null;
     });
-    group.route(defineRoute({
+    group.route({
       method: "get",
       path: "/bad",
       handler: () => {
         throw error;
       },
-    }));
+    });
   });
   app.addHook("onError", (context) => {
     observed.push(context.error);
@@ -2060,12 +2154,12 @@ Deno.test("group and route scopes merge as a union", async () => {
     },
   });
   app.group("/users", { auth: { scopes: ["users:read"] } }, (users) => {
-    users.route(defineRoute({
+    users.route({
       method: "post",
       path: "",
       auth: { scopes: ["users:write"] },
       handler: ({ created }) => created({ ok: true }),
-    }));
+    });
   });
   await app.start();
 
@@ -2081,23 +2175,23 @@ Deno.test("routes and groups cannot weaken inherited authentication", () => {
   app.group("/secure", { auth: { scopes: ["admin"] } }, (secure) => {
     assertThrows(
       () =>
-        secure.route(defineRoute({
+        secure.route({
           method: "get",
           path: "/public",
           auth: false,
           handler: () => undefined,
-        })),
+        }),
       ConfigurationError,
       "Route 'GET /secure/public' cannot disable authentication inherited from its group.",
     );
     assertThrows(
       () =>
-        secure.route(defineRoute({
+        secure.route({
           method: "get",
           path: "/optional",
           auth: { required: false },
           handler: () => undefined,
-        })),
+        }),
       ConfigurationError,
       "Route 'GET /secure/optional' cannot make inherited required authentication optional.",
     );
@@ -2113,11 +2207,11 @@ Deno.test("singleton factories cannot resolve request-scoped services", async ()
   const app = createApp({ config });
   const requestScoped = app.requestService(() => ({ id: 1 }));
   const leaky = app.singletonService(async (services) => await services.get(requestScoped));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/leaky",
     handler: async ({ services, ok }) => ok(await services.get(leaky)),
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/leaky");
@@ -2133,11 +2227,11 @@ Deno.test("failed singleton factories are retried on the next resolution", async
     if (attempts === 1) throw new Error("first attempt fails");
     return { attempts };
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/flaky",
     handler: async ({ services, ok }) => ok(await services.get(flaky)),
-  }));
+  });
   await app.start();
 
   const failed = await app.request("http://test/flaky");
@@ -2156,12 +2250,12 @@ Deno.test("module.use rejects ports missing from requires", async () => {
       createApplication({
         config,
         providers: [providePort(port, { value: "x" })],
-        modules: [defineModule({
+        modules: [{
           name: "sneaky",
           setup(module) {
             module.use(port);
           },
-        })],
+        }],
       }),
     ConfigurationError,
     "Module 'sneaky' uses port 'undeclared.port' without declaring it in requires.",
@@ -2182,7 +2276,7 @@ Deno.test("createApplication rolls back providers and plugins when startup fails
           events.push("provider:close");
         },
       })],
-      plugins: [definePlugin({
+      plugins: [{
         name: "tracker",
         setup: () => {
           events.push("plugin:setup");
@@ -2190,8 +2284,8 @@ Deno.test("createApplication rolls back providers and plugins when startup fails
         onClose: () => {
           events.push("plugin:close");
         },
-      })],
-      modules: [defineModule({
+      }],
+      modules: [{
         name: "broken",
         setup: () => undefined,
         onStart: () => {
@@ -2200,7 +2294,7 @@ Deno.test("createApplication rolls back providers and plugins when startup fails
         onClose: () => {
           events.push("module:close");
         },
-      })],
+      }],
     })
   );
   assertStrictEquals(error, failure);
@@ -2297,12 +2391,12 @@ Deno.test("plugins receive only the platform API", async () => {
   const app = await createApplication({
     config,
     modules: [],
-    plugins: [definePlugin({
+    plugins: [{
       name: "inspect",
       setup: (value) => {
         platform = value;
       },
-    })],
+    }],
   });
   assert(typeof platform === "object" && platform !== null);
   assertEquals("route" in platform, false);
@@ -2316,23 +2410,23 @@ Deno.test("requests after close return 503 and never reuse closed singletons", a
   const log: string[] = [];
   const app = await createApplication({
     config,
-    modules: [defineModule({
+    modules: [{
       name: "db",
       setup(module) {
         const db = module.singleton(() => {
           log.push("create");
           return { close: () => void log.push("close") };
         });
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/db",
           handler: async ({ services }) => {
             await services.get(db);
             return new Response(null, { status: 204 });
           },
-        }));
+        });
       },
-    })],
+    }],
   });
   assertEquals((await app.request("http://test/db")).status, 204);
   await app.close();
@@ -2354,7 +2448,7 @@ Deno.test("request services outliving their request are closed and never created
     return { close: () => void log.push("request:close") };
   });
   const code = (error: unknown) => error instanceof AppError ? error.code : error;
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/slow",
     handler: async ({ services }) => {
@@ -2365,7 +2459,7 @@ Deno.test("request services outliving their request are closed and never created
       outcomes.resolve([inFlight, late]);
       return new Response(null, { status: 204 });
     },
-  }));
+  });
   await app.start();
 
   const response = await app.request("http://test/slow");
@@ -2384,12 +2478,12 @@ Deno.test("close drains in-flight requests before closing providers", async () =
     providers: [providePort(port, { query: () => "row" }, {
       close: () => void log.push("provider:close"),
     })],
-    modules: [defineModule({
+    modules: [{
       name: "work",
       requires: [port],
       setup(module) {
         const db = module.use(port);
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/work",
           handler: async () => {
@@ -2398,9 +2492,9 @@ Deno.test("close drains in-flight requests before closing providers", async () =
             log.push(`handler:use:${db.query()}`);
             return new Response(null, { status: 204 });
           },
-        }));
+        });
       },
-    })],
+    }],
   });
 
   const inflight = app.request("http://test/work");
@@ -2415,10 +2509,10 @@ Deno.test("close aborts requests that outlive shutdownTimeoutMs", async () => {
   let observed = false;
   const app = await createApplication({
     config: { ...config, shutdownTimeoutMs: 20 },
-    modules: [defineModule({
+    modules: [{
       name: "stuck",
       setup(module) {
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/stuck",
           handler: async ({ signal }) => {
@@ -2428,9 +2522,9 @@ Deno.test("close aborts requests that outlive shutdownTimeoutMs", async () => {
             observed = signal.aborted;
             return new Response(null, { status: 204 });
           },
-        }));
+        });
       },
-    })],
+    }],
   });
 
   const inflight = app.request("http://test/stuck");
@@ -2445,11 +2539,11 @@ Deno.test("close aborts requests that outlive shutdownTimeoutMs", async () => {
 Deno.test("requestTimeoutMs bounds global onRequest hooks", async () => {
   const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
   app.addHook("onRequest", () => sleep(150));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/hooked",
     handler: () => new Response(null, { status: 204 }),
-  }));
+  });
   await app.start();
 
   const started = Date.now();
@@ -2488,7 +2582,7 @@ Deno.test("a failing onResponse hook still lets outer hooks see the error respon
   app.addHook("onResponse", ({ response }) => {
     statuses.push(response?.status ?? 0);
   });
-  app.route(defineRoute({ method: "get", path: "/ok", handler: () => new Response("ok") }));
+  app.route({ method: "get", path: "/ok", handler: () => new Response("ok") });
   await app.start();
 
   const response = await app.request("http://test/ok");
@@ -2513,11 +2607,11 @@ Deno.test("timed-out group onResponse does not commit 200 or re-notify its failu
     group.addHook("onResponse", ({ response }) => {
       events.push(`group:outer:${response?.status}`);
     });
-    group.route(defineRoute({
+    group.route({
       method: "get",
       path: "/timeout",
       handler: () => new Response("ok"),
-    }));
+    });
   });
   app.addHook("onError", ({ error }) => {
     errors.push(error);
@@ -2544,11 +2638,11 @@ Deno.test("late onResponse completion cannot return a stale 200", async () => {
   app.addHook("onResponse", async () => {
     await sleep(120);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/late-response",
     handler: () => new Response("stale"),
-  }));
+  });
   await app.start();
 
   const response = await withinOneSecond(app.request("/late-response"));
@@ -2566,11 +2660,11 @@ Deno.test("upstream deadline bounds onResponse with a 504 problem", async () => 
   app.addHook("onResponse", ({ response }) => {
     observed.push(response!.status);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/upstream-response",
     handler: () => new Response("stale"),
-  }));
+  });
   await app.start();
 
   const response = await withinOneSecond(app.request("/upstream-response", {
@@ -2595,11 +2689,11 @@ Deno.test("app.close releases stalled onResponse with a forced 503", async () =>
   app.addHook("onError", ({ error }) => {
     errors.push(error);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/shutdown-response",
     handler: () => new Response("stale"),
-  }));
+  });
   await app.start();
 
   const pending = app.request("/shutdown-response");
@@ -2614,7 +2708,7 @@ Deno.test("app.close releases stalled onResponse with a forced 503", async () =>
 Deno.test("ctx.signal aborts when the client disconnects", async () => {
   const observed = Promise.withResolvers<boolean>();
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/watch",
     handler: async ({ signal }) => {
@@ -2624,7 +2718,7 @@ Deno.test("ctx.signal aborts when the client disconnects", async () => {
       observed.resolve(signal.aborted);
       return new Response(null, { status: 204 });
     },
-  }));
+  });
   await app.start();
 
   const client = new AbortController();
@@ -2694,7 +2788,7 @@ Deno.test("discarded responses cannot stall failure or leak headers", async () =
   app.addHook("onError", ({ error }) => {
     errors.push(error);
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/discard",
     handler: () =>
@@ -2702,8 +2796,8 @@ Deno.test("discarded responses cannot stall failure or leak headers", async () =
         status: 302,
         headers: { location: "/old" },
       }),
-  }));
-  app.route(defineRoute({
+  });
+  app.route({
     method: "get",
     path: "/contract",
     responses: { 200: Type.String() },
@@ -2711,7 +2805,7 @@ Deno.test("discarded responses cannot stall failure or leak headers", async () =
       new Response(new ReadableStream({ cancel: () => new Promise<void>(() => {}) }), {
         status: 302,
       }),
-  }));
+  });
   await app.start();
   for (const path of ["/discard", "/contract"]) {
     const response = await withinOneSecond(app.request(path));
@@ -2738,7 +2832,7 @@ Deno.test("nonconstructible Response.error is converted once without rerunning r
   app.addHook("onError", ({ error }) => {
     errors.push(error);
   });
-  app.route(defineRoute({ method: "get", path: "/error", handler: () => Response.error() }));
+  app.route({ method: "get", path: "/error", handler: () => Response.error() });
   await app.start();
   const response = await app.request("/error", { headers: { "x-request-id": "trace-1" } });
   assertEquals(response.status, 500);
@@ -2756,7 +2850,7 @@ Deno.test("schema body is independently readable by handler and error hook", asy
   app.addHook("onError", async ({ request }) => {
     errorBody = await request.clone().text();
   });
-  app.route(defineRoute({
+  app.route({
     method: "post",
     path: "/replay",
     request: { body: Type.Object({ n: Type.Number() }) },
@@ -2764,7 +2858,7 @@ Deno.test("schema body is independently readable by handler and error hook", asy
       handlerBody = await request.text();
       throw new Error("handler failed");
     },
-  }));
+  });
   await app.start();
   const response = await app.request("/replay", {
     method: "POST",
@@ -2780,14 +2874,14 @@ Deno.test("schema body is independently readable by handler and error hook", asy
 Deno.test("client disconnect is forwarded only while the request scope is active", async () => {
   let savedSignal: AbortSignal | undefined;
   const app = createApp({ config });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/signal",
     handler: ({ signal }) => {
       savedSignal = signal;
       return new Response("ok");
     },
-  }));
+  });
   await app.start();
   const client = new AbortController();
   const response = await app.request(new Request("http://test/signal", { signal: client.signal }));
@@ -2805,7 +2899,7 @@ Deno.test("lazy response stream owns its payload after request service cleanup",
       events.push("service:close");
     },
   }));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/stream",
     handler: async ({ services }) => {
@@ -2820,7 +2914,7 @@ Deno.test("lazy response stream owns its payload after request service cleanup",
         }, { highWaterMark: 0 }),
       );
     },
-  }));
+  });
   await app.start();
   const response = await app.request("/stream");
   assertEquals(events, ["service:close"]);
@@ -2846,7 +2940,7 @@ Deno.test("forced shutdown gives cooperative request cleanup precedence over pro
       log.push("request-service:close");
     },
   }));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/cooperative",
     handler: async ({ services, signal }) => {
@@ -2857,7 +2951,7 @@ Deno.test("forced shutdown gives cooperative request cleanup precedence over pro
       await aborted.promise;
       return new Response(null, { status: 204 });
     },
-  }));
+  });
   await app.start();
   const request = app.request("/cooperative");
   await started.promise;
@@ -2874,14 +2968,14 @@ Deno.test("uncooperative handler and closer cannot hold running app shutdown ind
       close: () => new Promise<void>(() => {}),
     })],
   });
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/uncooperative",
     handler: async () => {
       started.resolve();
       await new Promise<void>(() => {});
     },
-  }));
+  });
   await app.start();
   void app.request("/uncooperative");
   await started.promise;

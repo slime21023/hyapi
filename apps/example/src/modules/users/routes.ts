@@ -1,4 +1,4 @@
-import { defineRoute, type RouteGroupApi, type ServiceReference } from "@hyapi/core";
+import { type RouteGroupApi, type ServiceReference } from "@hyapi/core";
 import {
   CreateUserSchema,
   UpdateUserSchema,
@@ -16,7 +16,7 @@ export function registerUserRoutes(
   api.group("/v1/users", { tags: ["users"] }, (users) => {
     users.group({ auth: { scopes: ["users:read"] } }, (readers) => {
       readers.route(
-        defineRoute({
+        {
           method: "get",
           path: "",
           request: { query: UserListQuerySchema },
@@ -24,10 +24,10 @@ export function registerUserRoutes(
           metadata: { operationId: "listUsers", summary: "List users" },
           handler: async ({ query, ok, services }) =>
             ok((await services.get(service)).list(query.offset ?? 0, query.limit ?? 20)),
-        }),
+        },
       );
       readers.route(
-        defineRoute({
+        {
           method: "get",
           path: "/{id}",
           request: { params: UserIdParamsSchema },
@@ -35,13 +35,13 @@ export function registerUserRoutes(
           metadata: { operationId: "getUser", summary: "Get a user" },
           handler: async ({ params, ok, services }) =>
             ok((await services.get(service)).get(params.id)),
-        }),
+        },
       );
     });
 
     users.group({ auth: { scopes: ["users:write"] } }, (writers) => {
       writers.route(
-        defineRoute({
+        {
           method: "post",
           path: "",
           request: { body: CreateUserSchema },
@@ -49,10 +49,10 @@ export function registerUserRoutes(
           metadata: { operationId: "createUser", summary: "Create a user" },
           handler: async ({ body, created, services }) =>
             created((await services.get(service)).create(body)),
-        }),
+        },
       );
       writers.route(
-        defineRoute({
+        {
           method: "patch",
           path: "/{id}",
           request: { params: UserIdParamsSchema, body: UpdateUserSchema },
@@ -60,10 +60,10 @@ export function registerUserRoutes(
           metadata: { operationId: "updateUser", summary: "Update a user" },
           handler: async ({ params, body, ok, services }) =>
             ok((await services.get(service)).update(params.id, body)),
-        }),
+        },
       );
       writers.route(
-        defineRoute({
+        {
           method: "delete",
           path: "/{id}",
           request: { params: UserIdParamsSchema },
@@ -73,7 +73,7 @@ export function registerUserRoutes(
             (await services.get(service)).delete(params.id);
             return noContent();
           },
-        }),
+        },
       );
     });
   });

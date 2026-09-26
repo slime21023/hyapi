@@ -19,10 +19,34 @@ import { ConfigurationError } from "./errors.ts";
 export type HookPoint = "onRequest" | "onResponse" | "onError";
 export type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;
 
+export function isProtectedAuth(
+  auth: AuthRequirement | undefined,
+): auth is Exclude<AuthRequirement, false> {
+  return auth !== undefined && auth !== false;
+}
+
+export function resolveResponseSchemas(
+  route: AnyRouteDefinition,
+): Record<number, Schema | undefined> {
+  if (route.responses) return route.responses;
+  const defaultStatus = route.responseStatus ??
+    (route.method === "post" ? 201 : route.method === "delete" ? 204 : 200);
+  return { [defaultStatus]: undefined };
+}
+
 /** The application operations route groups and module contexts delegate to. */
 export interface RouteRegistrar {
   assertConfiguring(action: string): void;
-  route(route: AnyRouteDefinition, scope?: RouterGroup): void;
+  route<
+    TParams extends Schema | undefined = undefined,
+    TQuery extends Schema | undefined = undefined,
+    TBody extends Schema | undefined = undefined,
+    TResponse extends ResponseSchemas | undefined = undefined,
+    TBodyRequired extends boolean = true,
+  >(
+    route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>,
+    scope?: RouterGroup,
+  ): void;
   singletonService<T>(
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,

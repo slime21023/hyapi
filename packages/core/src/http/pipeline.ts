@@ -2,9 +2,7 @@ import type { Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type AuthProvider,
-  extractResponseSchemas,
   type Identity,
-  isProtectedAuth,
   type LifecycleContext,
   type LifecycleHook,
   type RequestContext,
@@ -16,12 +14,17 @@ import {
   ConfigurationError,
   ForbiddenError,
   ResponseContractError,
-  toProblemDetails,
   UnauthorizedError,
   ValidationError,
 } from "../errors.ts";
 import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
-import type { HookPoint, RouteHooks } from "../routing.ts";
+import { toProblemDetails } from "./problem.ts";
+import {
+  type HookPoint,
+  isProtectedAuth,
+  resolveResponseSchemas,
+  type RouteHooks,
+} from "../routing.ts";
 import type { RequestServices, ServiceContainer } from "../runtime/services.ts";
 import { Scope } from "../runtime/scope.ts";
 import { sleep } from "../runtime/timers.ts";
@@ -562,7 +565,7 @@ export class RequestPipeline {
     }
     if (result instanceof Response) return result;
 
-    const responseSchemas = extractResponseSchemas(route);
+    const responseSchemas = resolveResponseSchemas(route);
     const hasResponseContract = declaredResponses !== undefined;
     if (status === 204 && body !== undefined) {
       throw new ResponseContractError("A 204 response must not include a response body.", {

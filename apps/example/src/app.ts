@@ -1,10 +1,4 @@
-import {
-  type AppConfig,
-  createApplication,
-  definePlugin,
-  type HyApplication,
-  jwtPlugin,
-} from "@hyapi/core";
+import { type AppConfig, createApplication, type HyApplication, jwtPlugin } from "@hyapi/core";
 import { createHealthModule } from "./modules/health/module.ts";
 import { ordersModule } from "./modules/orders/module.ts";
 import { createUsersModule } from "./modules/users/module.ts";
@@ -33,7 +27,7 @@ export async function buildExampleApp(
   ];
 
   if (options.enableRequestLogging !== false) {
-    plugins.push(definePlugin({
+    plugins.push({
       name: "request-logging",
       setup(platform) {
         platform.addHook("onRequest", ({ state }) => {
@@ -53,7 +47,7 @@ export async function buildExampleApp(
           }));
         });
       },
-    }));
+    });
   }
 
   application = await createApplication({

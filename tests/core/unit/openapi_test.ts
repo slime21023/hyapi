@@ -9,8 +9,9 @@ Deno.test("OpenAPI - builds standard OpenAPI 3.1 document with ProblemDetails co
   const routes: AnyRouteDefinition[] = [];
 
   const doc = buildOpenApiDocument(routes, validator, {
-    info: { title: "Test API", version: "1.2.3", description: "API Desc" },
-    path: "/openapi.json",
+    title: "Test API",
+    version: "1.2.3",
+    description: "API Desc",
   }) as any;
 
   assertEquals(doc.openapi, "3.1.0");
@@ -51,8 +52,8 @@ Deno.test("OpenAPI - maps query, params, headers, and body with auto-injected 40
   ];
 
   const doc = buildOpenApiDocument(routes, validator, {
-    info: { title: "Test", version: "1.0.0" },
-    path: "/openapi.json",
+    title: "Test",
+    version: "1.0.0",
   }) as any;
 
   const paths = doc.paths as Record<string, Record<string, any>>;
@@ -116,8 +117,8 @@ Deno.test("OpenAPI - maps security scopes and optional auth with 401/403 respons
   ];
 
   const doc = buildOpenApiDocument(routes, validator, {
-    info: { title: "Test", version: "1.0.0" },
-    path: "/openapi.json",
+    title: "Test",
+    version: "1.0.0",
   }) as any;
 
   const paths = doc.paths as Record<string, Record<string, any>>;
@@ -168,8 +169,8 @@ Deno.test("OpenAPI - documents 413 and 415 problems for routes with request bodi
   ];
 
   const doc = buildOpenApiDocument(routes, validator, {
-    info: { title: "Test", version: "1.0.0" },
-    path: "/openapi.json",
+    title: "Test",
+    version: "1.0.0",
   }) as {
     paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;
   };
@@ -198,8 +199,8 @@ Deno.test("OpenAPI does not invent a problem-only body for an untyped failure fa
     }],
     new SchemaValidator(),
     {
-      info: { title: "Test", version: "1.0.0" },
-      path: "/openapi.json",
+      title: "Test",
+      version: "1.0.0",
     },
   ) as {
     paths: Record<string, Record<string, { responses: Record<string, unknown> }>>;

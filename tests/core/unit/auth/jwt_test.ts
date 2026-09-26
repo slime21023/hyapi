@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { ConfigurationError, UnauthorizedError } from "@hyapi/core";
 import { createApplication, JwtAuthProvider, jwtPlugin } from "@hyapi/core";
-import { type AppConfig, defineModule, defineRoute } from "@hyapi/core";
+import { type AppConfig } from "@hyapi/core";
 
 const VALID_SECRET = "this-is-a-very-secure-secret-key-32-chars";
 const SHORT_SECRET = "short-secret";
@@ -344,22 +344,26 @@ Deno.test("jwtPlugin - registers an auth provider through the platform API", asy
     version: "1.0.0",
     environment: "test",
     requestIdHeader: "x-request-id",
-    openapi: { title: "Test", version: "1.0.0", path: "/openapi.json" },
+    openapi: {
+      enabled: true,
+      defaultDocument: "default",
+      documents: [{ id: "default", title: "Test", version: "1.0.0", path: "/openapi.json" }],
+    },
   };
   const app = await createApplication({
     config,
     plugins: [jwtPlugin({ secret: VALID_SECRET })],
-    modules: [defineModule({
+    modules: [{
       name: "private",
       setup(module) {
-        module.route(defineRoute({
+        module.route({
           method: "get",
           path: "/private",
           auth: {},
           handler: ({ ok }) => ok({ ok: true }),
-        }));
+        });
       },
-    })],
+    }],
   });
 
   const response = await app.request("http://test/private");

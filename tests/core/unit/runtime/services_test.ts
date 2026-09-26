@@ -1,15 +1,15 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { createApp } from "../../../../packages/core/src/app.ts";
 import { AppError } from "@hyapi/core";
-import { defineConfig, defineRoute, provideValue } from "@hyapi/core";
+import { defineConfig } from "@hyapi/core";
 import type { ServiceResolver } from "../../../../packages/core/src/types.ts";
 
 Deno.test("named overrides obey request and application service lifetimes", async () => {
   const app = createApp({
     config: defineConfig({ name: "override-lifetime", openapi: { enabled: false } }),
     overrides: [
-      provideValue("request-dependency", { id: "request" }),
-      provideValue("singleton-dependency", { id: "singleton" }),
+      { name: "request-dependency", value: { id: "request" } },
+      { name: "singleton-dependency", value: { id: "singleton" } },
     ],
   });
   const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
@@ -19,7 +19,7 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
   );
   let resolver: ServiceResolver | undefined;
   let active: string[] = [];
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/capture",
     handler: async ({ services }) => {
@@ -27,7 +27,7 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
       active = [(await services.get(request)).id, (await services.get(singleton)).id];
       return new Response(null, { status: 204 });
     },
-  }));
+  });
   await app.start();
   assertEquals((await app.request("/capture")).status, 204);
   assertEquals(active, ["request", "singleton"]);
@@ -42,15 +42,15 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
 Deno.test("singleton factories cannot resolve overridden request services", async () => {
   const app = createApp({
     config: defineConfig({ name: "override-scope", openapi: { enabled: false } }),
-    overrides: [provideValue("request-dependency", { id: "request" })],
+    overrides: [{ name: "request-dependency", value: { id: "request" } }],
   });
   const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
   const singleton = app.singletonService(async (services) => await services.get(request));
-  app.route(defineRoute({
+  app.route({
     method: "get",
     path: "/scope",
     handler: async ({ services, ok }) => ok(await services.get(singleton)),
-  }));
+  });
   await app.start();
   const response = await app.request("/scope");
   assertEquals(response.status, 500);

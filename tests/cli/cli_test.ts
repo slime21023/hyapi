@@ -125,7 +125,7 @@ Deno.test("doctor flags direct module imports and unresolved declared ports", ()
       module: "orders",
       path: "src/modules/orders/orders.module.ts",
       text:
-        'import { userDirectory } from "../users/users.port.ts";\nexport const orders = defineModule({ requires: [userDirectory] });',
+        'import { userDirectory } from "../users/users.port.ts";\nexport const orders = { requires: [userDirectory] };',
     },
   ]);
 
@@ -182,7 +182,7 @@ Deno.test("doctor resolves same-named ports within each module", () => {
       module: "orders",
       path: "src/modules/orders/orders.module.ts",
       text: 'import { port } from "./orders.port.ts";\n' +
-        "export const orders = defineModule({ requires: [port] });",
+        "export const orders = { requires: [port] };",
     },
     {
       module: "billing",
@@ -220,7 +220,7 @@ Deno.test("doctor resolves imported shared ports before same-named module ports"
       module: "orders",
       path: "src/modules/orders/orders.module.ts",
       text: 'import { port } from "../../contracts/shared.ts";\n' +
-        "export const orders = defineModule({ requires: [port] });",
+        "export const orders = { requires: [port] };",
     },
   ];
   const shared = [{
@@ -246,7 +246,7 @@ Deno.test("doctor resolves imported shared ports before same-named module ports"
     {
       ...sources[1]!,
       text: 'import { port as remotePort } from "../../contracts/shared.ts";\n' +
-        "export const orders = defineModule({ requires: [remotePort] });",
+        "export const orders = { requires: [remotePort] };",
     },
   ], shared);
   assertEquals(alias.requiredPorts.map(({ port }) => port), ["shared.remote"]);
@@ -256,7 +256,7 @@ Deno.test("doctor resolves imported shared ports before same-named module ports"
     {
       ...sources[1]!,
       text: 'import { port } from "../../contracts/missing.ts";\n' +
-        "export const orders = defineModule({ requires: [port] });",
+        "export const orders = { requires: [port] };",
     },
   ], shared);
   assertEquals(missing.requiredPorts, []);
@@ -271,7 +271,7 @@ Deno.test("boundary inspection marks heuristic analysis and unresolved reference
   const boundaries = inspectModuleBoundaries([{
     module: "orders",
     path: "src/modules/orders/orders.module.ts",
-    text: "export const orders = defineModule({ requires: [unknownPort] });",
+    text: "export const orders = { requires: [unknownPort] };",
   }]);
   assertEquals(boundaries.analysisMode, "heuristic");
   assertEquals(boundaries.unresolvedReferences, [{
@@ -381,8 +381,8 @@ Deno.test("boundary inspection resolves ports declared in shared contracts", () 
       path: "src/modules/orders/orders.module.ts",
       text: [
         'import { userDirectoryPort } from "../../contracts/user-directory.ts";',
-        "// defineModule({ requires: [ghostPort] });",
-        "export const orders = defineModule({ requires: [userDirectoryPort] });",
+        "// requires: [ghostPort] is intentionally ignored by the module source.",
+        "export const orders = { requires: [userDirectoryPort] };",
       ].join("\n"),
     }],
     [
