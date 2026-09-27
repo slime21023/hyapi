@@ -86,10 +86,10 @@ Generated `dev` and `start` tasks grant `--allow-net` and `--allow-env`.
 
 ## Quick start
 
-Set a local JWT secret with at least 32 bytes:
+Generate a cryptographically random JWT secret. It is an HS256 key, not a password:
 
 ```powershell
-$env:JWT_SECRET = "local-secret-with-at-least-32-characters"
+$env:JWT_SECRET = deno eval 'const bytes = crypto.getRandomValues(new Uint8Array(32)); console.log([...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join(""))'
 deno task dev
 ```
 
@@ -466,10 +466,11 @@ POST   /v1/orders      orders:write
 
 OpenAPI 3.1 documentation is available at `GET /openapi.json`.
 
-The framework verifies HS256 JWTs with Web Crypto. It requires a secret of at least 32 bytes and
-validates `sub`, `exp`, `nbf`, optional `iss`/`aud`, clock skew tolerances, and scopes from either a
-space-separated `scope` claim or a string-array `scopes` claim. Tokens with a `crit` header are
-rejected. See [SECURITY.md](SECURITY.md) for the full security baseline.
+The framework verifies HS256 JWTs with Web Crypto. It requires a cryptographically random secret of
+at least 32 bytes and validates `sub`, finite `exp`/`nbf`, optional `iss`/`aud`, clock skew
+tolerances, and scopes from either a space-separated `scope` claim or a string-array `scopes` claim.
+Tokens with a `crit` header are rejected, and every invalid token receives the same 401 response.
+See [SECURITY.md](SECURITY.md) for the full security baseline.
 
 ## Development commands
 

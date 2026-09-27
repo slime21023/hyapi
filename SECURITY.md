@@ -21,10 +21,10 @@ and disclosure date with the reporter.
 
 HyAPI applies the following controls by default:
 
-- **JWT (`jwtPlugin`):** only HS256 tokens are accepted. The secret must contain at least 32 bytes
-  (measured as UTF-8). `exp` is required, and `nbf`, `iss`, and `aud` are verified when present or
-  configured, within the configured `clockSkewSeconds`. Tokens with a `crit` header parameter are
-  rejected. Malformed tokens fail with 401, never 500.
+- **JWT (`jwtPlugin`):** only HS256 tokens are accepted. The secret must be cryptographically random
+  and contain at least 32 bytes (measured as UTF-8). `exp` is required, and `nbf`, `iss`, and `aud`
+  are verified when present or configured, within the configured `clockSkewSeconds`. Compact
+  encoding is strict Base64URL/UTF-8, and all invalid tokens receive the same 401 response.
 - **Request body limit:** bodies are limited to 10 MiB by default. Configure the limit with
   `bodyLimitBytes`; oversized bodies are rejected with 413 `PAYLOAD_TOO_LARGE`. The limit is
   enforced on the streamed bytes, not only on `Content-Length`.

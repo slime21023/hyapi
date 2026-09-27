@@ -25,14 +25,14 @@ scope is active; deadline and shutdown aborts remain independently owned by HyAP
 
 The example app reads the following variables (see [`.env.example`](../.env.example)):
 
-| Variable       | Required | Purpose                                          |
-| -------------- | -------- | ------------------------------------------------ |
-| `JWT_SECRET`   | Yes      | HS256 signing secret; at least 32 bytes          |
-| `DENO_ENV`     | No       | `development` (default), `test`, or `production` |
-| `HOST`         | No       | Listener host; defaults to `127.0.0.1`           |
-| `PORT`         | No       | Listener port; defaults to `8000`                |
-| `JWT_ISSUER`   | No       | Expected `iss` claim                             |
-| `JWT_AUDIENCE` | No       | Expected `aud` claim                             |
+| Variable       | Required | Purpose                                                  |
+| -------------- | -------- | -------------------------------------------------------- |
+| `JWT_SECRET`   | Yes      | Cryptographically random HS256 secret; at least 32 bytes |
+| `DENO_ENV`     | No       | `development` (default), `test`, or `production`         |
+| `HOST`         | No       | Listener host; defaults to `127.0.0.1`                   |
+| `PORT`         | No       | Listener port; defaults to `8000`                        |
+| `JWT_ISSUER`   | No       | Expected `iss` claim                                     |
+| `JWT_AUDIENCE` | No       | Expected `aud` claim                                     |
 
 `DENO_ENV` becomes `AppConfig.environment`. Use `production` in deployed environments.
 

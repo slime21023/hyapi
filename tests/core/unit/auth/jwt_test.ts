@@ -5,20 +5,17 @@ import { type AppConfig } from "@hyapi/core";
 
 const VALID_SECRET = "this-is-a-very-secure-secret-key-32-chars";
 const SHORT_SECRET = "short-secret";
+const AUTHENTICATION_REQUIRED = "Authentication is required.";
 
-async function createTestToken(
-  header: Record<string, unknown>,
-  payload: Record<string, unknown>,
+function encodeBase64Url(value: string): string {
+  return btoa(value).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+}
+
+async function signTestToken(
+  headerPart: string,
+  payloadPart: string,
   secret: string = VALID_SECRET,
 ): Promise<string> {
-  const encode = (obj: Record<string, unknown>) =>
-    btoa(JSON.stringify(obj))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replaceAll("=", "");
-
-  const headerPart = encode(header);
-  const payloadPart = encode(payload);
   const data = `${headerPart}.${payloadPart}`;
 
   const key = await crypto.subtle.importKey(
@@ -36,6 +33,26 @@ async function createTestToken(
     .replaceAll("=", "");
 
   return `${data}.${signaturePart}`;
+}
+
+function createTestToken(
+  header: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  secret: string = VALID_SECRET,
+): Promise<string> {
+  return signTestToken(
+    encodeBase64Url(JSON.stringify(header)),
+    encodeBase64Url(JSON.stringify(payload)),
+    secret,
+  );
+}
+
+function createRawTestToken(
+  header: Record<string, unknown>,
+  payload: string,
+  secret: string = VALID_SECRET,
+): Promise<string> {
+  return signTestToken(encodeBase64Url(JSON.stringify(header)), encodeBase64Url(payload), secret);
 }
 
 Deno.test("JwtAuthProvider - rejects secrets shorter than 32 bytes", async () => {
@@ -100,7 +117,7 @@ Deno.test("JwtAuthProvider - rejects tokens whose header or claims are not JSON 
           new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
         ),
       UnauthorizedError,
-      "The bearer token is malformed.",
+      AUTHENTICATION_REQUIRED,
     );
   }
 });
@@ -118,7 +135,7 @@ Deno.test("JwtAuthProvider - rejects critical header parameters", async () => {
         new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
       ),
     UnauthorizedError,
-    "The bearer token uses unsupported critical header parameters.",
+    AUTHENTICATION_REQUIRED,
   );
 });
 
@@ -136,7 +153,7 @@ Deno.test("JwtAuthProvider - rejects tokens with algorithms other than HS256", a
   await assertRejects(
     () => provider.authenticate(noneReq),
     UnauthorizedError,
-    "Only HS256 tokens are accepted.",
+    AUTHENTICATION_REQUIRED,
   );
 
   const rsToken = await createTestToken(
@@ -149,7 +166,7 @@ Deno.test("JwtAuthProvider - rejects tokens with algorithms other than HS256", a
   await assertRejects(
     () => provider.authenticate(rsReq),
     UnauthorizedError,
-    "Only HS256 tokens are accepted.",
+    AUTHENTICATION_REQUIRED,
   );
 });
 
@@ -168,7 +185,7 @@ Deno.test("JwtAuthProvider - rejects tokens with invalid signature", async () =>
   await assertRejects(
     () => provider.authenticate(req),
     UnauthorizedError,
-    "The bearer token signature is invalid.",
+    AUTHENTICATION_REQUIRED,
   );
 });
 
@@ -190,7 +207,7 @@ Deno.test("JwtAuthProvider - validates exp expiration and clock skew", async () 
   await assertRejects(
     () => provider.authenticate(expiredReq),
     UnauthorizedError,
-    "The bearer token has expired or has no expiration.",
+    AUTHENTICATION_REQUIRED,
   );
 
   // Expired 2 seconds ago (within 5s skew)
@@ -218,8 +235,29 @@ Deno.test("JwtAuthProvider - rejects tokens exactly at the skewed expiration bou
         new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
       ),
     UnauthorizedError,
-    "The bearer token has expired or has no expiration.",
+    AUTHENTICATION_REQUIRED,
   );
+});
+
+Deno.test("JwtAuthProvider - rejects non-finite NumericDate claims", async () => {
+  const provider = await JwtAuthProvider.create({ secret: VALID_SECRET });
+  const now = Math.floor(Date.now() / 1000);
+  for (
+    const payload of [
+      '{"sub":"user-1","exp":1e999}',
+      `{"sub":"user-1","exp":${now + 3600},"nbf":-1e999}`,
+    ]
+  ) {
+    const token = await createRawTestToken({ alg: "HS256" }, payload);
+    await assertRejects(
+      () =>
+        provider.authenticate(
+          new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
+        ),
+      UnauthorizedError,
+      AUTHENTICATION_REQUIRED,
+    );
+  }
 });
 
 Deno.test("JwtAuthProvider - rejects non-numeric nbf claims", async () => {
@@ -235,7 +273,24 @@ Deno.test("JwtAuthProvider - rejects non-numeric nbf claims", async () => {
         new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
       ),
     UnauthorizedError,
-    "The bearer token is malformed.",
+    AUTHENTICATION_REQUIRED,
+  );
+});
+
+Deno.test("JwtAuthProvider - rejects padded compact JWT parts", async () => {
+  const provider = await JwtAuthProvider.create({ secret: VALID_SECRET });
+  const now = Math.floor(Date.now() / 1000);
+  const header = `${encodeBase64Url(JSON.stringify({ alg: "HS256", x: "a" }))}==`;
+  const claims = encodeBase64Url(JSON.stringify({ sub: "user-1", exp: now + 3600 }));
+  const token = await signTestToken(header, claims);
+
+  await assertRejects(
+    () =>
+      provider.authenticate(
+        new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
+      ),
+    UnauthorizedError,
+    AUTHENTICATION_REQUIRED,
   );
 });
 
@@ -257,7 +312,7 @@ Deno.test("JwtAuthProvider - validates nbf not-before claim", async () => {
   await assertRejects(
     () => provider.authenticate(futureReq),
     UnauthorizedError,
-    "The bearer token is not active yet.",
+    AUTHENTICATION_REQUIRED,
   );
 });
 
@@ -280,7 +335,7 @@ Deno.test("JwtAuthProvider - validates issuer and audience", async () => {
         new Request("http://test/", { headers: { authorization: `Bearer ${badIssToken}` } }),
       ),
     UnauthorizedError,
-    "The bearer token issuer is invalid.",
+    AUTHENTICATION_REQUIRED,
   );
 
   // Wrong audience
@@ -294,7 +349,7 @@ Deno.test("JwtAuthProvider - validates issuer and audience", async () => {
         new Request("http://test/", { headers: { authorization: `Bearer ${badAudToken}` } }),
       ),
     UnauthorizedError,
-    "The bearer token audience is invalid.",
+    AUTHENTICATION_REQUIRED,
   );
 
   // Valid with array audience
@@ -311,6 +366,27 @@ Deno.test("JwtAuthProvider - validates issuer and audience", async () => {
     new Request("http://test/", { headers: { authorization: `Bearer ${arrayAudToken}` } }),
   );
   assertEquals(identity?.subject, "user-1");
+});
+
+Deno.test("JwtAuthProvider - rejects audience arrays with non-string values", async () => {
+  const provider = await JwtAuthProvider.create({
+    secret: VALID_SECRET,
+    audience: "api.example.com",
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const token = await createTestToken(
+    { alg: "HS256", typ: "JWT" },
+    { sub: "user-1", exp: now + 3600, aud: ["api.example.com", 42] },
+  );
+
+  await assertRejects(
+    () =>
+      provider.authenticate(
+        new Request("http://test/", { headers: { authorization: `Bearer ${token}` } }),
+      ),
+    UnauthorizedError,
+    AUTHENTICATION_REQUIRED,
+  );
 });
 
 Deno.test("JwtAuthProvider - extracts scopes from string and array claims", async () => {
@@ -368,4 +444,10 @@ Deno.test("jwtPlugin - registers an auth provider through the platform API", asy
 
   const response = await app.request("http://test/private");
   assertEquals(response.status, 401);
+
+  const malformedResponse = await app.request("http://test/private", {
+    headers: { authorization: "Bearer not-a-jwt" },
+  });
+  assertEquals(malformedResponse.status, 401);
+  assertEquals((await malformedResponse.json()).detail, AUTHENTICATION_REQUIRED);
 });

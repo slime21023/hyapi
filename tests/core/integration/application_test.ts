@@ -682,7 +682,7 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
     authenticate: (req: Request): Identity | null => {
       const auth = req.headers.get("authorization");
       if (auth === "Bearer valid-token") {
-        return { subject: "user-1", scopes: ["users:read", "users:write"], claims: {} };
+        return { subject: "user-1", scopes: ["users:read", "users:write"] };
       }
       return null;
     },
@@ -1258,7 +1258,7 @@ Deno.test("app - supports optional authentication", async () => {
     authenticate: (req: Request): Identity | null => {
       const auth = req.headers.get("authorization");
       if (auth === "Bearer valid-token") {
-        return { subject: "user-opt", scopes: ["read"], claims: {} };
+        return { subject: "user-opt", scopes: ["read"] };
       }
       return null;
     },
@@ -2150,7 +2150,7 @@ Deno.test("group and route scopes merge as a union", async () => {
       const scopes = request.headers.get("x-scopes");
       return scopes === null
         ? null
-        : { subject: "user", scopes: scopes.split(",").filter(Boolean), claims: {} };
+        : { subject: "user", scopes: scopes.split(",").filter(Boolean) };
     },
   });
   app.group("/users", { auth: { scopes: ["users:read"] } }, (users) => {

@@ -1,6 +1,9 @@
 import { type AuthProvider, type Identity, type Plugin } from "./types.ts";
 import { ConfigurationError, UnauthorizedError } from "./errors.ts";
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder("utf-8", { fatal: true });
+
 export interface JwtOptions {
   readonly secret: string;
   readonly issuer?: string;
@@ -8,21 +11,11 @@ export interface JwtOptions {
   readonly clockSkewSeconds?: number;
 }
 
-interface JwtHeader {
-  alg?: unknown;
-  typ?: unknown;
-  crit?: unknown;
-}
-
-interface JwtClaims {
-  sub?: unknown;
-  exp?: unknown;
-  nbf?: unknown;
-  iss?: unknown;
-  aud?: unknown;
-  scope?: unknown;
-  scopes?: unknown;
-  [key: string]: unknown;
+interface ParsedJwt {
+  readonly header: Record<string, unknown>;
+  readonly claims: Record<string, unknown>;
+  readonly signature: Uint8Array;
+  readonly signingInput: Uint8Array;
 }
 
 export class JwtAuthProvider implements AuthProvider {
@@ -32,7 +25,8 @@ export class JwtAuthProvider implements AuthProvider {
   ) {}
 
   static async create(options: JwtOptions): Promise<JwtAuthProvider> {
-    if (new TextEncoder().encode(options.secret).length < 32) {
+    const secret = textEncoder.encode(options.secret);
+    if (secret.length < 32) {
       throw new ConfigurationError("JWT secret must contain at least 32 bytes.");
     }
     if (
@@ -43,7 +37,7 @@ export class JwtAuthProvider implements AuthProvider {
     }
     const key = await crypto.subtle.importKey(
       "raw",
-      new TextEncoder().encode(options.secret),
+      secret,
       { name: "HMAC", hash: "SHA-256" },
       false,
       ["verify"],
@@ -52,75 +46,13 @@ export class JwtAuthProvider implements AuthProvider {
   }
 
   async authenticate(request: Request): Promise<Identity | null> {
-    const header = request.headers.get("authorization");
-    if (!header) return null;
-    const match = /^Bearer\s+(.+)$/i.exec(header);
-    if (!match?.[1]) throw new UnauthorizedError("A bearer token is required.");
+    const token = readBearerToken(request.headers.get("authorization"));
+    if (token === null) return null;
 
-    const token = match[1];
-    const parts = token.split(".");
-    if (parts.length !== 3) throw new UnauthorizedError("The bearer token is malformed.");
-    const [encodedHeader, encodedClaims, encodedSignature] = parts;
-    if (!encodedHeader || !encodedClaims || !encodedSignature) {
-      throw new UnauthorizedError("The bearer token is malformed.");
-    }
-
-    let headerValue: unknown;
-    let claimsValue: unknown;
-    let signatureBytes: Uint8Array;
-    try {
-      headerValue = JSON.parse(decodeBase64Url(encodedHeader));
-      claimsValue = JSON.parse(decodeBase64Url(encodedClaims));
-      signatureBytes = decodeBytes(encodedSignature);
-    } catch {
-      throw new UnauthorizedError("The bearer token is malformed.");
-    }
-    if (!isPlainObject(headerValue) || !isPlainObject(claimsValue)) {
-      throw new UnauthorizedError("The bearer token is malformed.");
-    }
-    const jwtHeader: JwtHeader = headerValue;
-    const claims: JwtClaims = claimsValue;
-    if (jwtHeader.alg !== "HS256") throw new UnauthorizedError("Only HS256 tokens are accepted.");
-    if (jwtHeader.crit !== undefined) {
-      throw new UnauthorizedError("The bearer token uses unsupported critical header parameters.");
-    }
-
-    const valid = await crypto.subtle.verify(
-      "HMAC",
-      this.key,
-      signatureBytes as unknown as BufferSource,
-      new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`),
-    );
-    if (!valid) throw new UnauthorizedError("The bearer token signature is invalid.");
-
-    const now = Math.floor(Date.now() / 1000);
-    const skew = this.options.clockSkewSeconds ?? 5;
-    if (typeof claims.exp !== "number" || now >= claims.exp + skew) {
-      throw new UnauthorizedError("The bearer token has expired or has no expiration.");
-    }
-    if (claims.nbf !== undefined && typeof claims.nbf !== "number") {
-      throw new UnauthorizedError("The bearer token is malformed.");
-    }
-    if (typeof claims.nbf === "number" && claims.nbf > now + skew) {
-      throw new UnauthorizedError("The bearer token is not active yet.");
-    }
-    if (this.options.issuer !== undefined && claims.iss !== this.options.issuer) {
-      throw new UnauthorizedError("The bearer token issuer is invalid.");
-    }
-    if (
-      this.options.audience !== undefined && !audienceIncludes(claims.aud, this.options.audience)
-    ) {
-      throw new UnauthorizedError("The bearer token audience is invalid.");
-    }
-    if (typeof claims.sub !== "string" || claims.sub.length === 0) {
-      throw new UnauthorizedError("The bearer token has no subject.");
-    }
-
-    return {
-      subject: claims.sub,
-      scopes: scopesFromClaims(claims),
-      claims,
-    };
+    const jwt = parseJwt(token);
+    validateHeader(jwt.header);
+    await verifySignature(jwt, this.key);
+    return identityFromClaims(jwt.claims, this.options);
   }
 }
 
@@ -134,16 +66,79 @@ export function jwtPlugin(options: JwtOptions): Plugin {
   };
 }
 
+function readBearerToken(header: string | null): string | null {
+  if (header === null) return null;
+  const match = /^Bearer +(\S+)$/i.exec(header);
+  if (!match?.[1]) throw new UnauthorizedError();
+  return match[1];
+}
+
+function parseJwt(token: string): ParsedJwt {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new UnauthorizedError();
+  const [encodedHeader, encodedClaims, encodedSignature] = parts;
+  if (!encodedHeader || !encodedClaims || !encodedSignature) throw new UnauthorizedError();
+
+  try {
+    return {
+      header: decodeJsonObject(encodedHeader),
+      claims: decodeJsonObject(encodedClaims),
+      signature: decodeBase64Url(encodedSignature),
+      signingInput: textEncoder.encode(`${encodedHeader}.${encodedClaims}`),
+    };
+  } catch {
+    throw new UnauthorizedError();
+  }
+}
+
+function validateHeader(header: Record<string, unknown>): void {
+  if (header.alg !== "HS256" || header.crit !== undefined) throw new UnauthorizedError();
+}
+
+async function verifySignature(jwt: ParsedJwt, key: CryptoKey): Promise<void> {
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    jwt.signature as unknown as BufferSource,
+    jwt.signingInput as unknown as BufferSource,
+  );
+  if (!valid) throw new UnauthorizedError();
+}
+
+function identityFromClaims(claims: Record<string, unknown>, options: JwtOptions): Identity {
+  const now = Math.floor(Date.now() / 1000);
+  const skew = options.clockSkewSeconds ?? 5;
+  const exp = claims.exp;
+  const nbf = claims.nbf;
+  const subject = claims.sub;
+
+  if (!isNumericDate(exp) || now >= exp + skew) throw new UnauthorizedError();
+  if (nbf !== undefined && (!isNumericDate(nbf) || nbf > now + skew)) {
+    throw new UnauthorizedError();
+  }
+  if (options.issuer !== undefined && claims.iss !== options.issuer) throw new UnauthorizedError();
+  if (options.audience !== undefined && !audienceIncludes(claims.aud, options.audience)) {
+    throw new UnauthorizedError();
+  }
+  if (typeof subject !== "string" || subject.length === 0) throw new UnauthorizedError();
+
+  return { subject, scopes: scopesFromClaims(claims) };
+}
+
 function audienceIncludes(audience: unknown, expected: string): boolean {
   if (typeof audience === "string") return audience === expected;
-  return Array.isArray(audience) && audience.includes(expected);
+  return (
+    Array.isArray(audience) &&
+    audience.every((value): value is string => typeof value === "string") &&
+    audience.includes(expected)
+  );
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function isNumericDate(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
-function scopesFromClaims(claims: JwtClaims): readonly string[] {
+function scopesFromClaims(claims: Record<string, unknown>): readonly string[] {
   if (typeof claims.scope === "string") return claims.scope.split(/\s+/).filter(Boolean);
   if (Array.isArray(claims.scopes) && claims.scopes.every((value) => typeof value === "string")) {
     return claims.scopes as string[];
@@ -151,11 +146,20 @@ function scopesFromClaims(claims: JwtClaims): readonly string[] {
   return [];
 }
 
-function decodeBase64Url(value: string): string {
-  return new TextDecoder().decode(decodeBytes(value));
+function decodeJsonObject(value: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(textDecoder.decode(decodeBase64Url(value)));
+  if (!isRecord(parsed)) {
+    throw new TypeError("JWT values must be JSON objects.");
+  }
+  return parsed;
 }
 
-function decodeBytes(value: string): Uint8Array {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function decodeBase64Url(value: string): Uint8Array {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new TypeError("JWT values must be base64url.");
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(
     Math.ceil(value.length / 4) * 4,
     "=",

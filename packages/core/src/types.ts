@@ -41,7 +41,6 @@ export type AuthRequirement = false | {
 export interface Identity {
   subject: string;
   scopes: readonly string[];
-  claims: Readonly<Record<string, unknown>>;
 }
 
 export interface AuthProvider {
