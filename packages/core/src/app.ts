@@ -403,7 +403,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
 
   async start(): Promise<void> {
     if (this.state === "running") return;
-    if (this.starting) return await this.starting;
+    if (this.state === "starting") return await this.starting!;
     if (this.state !== "configuring") {
       throw new ConfigurationError("The application cannot be initialized in its current state.");
     }
@@ -542,7 +542,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
    * aborts whatever remains, then releases the application scope.
    */
   private async shutdown(): Promise<void> {
-    if (this.starting) await this.starting.catch(() => undefined);
+    if (this.state === "starting") await this.starting!.catch(() => undefined);
     if (this.state === "failed" || this.state === "closed") return;
     if (this.state === "running") {
       this.state = "draining";

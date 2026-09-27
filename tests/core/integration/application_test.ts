@@ -134,6 +134,21 @@ Deno.test("defineConfig provides ergonomic application defaults", () => {
   });
 });
 
+Deno.test("createApplication rejects invalid request ID headers before startup", async () => {
+  let setupRan = false;
+  await assertRejects(
+    () =>
+      createApplication({
+        config: { name: "invalid-header", requestIdHeader: "bad header" },
+        modules: [],
+        plugins: [{ name: "should-not-start", setup: () => void (setupRan = true) }],
+      }),
+    ConfigurationError,
+    "requestIdHeader must be a valid HTTP header name.",
+  );
+  assertEquals(setupRan, false);
+});
+
 Deno.test("multiple OpenAPI documents select routes by document ids", async () => {
   const multiConfig = defineConfig({
     name: "multi-document",
@@ -642,21 +657,76 @@ Deno.test("plugins sort topologically, execute onStart and onClose in reverse", 
   ]);
 });
 
-Deno.test("app - serializes concurrent ready calls and rejects late plugins", async () => {
+Deno.test("app serializes concurrent start calls", async () => {
   let setupCount = 0;
-  const app = await createApplication({
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const app = createApp({
     config,
-    modules: [],
     plugins: [{
       name: "slow-plugin",
       setup: async () => {
         setupCount += 1;
-        await Promise.resolve();
+        entered.resolve();
+        await release.promise;
       },
     }],
   });
+
+  const first = app.start();
+  await entered.promise;
+  const second = app.start();
+  release.resolve();
+  await Promise.all([first, second]);
   assertEquals(setupCount, 1);
   await app.close();
+});
+
+Deno.test("app closes once when close is called during startup", async () => {
+  const events: string[] = [];
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const app = createApp({
+    config,
+    plugins: [{
+      name: "slow-plugin",
+      setup: async () => {
+        events.push("setup");
+        entered.resolve();
+        await release.promise;
+      },
+      onClose: () => void events.push("close"),
+    }],
+  });
+
+  const starting = app.start();
+  await entered.promise;
+  const closing = app.close();
+  release.resolve();
+  await Promise.all([starting, closing]);
+
+  assertEquals(events, ["setup", "close"]);
+  assertEquals((await app.request("/after-close")).status, 503);
+  await assertRejects(() => app.start(), ConfigurationError);
+});
+
+Deno.test("app stops accepting requests as soon as close begins", async () => {
+  let requests = 0;
+  const app = createApp({ config });
+  app.route({
+    method: "get",
+    path: "/after-close",
+    handler: () => {
+      requests += 1;
+      return new Response(null, { status: 204 });
+    },
+  });
+  await app.start();
+
+  const closing = app.close();
+  assertEquals((await app.request("/after-close")).status, 503);
+  assertEquals(requests, 0);
+  await closing;
 });
 
 Deno.test("circular plugin dependencies throw ConfigurationError", async () => {

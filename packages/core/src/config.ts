@@ -38,11 +38,17 @@ export interface AppConfigOptions {
 
 export function defineConfig(options: AppConfigOptions): AppConfig {
   const version = options.version ?? "0.1.0";
+  const requestIdHeader = options.requestIdHeader ?? "x-request-id";
+  try {
+    new Headers().set(requestIdHeader, "");
+  } catch {
+    throw new ConfigurationError("requestIdHeader must be a valid HTTP header name.");
+  }
   return {
     name: options.name,
     version,
     environment: options.environment ?? "development",
-    requestIdHeader: options.requestIdHeader ?? "x-request-id",
+    requestIdHeader,
     bodyLimitBytes: options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES,
     requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     shutdownTimeoutMs: options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
