@@ -4,6 +4,7 @@ import {
   type AppConfig,
   ConfigurationError,
   createApplication,
+  createHttpHealthCheck,
   defineHttpContract,
   definePort,
   definePortContract,
@@ -109,42 +110,38 @@ Deno.test("provideHttp rejects a contract that cannot implement its port", () =>
   );
 });
 
-Deno.test("provideHttp supports an optional health endpoint under the base URL path", async () => {
-  const port = definePort<UserDirectory>("users.directory", { major: 1, minor: 0 });
-  const contract = defineHttpContract({ ...usersContract, version: { major: 1, minor: 0 } });
+Deno.test("createHttpHealthCheck probes an endpoint under the base URL path", async () => {
   let status = 200;
   let healthUrl = "";
-  const provider = provideHttp(port, {
-    contract,
+  const check = createHttpHealthCheck({
+    name: "users-service",
     baseUrl: "http://gateway/users-service/",
     timeoutMs: 100,
-    healthPath: "/health",
+    path: "/health",
     fetch: (input) => {
       healthUrl = String(input);
       return new Response(null, { status });
     },
-    adapt: () => ({ find: async () => null }),
   });
-  assertEquals(await provider.lifecycle?.health?.(), {
+  assertEquals(await check.check(), {
     status: "healthy",
   });
   assertEquals(healthUrl, "http://gateway/users-service/health");
   status = 503;
-  assertEquals(await provider.lifecycle?.health?.(), {
+  assertEquals(await check.check(), {
     status: "unhealthy",
     detail: "Health endpoint returned 503.",
   });
   assertThrows(
     () =>
-      provideHttp(port, {
-        contract,
+      createHttpHealthCheck({
+        name: "users-service",
         baseUrl: "http://users-service",
         timeoutMs: 100,
-        healthPath: "health",
-        adapt: () => ({ find: async () => null }),
+        path: "health",
       }),
     ConfigurationError,
-    "healthPath",
+    "path",
   );
 });
 

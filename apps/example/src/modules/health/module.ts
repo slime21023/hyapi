@@ -37,7 +37,7 @@ export function createHealthModule(
                   status: "unavailable" as const,
                   service: serviceName,
                   timestamp,
-                  providers: [...report.providers],
+                  checks: [...report.checks],
                 }, 503);
               }
               return ok({ status: "ready" as const, service: serviceName, timestamp });

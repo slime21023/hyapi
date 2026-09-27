@@ -27,7 +27,7 @@ export {
   registerHttpContract,
   withHttpContext,
 } from "./src/http/contract.ts";
-export { provideHttp } from "./src/http/provider.ts";
+export { createHttpHealthCheck, provideHttp } from "./src/http/provider.ts";
 export { expectStatus, requestJson } from "./src/testing.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
@@ -66,15 +66,18 @@ export type {
 } from "./src/openapi.ts";
 export type {
   ContractVersion,
-  HealthReport,
-  HealthStatus,
   Port,
   PortContract,
   PortProvider,
-  ProviderHealth,
-  ProviderHealthCheck,
   ProviderLifecycle,
 } from "./src/port.ts";
+export type {
+  HealthCheck,
+  HealthCheckReport,
+  HealthCheckResult,
+  HealthReport,
+  HealthStatus,
+} from "./src/health.ts";
 export type {
   BulkheadPolicy,
   CircuitBreakerPolicy,
@@ -93,4 +96,4 @@ export type {
   HttpContractRoutes,
   HttpPropagationSource,
 } from "./src/http/contract.ts";
-export type { HttpPortOptions } from "./src/http/provider.ts";
+export type { HttpHealthCheckOptions, HttpPortOptions } from "./src/http/provider.ts";

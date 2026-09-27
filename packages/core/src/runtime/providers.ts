@@ -2,22 +2,10 @@ import { ConfigurationError } from "../errors.ts";
 import { collectError, Scope } from "./scope.ts";
 import {
   formatContractVersion,
-  type HealthReport,
   isCompatibleContractVersion,
   type Port,
   type PortProvider,
-  type ProviderHealth,
-  type ProviderHealthCheck,
 } from "../port.ts";
-
-const PROVIDER_HEALTH_TIMEOUT_MS = 5_000;
-
-function isProviderHealthCheck(value: unknown): value is ProviderHealthCheck {
-  if (typeof value !== "object" || value === null) return false;
-  if (!("status" in value)) return false;
-  return (value.status === "healthy" || value.status === "degraded" ||
-    value.status === "unhealthy") && (!("detail" in value) || typeof value.detail === "string");
-}
 
 export class ProviderRegistry {
   readonly #providers = new Map<string, PortProvider<unknown>>();
@@ -66,52 +54,5 @@ export class ProviderRegistry {
       });
     }
     owner.defer((deadline) => connected.close(deadline));
-  }
-
-  async health(): Promise<HealthReport> {
-    const providers = await Promise.all(
-      [...this.#providers.values()].map((provider) => this.#providerHealth(provider)),
-    );
-    const status = providers.some((provider) => provider.status === "unhealthy")
-      ? "unhealthy"
-      : providers.some((provider) => provider.status === "degraded")
-      ? "degraded"
-      : "healthy";
-    return { status, providers };
-  }
-
-  async #providerHealth(provider: PortProvider<unknown>): Promise<ProviderHealth> {
-    const id = provider.port.id;
-    const lifecycle = provider.lifecycle;
-    if (!lifecycle?.health) return { status: "healthy", provider: id };
-    const { promise: timedOut, resolve } = Promise.withResolvers<ProviderHealth>();
-    const timer = setTimeout(() =>
-      resolve({
-        status: "unhealthy",
-        provider: id,
-        detail: `Health check timed out after ${PROVIDER_HEALTH_TIMEOUT_MS} ms.`,
-      }), PROVIDER_HEALTH_TIMEOUT_MS);
-    try {
-      const report: unknown = await Promise.race([
-        Promise.resolve().then(() => lifecycle.health?.()),
-        timedOut,
-      ]);
-      if (!isProviderHealthCheck(report)) {
-        return {
-          status: "unhealthy",
-          provider: id,
-          detail: "Health check returned an invalid report.",
-        };
-      }
-      return { ...report, provider: id };
-    } catch (error) {
-      return {
-        status: "unhealthy",
-        provider: id,
-        detail: error instanceof Error ? error.message : "Health check failed.",
-      };
-    } finally {
-      clearTimeout(timer);
-    }
   }
 }

@@ -151,7 +151,7 @@ Deno.test("example application composes Users and Orders through a public port",
   assert(document.components.schemas.ProblemDetails);
 });
 
-Deno.test("example readiness probe reports ready when providers are healthy", async () => {
+Deno.test("example readiness probe reports ready when the application is healthy", async () => {
   const app = await buildExampleApp(config, secret, { enableRequestLogging: false });
 
   const ready = await app.request("http://test/health/ready");

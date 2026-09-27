@@ -15,7 +15,7 @@ export async function buildExampleApp(
   let application: HyApplication | undefined;
   const healthModule = createHealthModule(
     config.name,
-    async () => application ? await application.health() : { status: "unhealthy", providers: [] },
+    async () => application ? await application.health() : { status: "unhealthy", checks: [] },
   );
   const usersModule = createUsersModule();
   const plugins = [

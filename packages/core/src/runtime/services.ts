@@ -17,7 +17,7 @@ export interface RequestServices {
 export class ServiceContainer {
   readonly #singletonScope: Scope;
   readonly #singletons = new Map<ServiceReference<unknown>, Promise<unknown>>();
-  readonly #overrides = new Map<string, unknown>();
+  readonly #overrides = new Map<string, ServiceOverride>();
 
   constructor(singletonScope: Scope) {
     this.#singletonScope = singletonScope;
@@ -28,12 +28,14 @@ export class ServiceContainer {
     });
   }
 
-  setOverrides(overrides: readonly ServiceOverride[]): void {
+  async setOverrides(overrides: readonly ServiceOverride[]): Promise<void> {
     for (const override of overrides) {
       if (this.#overrides.has(override.name)) {
         throw new ConfigurationError(`Service override '${override.name}' is already registered.`);
       }
-      this.#overrides.set(override.name, override.value);
+      this.#overrides.set(override.name, override);
+      // A static override has application lifetime even when it replaces a request service.
+      if ("value" in override) await this.#singletonScope.adopt(override.value);
     }
   }
 
@@ -79,11 +81,13 @@ export class ServiceContainer {
   }
 
   async #create<T>(service: ServiceReference<T>, requestServices?: RequestServices): Promise<T> {
-    const value = service.name && this.#overrides.has(service.name)
-      ? this.#overrides.get(service.name) as T
-      : await service.factory(
+    const override = service.name ? this.#overrides.get(service.name) : undefined;
+    const value = override && "value" in override
+      ? override.value as T
+      : await (override && "factory" in override ? override.factory : service.factory)(
         this.resolver(service.scope === "singleton" ? undefined : requestServices),
-      );
+      ) as T;
+    if (override && "value" in override) return value;
     if (service.scope === "singleton") return await this.#singletonScope.adopt(value);
     if (service.scope === "request") return await requestServices!.scope.adopt(value);
     return value;

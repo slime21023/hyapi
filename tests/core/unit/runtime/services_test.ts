@@ -4,14 +4,22 @@ import { defineConfig } from "@hyapi/core";
 import type { ServiceResolver } from "../../../../packages/core/src/types.ts";
 import { ScopeClosedError } from "../../../../packages/core/src/runtime/scope.ts";
 
-Deno.test("named overrides obey request and application service lifetimes", async () => {
+Deno.test("static and factory overrides have explicit service lifetimes", async () => {
   const closed: string[] = [];
+  let factoryCalls = 0;
   const app = createApp({
     config: defineConfig({ name: "override-lifetime", openapi: { enabled: false } }),
     overrides: [
       {
+        name: "static-request-dependency",
+        value: { id: "static", close: () => void closed.push("static") },
+      },
+      {
         name: "request-dependency",
-        value: { id: "request", close: () => void closed.push("request") },
+        factory: () => ({
+          id: `request-${++factoryCalls}`,
+          close: () => void closed.push("request"),
+        }),
       },
       {
         name: "singleton-dependency",
@@ -19,6 +27,10 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
       },
     ],
   });
+  const staticRequest = app.requestService(
+    "static-request-dependency",
+    () => ({ id: "factory-static" }),
+  );
   const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
   const singleton = app.singletonService(
     "singleton-dependency",
@@ -31,19 +43,25 @@ Deno.test("named overrides obey request and application service lifetimes", asyn
     path: "/capture",
     handler: async ({ services }) => {
       resolver = services;
-      active = [(await services.get(request)).id, (await services.get(singleton)).id];
+      active = [
+        (await services.get(staticRequest)).id,
+        (await services.get(request)).id,
+        (await services.get(singleton)).id,
+      ];
       return new Response(null, { status: 204 });
     },
   });
   await app.start();
   assertEquals((await app.request("/capture")).status, 204);
-  assertEquals(active, ["request", "singleton"]);
-  assertEquals(closed, ["request"]);
+  assertEquals(active, ["static", "request-1", "singleton"]);
+  assertEquals((await app.request("/capture")).status, 204);
+  assertEquals(active, ["static", "request-2", "singleton"]);
+  assertEquals(closed, ["request", "request"]);
 
   const afterRequest = await assertRejects(() => resolver!.get(request), ScopeClosedError);
   assertEquals(afterRequest.code, "SCOPE_CLOSED");
   await app.close();
-  assertEquals(closed, ["request", "singleton"]);
+  assertEquals(closed, ["request", "request", "singleton", "static"]);
   const afterClose = await assertRejects(() => resolver!.get(singleton), ScopeClosedError);
   assertEquals(afterClose.code, "SCOPE_CLOSED");
 });

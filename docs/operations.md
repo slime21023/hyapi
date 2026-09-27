@@ -152,13 +152,14 @@ to long-running work; it is aborted when the request times out.
 
 ### Health endpoints
 
-`app.health()` checks every provider in parallel, each with a 5-second timeout, and aggregates the
-result as `healthy`, `degraded`, or `unhealthy`. The example maps it to two endpoints:
+`app.health()` runs every configured health check in parallel, each with a 5-second timeout, and
+aggregates the result as `healthy`, `degraded`, or `unhealthy`. The example maps it to two
+endpoints:
 
-- `GET /health/live` reports that the process is serving requests and does not check providers.
+- `GET /health/live` reports that the process is serving requests and does not run health checks.
 - `GET /health/ready` returns 200 `{ status: "ready" }` unless `app.health()` reports `unhealthy`,
-  in which case it returns 503 with `status: "unavailable"` and the provider reports. Load balancers
-  should route traffic only to instances whose readiness endpoint returns 200.
+  in which case it returns 503 with `status: "unavailable"` and the health-check reports. Load
+  balancers should route traffic only to instances whose readiness endpoint returns 200.
 
 ## Service extraction
 

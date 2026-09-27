@@ -16,9 +16,9 @@ export const NotReadyResponseSchema = Type.Object({
   status: Type.Literal("unavailable"),
   service: Type.String(),
   timestamp: Type.String({ format: "date-time" }),
-  providers: Type.Array(Type.Object({
+  checks: Type.Array(Type.Object({
     status: Type.String(),
-    provider: Type.String(),
+    name: Type.String(),
     detail: Type.Optional(Type.String()),
   })),
 }, { additionalProperties: false });

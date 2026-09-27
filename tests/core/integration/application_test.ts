@@ -16,10 +16,10 @@ import {
   defineConfig,
   definePort,
   definePortContract,
+  type HealthCheckResult,
   type Identity,
   NotFoundError,
   providePort,
-  type ProviderHealthCheck,
   type RouteGroupApi,
   verifyPortContract,
   verifyPortContracts,
@@ -436,7 +436,7 @@ Deno.test("modules resolve explicit ports and reject missing or incompatible pro
   );
 });
 
-Deno.test("providers connect, report health, and close in lifecycle order", async () => {
+Deno.test("providers connect and close while health checks remain independent", async () => {
   const events: string[] = [];
   const port = definePort<{ value: string }>("lifecycle.port", { major: 1, minor: 1 });
   const app = await createApplication({
@@ -452,16 +452,16 @@ Deno.test("providers connect, report health, and close in lifecycle order", asyn
       connect: () => {
         events.push("connect");
       },
-      health: () => ({ status: "healthy" }),
       close: () => {
         events.push("close");
       },
     })],
+    healthChecks: [{ name: "lifecycle", check: () => ({ status: "healthy" }) }],
   });
   assertEquals(events, ["connect"]);
   assertEquals(await app.health(), {
     status: "healthy",
-    providers: [{ status: "healthy", provider: "lifecycle.port" }],
+    checks: [{ status: "healthy", name: "lifecycle" }],
   });
   await app.close();
   assertEquals(events, ["connect", "close"]);
@@ -2327,28 +2327,25 @@ Deno.test("providers close in reverse registration order", async () => {
   assertEquals(events, ["c", "b", "a"]);
 });
 
-Deno.test("health aggregates degraded providers and rejects invalid reports", async () => {
+Deno.test("health aggregates checks and normalizes invalid results", async () => {
   const app = await createApplication({
     config,
     modules: [],
-    providers: [
-      providePort(definePort("ok"), {}, { health: () => ({ status: "healthy" }) }),
-      providePort(definePort("slow"), {}, {
-        health: () => ({ status: "degraded", detail: "lagging" }),
-      }),
-      providePort(definePort("mapped"), {}, {
-        health: () => ({ status: "healthy", provider: "wrong" }) as unknown as ProviderHealthCheck,
-      }),
-      providePort(definePort("plain"), {}),
+    healthChecks: [
+      {
+        name: "ok",
+        check: () => ({ status: "healthy", extra: "ignored" }) as unknown as HealthCheckResult,
+      },
+      { name: "slow", check: () => ({ status: "degraded", detail: "lagging" }) },
+      { name: "empty-detail", check: () => ({ status: "healthy", detail: undefined }) },
     ],
   });
   assertEquals(await app.health(), {
     status: "degraded",
-    providers: [
-      { status: "healthy", provider: "ok" },
-      { status: "degraded", provider: "slow", detail: "lagging" },
-      { status: "healthy", provider: "mapped" },
-      { status: "healthy", provider: "plain" },
+    checks: [
+      { status: "healthy", name: "ok" },
+      { status: "degraded", name: "slow", detail: "lagging" },
+      { status: "healthy", name: "empty-detail" },
     ],
   });
   await app.close();
@@ -2356,43 +2353,57 @@ Deno.test("health aggregates degraded providers and rejects invalid reports", as
   const invalid = await createApplication({
     config,
     modules: [],
-    providers: [
-      providePort(definePort("bogus-status"), {}, {
-        health: () => ({ status: "fine" }) as unknown as ProviderHealthCheck,
-      }),
-      providePort(definePort("bogus-detail"), {}, {
-        health: () => ({ status: "healthy", detail: 42 }) as unknown as ProviderHealthCheck,
-      }),
+    healthChecks: [
+      { name: "bogus-status", check: () => ({ status: "fine" }) as unknown as HealthCheckResult },
+      {
+        name: "bogus-detail",
+        check: () => ({ status: "healthy", detail: 42 }) as unknown as HealthCheckResult,
+      },
     ],
   });
   assertEquals(await invalid.health(), {
     status: "unhealthy",
-    providers: [{
+    checks: [{
       status: "unhealthy",
-      provider: "bogus-status",
-      detail: "Health check returned an invalid report.",
+      name: "bogus-status",
+      detail: "Health check returned an invalid result.",
     }, {
       status: "unhealthy",
-      provider: "bogus-detail",
-      detail: "Health check returned an invalid report.",
+      name: "bogus-detail",
+      detail: "Health check returned an invalid result.",
     }],
   });
   await invalid.close();
+
+  await assertRejects(
+    () =>
+      createApplication({
+        config,
+        modules: [],
+        healthChecks: [
+          { name: "duplicate", check: () => ({ status: "healthy" }) },
+          { name: "duplicate", check: () => ({ status: "healthy" }) },
+        ],
+      }),
+    ConfigurationError,
+    "already registered",
+  );
 });
 
-Deno.test("health reports providers whose checks time out as unhealthy", async () => {
+Deno.test("health reports timed out checks as unhealthy", async () => {
   const app = await createApplication({
     config,
     modules: [],
-    providers: [providePort(definePort("hung"), {}, {
-      health: () => Promise.withResolvers<ProviderHealthCheck>().promise,
-    })],
+    healthChecks: [{
+      name: "hung",
+      check: () => Promise.withResolvers<HealthCheckResult>().promise,
+    }],
   });
   assertEquals(await app.health(), {
     status: "unhealthy",
-    providers: [{
+    checks: [{
       status: "unhealthy",
-      provider: "hung",
+      name: "hung",
       detail: "Health check timed out after 5000 ms.",
     }],
   });
@@ -2568,22 +2579,23 @@ Deno.test("requestTimeoutMs bounds global onRequest hooks", async () => {
   await app.close();
 });
 
-Deno.test("health reports unhealthy without probing providers after close", async () => {
+Deno.test("health reports unhealthy without running checks after close", async () => {
   let probes = 0;
   const app = await createApplication({
     config,
     modules: [],
-    providers: [providePort(definePort("probed"), {}, {
-      health: () => {
+    healthChecks: [{
+      name: "probed",
+      check: () => {
         probes += 1;
         return { status: "healthy" };
       },
-    })],
+    }],
   });
   assertEquals((await app.health()).status, "healthy");
   await app.close();
 
-  assertEquals(await app.health(), { status: "unhealthy", providers: [] });
+  assertEquals(await app.health(), { status: "unhealthy", checks: [] });
   assertEquals(probes, 1);
 });
 

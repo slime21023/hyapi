@@ -1,6 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { AppConfig, AppConfigOptions } from "./config.ts";
-import type { HealthReport, Port, PortProvider } from "./port.ts";
+import type { HealthCheck, HealthReport } from "./health.ts";
+import type { Port, PortProvider } from "./port.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 export type Schema = TSchema;
@@ -169,10 +170,13 @@ export interface ServiceReference<T> {
   readonly factory: ServiceFactory<T>;
 }
 
-export interface ServiceOverride<T = unknown> {
+export type ServiceOverride<T = unknown> = {
   readonly name: string;
   readonly value: T;
-}
+} | {
+  readonly name: string;
+  readonly factory: ServiceFactory<T>;
+};
 
 export interface ServiceResolver {
   get<T>(service: ServiceReference<T>): Promise<T>;
@@ -214,6 +218,7 @@ export interface ApplicationOptions {
   readonly plugins?: readonly Plugin[];
   readonly overrides?: readonly ServiceOverride[];
   readonly providers?: readonly PortProvider<unknown>[];
+  readonly healthChecks?: readonly HealthCheck[];
 }
 
 export interface HyApiOptions {
@@ -222,6 +227,7 @@ export interface HyApiOptions {
   readonly plugins?: readonly Plugin[];
   readonly overrides?: readonly ServiceOverride[];
   readonly providers?: readonly PortProvider<unknown>[];
+  readonly healthChecks?: readonly HealthCheck[];
 }
 
 export type AnyRouteDefinition = RouteDefinition<

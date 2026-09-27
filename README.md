@@ -432,8 +432,8 @@ See [the v0.5 extraction guide](docs/migrations/v0.5.0.md) for the Users → Ord
 including contract validation, idempotency, and request-context propagation.
 
 Provider lifecycle and major/minor contract compatibility are described in the
-[v0.8 migration guide](docs/migrations/v0.8.0.md). Applications can inspect provider readiness with
-`await app.health()`, which checks providers in parallel with a 5-second timeout each.
+[v0.8 migration guide](docs/migrations/v0.8.0.md). Applications can inspect readiness with
+`await app.health()`, which runs configured health checks in parallel with a 5-second timeout each.
 
 Remote-call resilience policies, including retry, circuit breaker, and bulkhead controls, are
 described in the [v0.9 migration guide](docs/migrations/v0.9.0.md).
@@ -447,7 +447,7 @@ Health endpoints are public:
 
 ```text
 GET /health/live    liveness; always 200 while the process serves requests
-GET /health/ready   readiness; 503 with provider reports when app.health() is unhealthy
+GET /health/ready   readiness; 503 with health-check reports when app.health() is unhealthy
 ```
 
 User endpoints require a JWT with the listed scope:

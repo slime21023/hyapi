@@ -33,19 +33,20 @@ provider without changing use case code.
 
 ## v0.8.0 — Provider lifecycle and contract compatibility
 
-**Goal:** make local, fake, and HTTP providers behave consistently during startup, health checks,
-contract validation, and shutdown.
+**Goal:** make local, fake, and HTTP providers behave consistently during startup, contract
+validation, and shutdown, with independent application health checks.
 
 - Add major/minor contract versions. A provider must have the same major and an equal-or-higher
   minor version.
-- Add optional provider `connect`, `health`, and `close` lifecycle callbacks.
+- Add optional provider `connect` and `close` lifecycle callbacks.
 - Connect providers before the application becomes ready and aggregate all shutdown failures.
-- Add `app.health()` returning healthy, degraded, or unhealthy provider status.
+- Add `app.health()` returning healthy, degraded, or unhealthy health-check status.
 - Run the same contract suite against local, fake, and HTTP providers.
 - Publish the provider lifecycle and version migration guide.
 
 **Release gate:** incompatible versions fail before readiness; all provider close callbacks run;
-health reports are deterministic; local/fake/HTTP implementations pass the same contract suite.
+health-check reports are deterministic; local/fake/HTTP implementations pass the same contract
+suite.
 
 ## v0.9.0 — Distributed resilience
 
@@ -117,7 +118,7 @@ same change, with migration notes only.
       retry loop, idempotency that `retryOn` cannot bypass, `deadline`/`aborted` reasons, and
       removal of the legacy `retry` option.
 - [x] **RC2-05:** Provider lifecycle and versions: `ContractVersion`-only ports and contracts,
-      parallel health checks with timeouts, and reverse-order provider shutdown.
+      parallel application health checks with timeouts, and reverse-order provider shutdown.
 - [x] **RC2-06:** Request pipeline: `bodyLimitBytes` (413), `requestTimeoutMs` (503), upstream
       deadlines (504), request-id validation, immutable-response handling, response field stripping,
       and route registration validation.
@@ -203,7 +204,7 @@ the GitHub issue.
 
 - [x] **SVC-01:** ContractVersion model and major/minor compatibility validator.
 - [x] **SVC-02:** Provider lifecycle registry and startup/shutdown integration.
-- [x] **SVC-03:** Application health report and provider diagnostics.
+- [x] **SVC-03:** Application health report and health-check diagnostics.
 - [x] **SVC-04:** Local/fake/HTTP provider parity and lifecycle tests.
 - [x] **SVC-05:** Reference example, migration guide, and API documentation.
 - [x] **SVC-06:** Release gate, reliability checks, and package verification.

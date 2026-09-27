@@ -16,7 +16,8 @@ import {
   type ServiceFactory,
   type ServiceReference,
 } from "./types.ts";
-import type { HealthReport, Port } from "./port.ts";
+import type { HealthReport } from "./health.ts";
+import type { Port } from "./port.ts";
 import {
   type AppConfig,
   DEFAULT_BODY_LIMIT_BYTES,
@@ -42,6 +43,7 @@ import {
 } from "./routing.ts";
 import { collectError, Scope } from "./runtime/scope.ts";
 import { ServiceContainer } from "./runtime/services.ts";
+import { HealthRegistry } from "./runtime/health.ts";
 import { ProviderRegistry } from "./runtime/providers.ts";
 import { type HttpPipelineEnv, HttpTaskTracker } from "./http/lifecycle.ts";
 import { errorResponse } from "./http/problem.ts";
@@ -102,6 +104,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   private readonly options: HyApiOptions;
   private readonly http = new Hono<HttpPipelineEnv>();
   private readonly pipeline: RequestPipeline;
+  private readonly healthChecks = new HealthRegistry();
   private readonly providers = new ProviderRegistry();
   private readonly appScope = new Scope("Application shutdown failed.");
   private readonly providerScope = new Scope("Application shutdown failed.");
@@ -389,8 +392,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   }
 
   async health(): Promise<HealthReport> {
-    if (this.state !== "running") return { status: "unhealthy", providers: [] };
-    return await this.providers.health();
+    if (this.state !== "running") return { status: "unhealthy", checks: [] };
+    return await this.healthChecks.check();
   }
 
   /**
@@ -403,7 +406,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       this.appScope.defer((deadline) => this.providerScope.close(deadline));
       this.appScope.defer((deadline) => this.singletonScope.close(deadline));
 
-      this.services.setOverrides(this.options.overrides ?? []);
+      await this.services.setOverrides(this.options.overrides ?? []);
+      this.healthChecks.register(this.options.healthChecks ?? []);
       const modules = sortModules(this.options.modules ?? []);
       const plugins = sortPlugins(this.options.plugins ?? []);
       this.providers.register([
