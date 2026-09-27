@@ -2,19 +2,13 @@ import type {
   AnyRouteDefinition,
   AuthRequirement,
   LifecycleHook,
-  Module,
-  ModuleApi,
-  Plugin,
   ResponseSchemas,
   RouteDefinition,
   RouteGroupApi,
   RouteGroupOptions,
   Schema,
-  ServiceFactory,
-  ServiceReference,
 } from "./types.ts";
 import { ConfigurationError } from "./errors.ts";
-import type { Port } from "./port.ts";
 
 export type HookPoint = "onRequest" | "onResponse" | "onError";
 export type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;
@@ -34,7 +28,7 @@ export function resolveResponseSchemas(
   return { [defaultStatus]: undefined };
 }
 
-/** The application operations route groups and module contexts delegate to. */
+/** The narrow application boundary used by route groups. */
 export interface RouteRegistrar {
   assertConfiguring(action: string): void;
   route<
@@ -47,27 +41,9 @@ export interface RouteRegistrar {
     route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>,
     scope?: RouterGroup,
   ): void;
-  singletonService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  requestService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  transientService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  usePort<T>(port: Port<T>): T;
 }
 
-interface DependencyNode {
-  readonly name: string;
-  readonly dependencies?: readonly string[];
-}
-
-export function joinPaths(base: string | undefined, path: string): string {
+function joinPaths(base: string | undefined, path: string): string {
   const cleanBase = (base ?? "").trim().replace(/\/+$/, "");
   const cleanPath = path.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   if (!cleanBase && !cleanPath) return "/";
@@ -75,10 +51,6 @@ export function joinPaths(base: string | undefined, path: string): string {
   if (!cleanPath) return cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   const formattedBase = cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   return `${formattedBase}/${cleanPath}`;
-}
-
-export function toHonoPath(path: string): string {
-  return path.replace(/\{([^}/]+)\}/g, ":$1");
 }
 
 function mergeAuth(
@@ -103,80 +75,6 @@ function mergeAuth(
     ...(parent.required === false && child.required === false ? { required: false } : {}),
     ...(scopes.length > 0 ? { scopes } : {}),
   };
-}
-
-function sortByDependencies<T extends DependencyNode>(
-  items: readonly T[],
-  options: {
-    getDependencies?: (item: T) => readonly string[] | undefined;
-    readonly getDuplicateMessage: (name: string) => string;
-    readonly getMissingDependencyMessage: (dependent: string, dependency: string) => string;
-    readonly getCycleMessage: (cycle: readonly string[]) => string;
-  },
-): T[] {
-  const byName = new Map<string, T>();
-  for (const item of items) {
-    if (byName.has(item.name)) {
-      throw new ConfigurationError(options.getDuplicateMessage(item.name));
-    }
-    byName.set(item.name, item);
-  }
-
-  for (const item of items) {
-    for (const dep of item.dependencies ?? []) {
-      if (!byName.has(dep)) {
-        throw new ConfigurationError(options.getMissingDependencyMessage(item.name, dep));
-      }
-    }
-  }
-
-  const visited = new Set<string>();
-  const visiting: string[] = [];
-  const sorted: T[] = [];
-
-  const visit = (name: string, dependent?: string): void => {
-    if (visiting.includes(name)) {
-      throw new ConfigurationError(options.getCycleMessage([...visiting, name]));
-    }
-    if (visited.has(name)) return;
-
-    const item = byName.get(name);
-    if (!item) {
-      throw new ConfigurationError(options.getMissingDependencyMessage(dependent ?? name, name));
-    }
-    visiting.push(name);
-    for (const dep of options.getDependencies?.(item) ?? item.dependencies ?? []) {
-      visit(dep, item.name);
-    }
-    visiting.pop();
-    visited.add(name);
-    sorted.push(item);
-  };
-
-  for (const item of items) {
-    visit(item.name);
-  }
-
-  return sorted;
-}
-
-export function sortModules(modules: readonly Module[]): Module[] {
-  return sortByDependencies(modules, {
-    getDependencies: (module) => module.dependencies,
-    getDuplicateMessage: (name) => `Module '${name}' is already registered.`,
-    getMissingDependencyMessage: (dependent, dependency) =>
-      `Module '${dependent}' requires '${dependency}' to be registered.`,
-    getCycleMessage: (cycle) => `Circular module dependency detected: ${cycle.join(" -> ")}.`,
-  });
-}
-
-export function sortPlugins(plugins: readonly Plugin[]): Plugin[] {
-  return sortByDependencies(plugins, {
-    getDuplicateMessage: (name) => `Plugin '${name}' is already registered.`,
-    getMissingDependencyMessage: (dependent, dependency) =>
-      `Plugin '${dependent}' requires '${dependency}' to be registered.`,
-    getCycleMessage: (cycle) => `Circular plugin dependency detected: ${cycle.join(" -> ")}.`,
-  });
 }
 
 export function normalizeGroupArgs(
@@ -295,54 +193,5 @@ export class RouterGroup implements RouteGroupApi {
     if (mergedAuth !== undefined) newOpts.auth = mergedAuth;
 
     fn(new RouterGroup(this.#app, newOpts, this));
-  }
-}
-
-export class ModuleContext extends RouterGroup implements ModuleApi {
-  readonly #app: RouteRegistrar;
-  readonly #moduleName: string;
-  readonly #requiredPortIds: ReadonlySet<string>;
-
-  constructor(app: RouteRegistrar, module: Module) {
-    super(app);
-    this.#app = app;
-    this.#moduleName = module.name;
-    this.#requiredPortIds = new Set(module.requires?.map((port) => port.id));
-  }
-
-  singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  singleton<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.#app.singletonService(nameOrFactory, maybeFactory);
-  }
-
-  request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  request<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  request<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.#app.requestService(nameOrFactory, maybeFactory);
-  }
-
-  transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  transient<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  transient<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.#app.transientService(nameOrFactory, maybeFactory);
-  }
-
-  use<T>(port: Port<T>): T {
-    if (!this.#requiredPortIds.has(port.id)) {
-      throw new ConfigurationError(
-        `Module '${this.#moduleName}' uses port '${port.id}' without declaring it in requires.`,
-      );
-    }
-    return this.#app.usePort(port);
   }
 }

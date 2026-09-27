@@ -7,6 +7,7 @@ import {
   type HyApplication,
   type LifecycleHook,
   type Module,
+  type ModuleApi,
   type PlatformApi,
   type ResponseSchemas,
   type RouteDefinition,
@@ -32,14 +33,10 @@ import { objectSchemaProperties, SchemaValidator } from "./schema.ts";
 import {
   type HookPoint,
   isProtectedAuth,
-  ModuleContext,
   normalizeGroupArgs,
   type RouteHooks,
   type RouteRegistrar,
   RouterGroup,
-  sortModules,
-  sortPlugins,
-  toHonoPath,
 } from "./routing.ts";
 import { collectError, Scope } from "./runtime/scope.ts";
 import { ServiceContainer } from "./runtime/services.ts";
@@ -85,6 +82,59 @@ function validatedLimit(value: number, name: string, isValid: (value: number) =>
 
 function isTimerDelay(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_TIMER_MS;
+}
+
+interface DependencyNode {
+  readonly name: string;
+  readonly dependencies?: readonly string[];
+}
+
+function sortByDependencies<T extends DependencyNode>(
+  items: readonly T[],
+  kind: "Module" | "Plugin",
+): T[] {
+  const byName = new Map<string, T>();
+  for (const item of items) {
+    if (byName.has(item.name)) {
+      throw new ConfigurationError(`${kind} '${item.name}' is already registered.`);
+    }
+    byName.set(item.name, item);
+  }
+
+  for (const item of items) {
+    for (const dependency of item.dependencies ?? []) {
+      if (!byName.has(dependency)) {
+        throw new ConfigurationError(
+          `${kind} '${item.name}' requires '${dependency}' to be registered.`,
+        );
+      }
+    }
+  }
+
+  const visited = new Set<string>();
+  const visiting: string[] = [];
+  const sorted: T[] = [];
+  const visit = (name: string): void => {
+    if (visiting.includes(name)) {
+      throw new ConfigurationError(
+        `Circular ${kind.toLowerCase()} dependency detected: ${[...visiting, name].join(" -> ")}.`,
+      );
+    }
+    if (visited.has(name)) return;
+    const item = byName.get(name)!;
+    visiting.push(name);
+    for (const dependency of item.dependencies ?? []) visit(dependency);
+    visiting.pop();
+    visited.add(name);
+    sorted.push(item);
+  };
+
+  for (const item of items) visit(item.name);
+  return sorted;
+}
+
+function toHonoPath(path: string): string {
+  return path.replace(/\{([^}/]+)\}/g, ":$1");
 }
 
 /**
@@ -205,6 +255,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     this.assertConfiguring("register routes");
     const registeredRoute = route as unknown as AnyRouteDefinition;
     const label = `${registeredRoute.method.toUpperCase()} ${registeredRoute.path}`;
+    const honoPath = toHonoPath(registeredRoute.path);
     if (registeredRoute.request?.bodyRequired !== undefined && !registeredRoute.request.body) {
       throw new ConfigurationError("request.bodyRequired requires a request.body schema.");
     }
@@ -216,9 +267,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       const properties = objectSchemaProperties(paramsSchema);
       if (properties) {
         const pathNames = new Set(
-          [...toHonoPath(registeredRoute.path).matchAll(/(?:^|\/):([^/?{]+)/g)].map((match) =>
-            match[1]
-          ),
+          [...honoPath.matchAll(/(?:^|\/):([^/?{]+)/g)].map((match) => match[1]),
         );
         const required = "required" in paramsSchema ? paramsSchema.required : undefined;
         for (const name of Array.isArray(required) ? required : []) {
@@ -286,7 +335,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     if (scope) this.routeScopes.set(registeredRoute, scope);
     this.http.on(
       registeredRoute.method.toUpperCase(),
-      toHonoPath(registeredRoute.path),
+      honoPath,
       (context) => this.pipeline.runRoute(context, registeredRoute),
     );
   }
@@ -408,8 +457,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
 
       await this.services.setOverrides(this.options.overrides ?? []);
       this.healthChecks.register(this.options.healthChecks ?? []);
-      const modules = sortModules(this.options.modules ?? []);
-      const plugins = sortPlugins(this.options.plugins ?? []);
+      const modules = sortByDependencies(this.options.modules ?? [], "Module");
+      const plugins = sortByDependencies(this.options.plugins ?? [], "Plugin");
       this.providers.register([
         ...(this.options.providers ?? []),
         ...modules.flatMap((module) => module.provides ?? []),
@@ -510,6 +559,55 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     } finally {
       this.state = "closed";
     }
+  }
+}
+
+class ModuleContext extends RouterGroup implements ModuleApi {
+  readonly #app: HyApiApp;
+  readonly #moduleName: string;
+  readonly #requiredPortIds: ReadonlySet<string>;
+
+  constructor(app: HyApiApp, module: Module) {
+    super(app);
+    this.#app = app;
+    this.#moduleName = module.name;
+    this.#requiredPortIds = new Set(module.requires?.map((port) => port.id));
+  }
+
+  singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  singleton<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.#app.singletonService(nameOrFactory, maybeFactory);
+  }
+
+  request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  request<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.#app.requestService(nameOrFactory, maybeFactory);
+  }
+
+  transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
+  transient<T>(
+    nameOrFactory: string | ServiceFactory<T>,
+    maybeFactory?: ServiceFactory<T>,
+  ): ServiceReference<T> {
+    return this.#app.transientService(nameOrFactory, maybeFactory);
+  }
+
+  use<T>(port: Port<T>): T {
+    if (!this.#requiredPortIds.has(port.id)) {
+      throw new ConfigurationError(
+        `Module '${this.#moduleName}' uses port '${port.id}' without declaring it in requires.`,
+      );
+    }
+    return this.#app.usePort(port);
   }
 }
 
