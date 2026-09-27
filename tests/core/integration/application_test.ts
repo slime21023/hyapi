@@ -2112,11 +2112,11 @@ Deno.test("onError mutations do not hide the original failure from later observe
     group.addHook("onError", async (context) => {
       observed.push(context.error);
       await Promise.resolve();
-      context.error = null;
+      (context as { error: unknown }).error = null;
     });
     group.addHook("onError", (context) => {
       observed.push(context.error);
-      context.error = null;
+      (context as { error: unknown }).error = null;
     });
     group.route({
       method: "get",
@@ -2128,7 +2128,7 @@ Deno.test("onError mutations do not hide the original failure from later observe
   });
   app.addHook("onError", (context) => {
     observed.push(context.error);
-    context.error = null;
+    (context as { error: unknown }).error = null;
   });
   app.addHook("onResponse", ({ error: observedError, response }) => {
     observed.push(observedError);

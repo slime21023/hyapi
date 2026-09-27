@@ -5,6 +5,10 @@ import { Scope } from "../runtime/scope.ts";
 import { sleep } from "../runtime/timers.ts";
 import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
 
+type MutableLifecycleContext = {
+  -readonly [Key in keyof LifecycleContext]: LifecycleContext[Key];
+};
+
 /** Hono bindings owned by the HTTP request lifecycle. */
 export type HttpPipelineEnv = { Bindings: { scope: HttpRequestScope } };
 
@@ -16,14 +20,14 @@ export class HttpRequestScope {
   readonly request: Request;
   readonly requestId: string;
   readonly deadline: number;
-  readonly deadlineSource: "header" | "timeout";
+  readonly #deadlineSource: "header" | "timeout";
   readonly controller = new AbortController();
   readonly #disconnect = new AbortController();
   readonly #onDisconnect: () => void;
   #lifecycleRequest: Request;
   /** Aborted by the deadline, by a forced shutdown, or when the client disconnects. */
   readonly signal: AbortSignal;
-  readonly lifecycle: LifecycleContext;
+  readonly lifecycle: MutableLifecycleContext;
   readonly services: RequestServices;
   readonly #requestTimeoutMs: number;
   readonly #expired: Promise<never>;
@@ -43,7 +47,7 @@ export class HttpRequestScope {
     const headerDeadline = parseDeadlineHeader(request.headers.get(DEADLINE_HEADER));
     const fromHeader = headerDeadline !== undefined && headerDeadline <= timeoutDeadline;
     this.deadline = fromHeader ? headerDeadline : timeoutDeadline;
-    this.deadlineSource = fromHeader ? "header" : "timeout";
+    this.#deadlineSource = fromHeader ? "header" : "timeout";
     this.signal = AbortSignal.any([this.controller.signal, this.#disconnect.signal]);
     this.#lifecycleRequest = request;
     this.#onDisconnect = () => this.#disconnect.abort(request.signal.reason);
@@ -81,7 +85,7 @@ export class HttpRequestScope {
   }
 
   deadlineError(): AppError {
-    return this.deadlineSource === "timeout"
+    return this.#deadlineSource === "timeout"
       ? new AppError(
         503,
         "REQUEST_TIMEOUT",

@@ -39,8 +39,8 @@ export type AuthRequirement = false | {
 };
 
 export interface Identity {
-  subject: string;
-  scopes: readonly string[];
+  readonly subject: string;
+  readonly scopes: readonly string[];
 }
 
 export interface AuthProvider {
@@ -72,7 +72,7 @@ export interface RequestContext<
   readonly query: InferSchema<TQuery>;
   readonly body: TBodyRequired extends false ? InferSchema<TBody> | undefined : InferSchema<TBody>;
   readonly headers: Headers;
-  identity: Identity | null;
+  readonly identity: Identity | null;
   readonly state: Map<string, unknown>;
   readonly services: ServiceResolver;
   ok<T>(body: T, init?: ResponseInit): ResponseResult<T>;
@@ -85,11 +85,12 @@ export interface RequestContext<
 export interface LifecycleContext {
   readonly request: Request;
   readonly requestId: string;
+  /** Deliberate mutable channel shared by hooks and handlers. */
   readonly state: Map<string, unknown>;
-  route: AnyRouteDefinition | null;
-  identity: Identity | null;
-  response: Response | null;
-  error: unknown | null;
+  readonly route: AnyRouteDefinition | null;
+  readonly identity: Identity | null;
+  readonly response: Response | null;
+  readonly error: unknown | null;
 }
 
 export type LifecycleHook = (context: LifecycleContext) => MaybePromise<void>;
