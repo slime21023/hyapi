@@ -146,9 +146,9 @@ Inside a handler, build outgoing headers with `withHttpContext(ctx, "my-service"
 - `x-hyapi-deadline` with `ctx.deadline`, the effective absolute deadline of the current request.
 
 `ctx.deadline` is always set: it is the earlier of the upstream `x-hyapi-deadline` and the request
-start time plus `requestTimeoutMs`. HTTP contract clients send the smaller of their own `deadline`
-and the propagated value, so a whole call chain shares one budget. Handlers should pass `ctx.signal`
-to long-running work; it is aborted when the request times out.
+start time plus `requestTimeoutMs`. `withHttpContext()` forwards that value as a header; the native
+HTTP client does not reinterpret or enforce it. Pass `ctx.signal` in `RequestInit` when an outgoing
+request should stop with the incoming request.
 
 ### Health endpoints
 
@@ -165,7 +165,8 @@ endpoints:
 
 A module that needs an independent deployment keeps its Port and replaces only its local provider
 with `provideHttp()`. Follow the [v0.5 extraction guide](migrations/v0.5.0.md) for the Users ->
-Orders walkthrough, including shared HTTP contracts, idempotency, and request-context propagation.
+Orders walkthrough, including shared HTTP contracts, explicit response mapping, and request-context
+propagation.
 
 `provideHttp()` registers the port with the HTTP contract's version, so the application's
 major/minor compatibility check at startup compares the consumer's required version against the

@@ -20,14 +20,10 @@ export {
   verifyPortContract,
   verifyPortContracts,
 } from "./src/port.ts";
-export {
-  createHttpContractClient,
-  defineHttpContract,
-  HttpContractClientError,
-  registerHttpContract,
-  withHttpContext,
-} from "./src/http/contract.ts";
-export { createHttpHealthCheck, provideHttp } from "./src/http/provider.ts";
+export { defineHttpContract } from "./src/http/contract.ts";
+export { registerHttpContract } from "./src/http/server.ts";
+export { createHttpClient, createHttpHealthCheck, withHttpContext } from "./src/http/client.ts";
+export { provideHttp } from "./src/http/provider.ts";
 export { expectStatus, requestJson } from "./src/testing.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
@@ -87,13 +83,14 @@ export type {
 export type {
   AnyHttpContractRoute,
   HttpContract,
-  HttpContractClient,
-  HttpContractClientOptions,
-  HttpContractHandler,
-  HttpContractHandlers,
-  HttpContractRequest,
   HttpContractRoute,
   HttpContractRoutes,
-  HttpPropagationSource,
 } from "./src/http/contract.ts";
-export type { HttpHealthCheckOptions, HttpPortOptions } from "./src/http/provider.ts";
+export type { HttpContractHandler, HttpContractHandlers } from "./src/http/server.ts";
+export type {
+  HttpClient,
+  HttpClientOptions,
+  HttpHealthCheckOptions,
+  HttpPropagationSource,
+} from "./src/http/client.ts";
+export type { HttpPortOptions } from "./src/http/provider.ts";

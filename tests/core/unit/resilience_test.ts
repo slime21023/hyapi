@@ -252,7 +252,7 @@ Deno.test("a timed-out operation releases its bulkhead slot", async () => {
   assertEquals(await operation(), "ok");
 });
 
-Deno.test("withResilience rejects invalid policy budgets early", () => {
+Deno.test("withResilience rejects invalid policies early", () => {
   assertThrows(
     () => withResilience(async () => "ok", { bulkhead: { maxConcurrent: 1, queueSize: -1 } }),
     Error,
@@ -270,6 +270,30 @@ Deno.test("withResilience rejects invalid policy budgets early", () => {
     () => withResilience(async () => "ok", { timeoutMs: 2_147_483_648 }),
     Error,
     "timeoutMs",
+  );
+  assertThrows(
+    () =>
+      withResilience(async () => "ok", {
+        retry: { maxAttempts: 1, initialDelayMs: 0, backoff: "linear" as never },
+      }),
+    Error,
+    "backoff",
+  );
+  assertThrows(
+    () =>
+      withResilience(async () => "ok", {
+        retry: { maxAttempts: 1, initialDelayMs: 0, jitter: "yes" as never },
+      }),
+    Error,
+    "jitter",
+  );
+  assertThrows(
+    () =>
+      withResilience(async () => "ok", {
+        retry: { maxAttempts: 1, initialDelayMs: 0, retryOn: true as never },
+      }),
+    Error,
+    "retryOn",
   );
 });
 

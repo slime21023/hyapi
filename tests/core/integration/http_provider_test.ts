@@ -63,10 +63,12 @@ Deno.test("provideHttp adapts a shared HTTP contract into a required module port
   const remoteDirectory = provideHttp(userDirectory, {
     contract: usersContract,
     baseUrl: "http://users-service",
-    timeoutMs: 100,
     fetch: (input, init) => usersService.request(input, init),
     adapt: (client) => ({
-      find: async (id) => (await client.find({ params: { id } })).body,
+      find: async (id) => {
+        const response = await client.fetch(`/v1/users/${encodeURIComponent(id)}`);
+        return response.ok ? await response.json() : null;
+      },
     }),
   });
   const orders = await createApplication({
@@ -102,7 +104,6 @@ Deno.test("provideHttp rejects a contract that cannot implement its port", () =>
           routes: {},
         }),
         baseUrl: "http://users-service",
-        timeoutMs: 100,
         adapt: () => ({ find: async () => null }),
       }),
     ConfigurationError,
@@ -166,10 +167,12 @@ Deno.test("provideHttp providers pass the shared port contract at the contract v
   const provider = provideHttp(userDirectory, {
     contract: defineHttpContract({ ...usersContract, version: { major: 1, minor: 2 } }),
     baseUrl: "http://users-service",
-    timeoutMs: 100,
     fetch: (input, init) => usersService.request(input, init),
     adapt: (client) => ({
-      find: async (id) => (await client.find({ params: { id } })).body,
+      find: async (id) => {
+        const response = await client.fetch(`/v1/users/${encodeURIComponent(id)}`);
+        return response.ok ? await response.json() : null;
+      },
     }),
   });
 

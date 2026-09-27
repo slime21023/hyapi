@@ -35,7 +35,7 @@ consists of:
 - every export of `packages/core/mod.ts` (`@hyapi/core`) and `packages/cli/mod.ts` (`@hyapi/cli`);
 - CLI commands and flags;
 - wire behavior: problem+json fields, the `x-request-id`, `x-hyapi-deadline`, and `x-hyapi-service`
-  headers, and the values of `HttpContractClientError.reason` and `ResilienceError.reason`.
+  headers, native HTTP responses, and the values of `ResilienceError.reason`.
 
 Breaking changes to the public API ship only in a major release. Minor releases add compatible
 features; patch releases contain compatible fixes, documentation, and quality improvements.

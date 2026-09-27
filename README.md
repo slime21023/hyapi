@@ -421,15 +421,18 @@ await verifyPortContracts(userDirectoryContract, [localUserDirectory, fakeUserDi
 ### 7. Optional HTTP Boundaries
 
 When a module needs an independent deployment, keep its Port and replace only its local provider
-with `provideHttp()`. A shared `defineHttpContract()` gives the service route registration and its
-client the same TypeBox schemas and response statuses. Every remote client must set a timeout.
-Retries are configured with `resilience.retry` and apply only to idempotent requests (`GET`, `PUT`,
-`DELETE`, `OPTIONS`, or any request with an `idempotency-key` header); a custom `retryOn` cannot
-bypass that rule. Pass `withHttpContext(ctx, "my-service")` headers to propagate the request ID,
-`traceparent`, and `ctx.deadline`.
+with `provideHttp()`. A shared `defineHttpContract()` gives the service its route definitions,
+OpenAPI metadata, and port version. The adapter receives `createHttpClient()`'s small native `fetch`
+wrapper, so it explicitly selects the path, request method, and how to interpret the raw `Response`.
+Pass `withHttpContext(ctx, "my-service")` headers to propagate the request ID, `traceparent`, and
+`ctx.deadline`.
+
+The client deliberately adds no response-schema validation, status mapping, retry, or timeout
+policy. Those decisions belong to the Port adapter; pass an `AbortSignal` through `RequestInit` and
+apply resilience only where that operation needs it.
 
 See [the v0.5 extraction guide](docs/migrations/v0.5.0.md) for the Users → Orders migration,
-including contract validation, idempotency, and request-context propagation.
+including contract registration, response mapping, and request-context propagation.
 
 Provider lifecycle and major/minor contract compatibility are described in the
 [v0.8 migration guide](docs/migrations/v0.8.0.md). Applications can inspect readiness with

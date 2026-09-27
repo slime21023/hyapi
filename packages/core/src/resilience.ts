@@ -56,20 +56,13 @@ export function withResilience<TArgs extends readonly unknown[], TResult>(
   operation: (...args: TArgs) => MaybePromise<TResult>,
   policy: ResiliencePolicy,
 ): (...args: TArgs) => Promise<TResult> {
-  return createGuard<TArgs, TResult>((_signal, ...args) => operation(...args), policy);
-}
-
-export function createGuard<TArgs extends readonly unknown[], TResult>(
-  operation: (signal: AbortSignal, ...args: TArgs) => MaybePromise<TResult>,
-  policy: ResiliencePolicy,
-): (...args: TArgs) => Promise<TResult> {
   validatePolicy(policy);
   const breaker = policy.circuitBreaker ? new CircuitBreaker(policy.circuitBreaker) : undefined;
   const bulkhead = policy.bulkhead ? new Bulkhead(policy.bulkhead) : undefined;
   return (...args: TArgs): Promise<TResult> => {
     const exec = async (signal: AbortSignal): Promise<TResult> => {
-      if (breaker) return await breaker.execute(() => operation(signal, ...args), signal);
-      return await operation(signal, ...args);
+      if (breaker) return await breaker.execute(() => operation(...args), signal);
+      return await operation(...args);
     };
     return runWithRetry(
       (signal) => bulkhead ? bulkhead.execute(exec, signal) : exec(signal),
@@ -79,29 +72,7 @@ export function createGuard<TArgs extends readonly unknown[], TResult>(
   };
 }
 
-export function validateRetryPolicy(policy: RetryPolicy | undefined): void {
-  if (!policy) return;
-  if (!Number.isInteger(policy.maxAttempts) || policy.maxAttempts < 1) {
-    throw new Error("Resilience retry maxAttempts must be a positive integer.");
-  }
-  if (
-    !Number.isFinite(policy.initialDelayMs) || policy.initialDelayMs < 0 ||
-    policy.initialDelayMs > MAX_TIMER_MS
-  ) {
-    throw new Error(
-      "Resilience retry initialDelayMs must be non-negative and at most 2147483647.",
-    );
-  }
-  if (
-    policy.maxDelayMs !== undefined &&
-    (!Number.isFinite(policy.maxDelayMs) || policy.maxDelayMs < 0 ||
-      policy.maxDelayMs > MAX_TIMER_MS)
-  ) {
-    throw new Error("Resilience retry maxDelayMs must be non-negative and at most 2147483647.");
-  }
-}
-
-export function computeRetryDelay(policy: RetryPolicy, attempt: number): number {
+function computeRetryDelay(policy: RetryPolicy, attempt: number): number {
   const base = policy.backoff === "exponential"
     ? policy.initialDelayMs * 2 ** (attempt - 1)
     : policy.initialDelayMs;
@@ -314,7 +285,36 @@ function validatePolicy(policy: ResiliencePolicy): void {
   ) {
     throw new Error("Resilience timeoutMs must be positive and at most 2147483647.");
   }
-  validateRetryPolicy(policy.retry);
+  const retry = policy.retry;
+  if (retry) {
+    if (!Number.isInteger(retry.maxAttempts) || retry.maxAttempts < 1) {
+      throw new Error("Resilience retry maxAttempts must be a positive integer.");
+    }
+    if (
+      !Number.isFinite(retry.initialDelayMs) || retry.initialDelayMs < 0 ||
+      retry.initialDelayMs > MAX_TIMER_MS
+    ) {
+      throw new Error(
+        "Resilience retry initialDelayMs must be non-negative and at most 2147483647.",
+      );
+    }
+    if (
+      retry.maxDelayMs !== undefined &&
+      (!Number.isFinite(retry.maxDelayMs) || retry.maxDelayMs < 0 ||
+        retry.maxDelayMs > MAX_TIMER_MS)
+    ) {
+      throw new Error("Resilience retry maxDelayMs must be non-negative and at most 2147483647.");
+    }
+    if (retry.backoff !== undefined && retry.backoff !== "exponential") {
+      throw new Error("Resilience retry backoff must be 'exponential' when provided.");
+    }
+    if (retry.jitter !== undefined && typeof retry.jitter !== "boolean") {
+      throw new Error("Resilience retry jitter must be a boolean when provided.");
+    }
+    if (retry.retryOn !== undefined && typeof retry.retryOn !== "function") {
+      throw new Error("Resilience retry retryOn must be a function when provided.");
+    }
+  }
   if (
     policy.circuitBreaker &&
     (!Number.isInteger(policy.circuitBreaker.failureThreshold) ||

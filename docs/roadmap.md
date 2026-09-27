@@ -73,7 +73,7 @@ suite.
 - [x] **RES-03:** Retry/backoff policy with safe-method defaults and jitter options.
 - [x] **RES-04:** Circuit breaker primitive.
 - [x] **RES-05:** Bulkhead/concurrency isolation primitive.
-- [x] **RES-06:** HTTP provider integration.
+- [x] **RES-06:** Generic policy integration for Port adapters.
 - [x] **RES-07:** Reference documentation and migration guide.
 - [x] **RES-08:** Reliability tests and release verification.
 
@@ -82,16 +82,16 @@ suite.
 **Goal:** make the v0.9 API operationally predictable without adding a new public abstraction or
 breaking existing application code.
 
-- [x] **RC-01:** Clear resilience and HTTP timeout timers after completion; abort in-flight HTTP
-      requests when their local timeout or propagated deadline expires.
+- [x] **RC-01:** Clear resilience timeout timers after completion and preserve abort-aware operation
+      boundaries.
 - [x] **RC-02:** Make bulkhead admission FIFO and reserve released slots so queued work cannot be
       overtaken or exceed the configured concurrency.
 - [x] **RC-03:** Count only transient/provider failures in circuit-breaker state; client and
       contract failures do not open the breaker.
-- [x] **RC-04:** Enforce the smallest of local and `x-hyapi-deadline` budgets across HTTP retries,
-      including propagated deadlines from `withHttpContext()`.
-- [x] **RC-05:** Preserve the v0.9 public API and error names/reasons while tightening policy and
-      deadline validation at trust boundaries.
+- [x] **RC-04:** Keep `withHttpContext()` as header propagation; adapters choose their own request
+      deadline and retry policy.
+- [x] **RC-05:** Keep resilience error names/reasons while tightening policy validation at trust
+      boundaries.
 - [x] **RC-06:** Keep the existing verification suite as the RC performance/resource baseline and
       cover the new queue, timeout, breaker, and deadline behavior with focused tests.
 - [x] **RC-07:** Keep the RC dependency-free and reject malformed policy/deadline values before they
