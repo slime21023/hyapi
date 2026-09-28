@@ -1,3 +1,11 @@
+/**
+ * HyAPI's public application API.
+ *
+ * Compose an application from modules and plugins, connect modules through Ports, and expose
+ * HTTP contracts without coupling application code to a transport.
+ *
+ * @module
+ */
 export { createApplication } from "./src/app.ts";
 export {
   AppError,

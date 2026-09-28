@@ -1,3 +1,5 @@
+/** Provides HS256 bearer-token authentication for protected routes. @module */
+
 import { type AuthProvider, type Identity, type Plugin } from "./types.ts";
 import { ConfigurationError, UnauthorizedError } from "./errors.ts";
 
@@ -18,12 +20,14 @@ interface ParsedJwt {
   readonly signingInput: Uint8Array;
 }
 
+/** Authenticates Bearer tokens signed with an HS256 secret. */
 export class JwtAuthProvider implements AuthProvider {
   private constructor(
     private readonly options: JwtOptions,
     private readonly key: CryptoKey,
   ) {}
 
+  /** Creates a provider after validating and importing its signing secret. */
   static async create(options: JwtOptions): Promise<JwtAuthProvider> {
     const secret = textEncoder.encode(options.secret);
     if (secret.length < 32) {
@@ -45,6 +49,7 @@ export class JwtAuthProvider implements AuthProvider {
     return new JwtAuthProvider(options, key);
   }
 
+  /** Returns an identity for a valid Bearer token, or `null` when no credentials are supplied. */
   async authenticate(request: Request): Promise<Identity | null> {
     const token = readBearerToken(request.headers.get("authorization"));
     if (token === null) return null;
@@ -56,6 +61,7 @@ export class JwtAuthProvider implements AuthProvider {
   }
 }
 
+/** Creates a plugin that installs an HS256 JWT authentication provider. */
 export function jwtPlugin(options: JwtOptions): Plugin {
   return {
     name: "jwt",

@@ -1,6 +1,9 @@
+/** Wraps operations with retry, timeout, circuit-breaker, and bulkhead policies. @module */
+
 import type { MaybePromise } from "./types.ts";
 import { MAX_TIMER_MS, sleep } from "./runtime/timers.ts";
 
+/** Retry behavior applied after a failed operation attempt. */
 export interface RetryPolicy {
   readonly maxAttempts: number;
   readonly initialDelayMs: number;
@@ -10,17 +13,20 @@ export interface RetryPolicy {
   readonly retryOn?: (error: unknown) => boolean;
 }
 
+/** Failure threshold and recovery behavior for one wrapped operation. */
 export interface CircuitBreakerPolicy {
   readonly failureThreshold: number;
   readonly resetTimeoutMs: number;
   readonly halfOpenMaxAttempts?: number;
 }
 
+/** Concurrency and queue limits for one wrapped operation. */
 export interface BulkheadPolicy {
   readonly maxConcurrent: number;
   readonly queueSize?: number;
 }
 
+/** Combined resilience behavior retained by one wrapped operation. */
 export interface ResiliencePolicy {
   readonly timeoutMs?: number;
   readonly retry?: RetryPolicy;
@@ -28,6 +34,7 @@ export interface ResiliencePolicy {
   readonly bulkhead?: BulkheadPolicy;
 }
 
+/** Reports a timeout, open circuit, or rejected bulkhead admission. */
 export class ResilienceError extends Error {
   constructor(
     readonly reason: "timeout" | "circuit_open" | "bulkhead_rejected",
@@ -49,8 +56,13 @@ const NON_BREAKER_FAILURE_REASONS: Readonly<Record<string, true>> = {
 };
 
 /**
+ * Wraps an operation with retained resilience state.
+ *
  * Timed-out operations are abandoned: they release their bulkhead slot and count as
  * circuit-breaker failures even if they never settle.
+ *
+ * @param operation Work to execute.
+ * @param policy Timeout, retry, circuit-breaker, and bulkhead settings.
  */
 export function withResilience<TArgs extends readonly unknown[], TResult>(
   operation: (...args: TArgs) => MaybePromise<TResult>,

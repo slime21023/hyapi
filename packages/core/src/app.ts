@@ -623,6 +623,20 @@ function createPlatformApi(app: HyApiApp): PlatformApi {
   return Object.freeze(platform);
 }
 
+/**
+ * Composes, starts, and returns an application facade.
+ *
+ * @example
+ * ```ts
+ * const app = await createApplication({
+ *   config: { name: "catalog" },
+ *   modules: [],
+ * });
+ * await app.close();
+ * ```
+ *
+ * @param options Application configuration, modules, plugins, and providers.
+ */
 export async function createApplication(options: ApplicationOptions): Promise<HyApplication> {
   const app = new HyApiApp({ ...options, config: defineConfig(options.config) });
   await app.start();

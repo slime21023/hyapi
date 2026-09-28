@@ -1,3 +1,5 @@
+/** Defines transport-level HTTP contracts independently of module Port behavior. @module */
+
 import { ConfigurationError } from "../errors.ts";
 import type { ContractVersion } from "../port.ts";
 import type {
@@ -8,6 +10,7 @@ import type {
   Schema,
 } from "../types.ts";
 
+/** Typed HTTP route shared by a client and its server registration. */
 export interface HttpContractRoute<
   TParams extends Schema | undefined = Schema | undefined,
   TQuery extends Schema | undefined = Schema | undefined,
@@ -22,6 +25,7 @@ export interface HttpContractRoute<
   readonly metadata?: RouteMetadata;
 }
 
+/** Non-generic HTTP contract route shape used by contract collections. */
 export type AnyHttpContractRoute = HttpContractRoute<
   Schema | undefined,
   Schema | undefined,
@@ -30,8 +34,10 @@ export type AnyHttpContractRoute = HttpContractRoute<
   boolean
 >;
 
+/** Named HTTP contract routes. Each key becomes the default OpenAPI operation ID. */
 export type HttpContractRoutes = Readonly<Record<string, AnyHttpContractRoute>>;
 
+/** Versioned HTTP API description shared by callers and handlers. */
 export interface HttpContract<TRoutes extends HttpContractRoutes = HttpContractRoutes> {
   readonly name: string;
   readonly version: ContractVersion;
@@ -63,6 +69,7 @@ export function formatHttpContractVersion(version: ContractVersion): string {
   return `${version.major}.${version.minor}`;
 }
 
+/** Validates and returns a versioned HTTP contract. */
 export function defineHttpContract<TRoutes extends HttpContractRoutes>(
   contract: HttpContract<TRoutes>,
 ): HttpContract<TRoutes> {

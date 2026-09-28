@@ -1,3 +1,4 @@
+/** Base error translated to an RFC 7807 HTTP problem response. */
 export class AppError extends Error {
   readonly statusCode: number;
   readonly code: string;
@@ -26,6 +27,7 @@ export class AppError extends Error {
   }
 }
 
+/** Reports invalid application setup without disclosing details to HTTP clients. */
 export class ConfigurationError extends AppError {
   constructor(message: string, details: unknown = undefined) {
     super(500, "CONFIGURATION_ERROR", message, details, false);
@@ -33,6 +35,7 @@ export class ConfigurationError extends AppError {
   }
 }
 
+/** Reports a resource that does not exist. */
 export class NotFoundError extends AppError {
   constructor(message = "The requested resource was not found.") {
     super(404, "NOT_FOUND", message);
@@ -40,6 +43,7 @@ export class NotFoundError extends AppError {
   }
 }
 
+/** Reports missing or invalid authentication. */
 export class UnauthorizedError extends AppError {
   constructor(message = "Authentication is required.") {
     super(401, "UNAUTHORIZED", message);
@@ -47,6 +51,7 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+/** Reports an authenticated identity that lacks permission. */
 export class ForbiddenError extends AppError {
   constructor(message = "You do not have permission to perform this action.") {
     super(403, "FORBIDDEN", message);
@@ -54,6 +59,7 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/** Reports a request that conflicts with current application state. */
 export class ConflictError extends AppError {
   constructor(message: string, details: unknown = undefined) {
     super(409, "CONFLICT", message, details);
@@ -61,6 +67,7 @@ export class ConflictError extends AppError {
   }
 }
 
+/** Reports invalid client input and exposes its validation details. */
 export class ValidationError extends AppError {
   constructor(source: string, details: unknown) {
     super(
@@ -75,6 +82,7 @@ export class ValidationError extends AppError {
   }
 }
 
+/** Reports a server response that violates its declared schema. */
 export class ResponseValidationError extends AppError {
   constructor(details: unknown) {
     super(
@@ -88,6 +96,7 @@ export class ResponseValidationError extends AppError {
   }
 }
 
+/** Reports a handler response that violates its declared response contract. */
 export class ResponseContractError extends AppError {
   constructor(message: string, details: unknown = undefined) {
     super(500, "RESPONSE_CONTRACT_ERROR", message, details, false);

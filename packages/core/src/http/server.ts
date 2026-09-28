@@ -1,3 +1,5 @@
+/** Adapts HTTP contracts to application route registration. @module */
+
 import { ConfigurationError } from "../errors.ts";
 import type {
   MaybePromise,
@@ -13,6 +15,7 @@ import type {
   HttpContractRoutes,
 } from "./contract.ts";
 
+/** Handler signature inferred from one HTTP contract route. */
 export type HttpContractHandler<TRoute extends AnyHttpContractRoute> = TRoute extends
   HttpContractRoute<
     infer TParams,
@@ -23,10 +26,12 @@ export type HttpContractHandler<TRoute extends AnyHttpContractRoute> = TRoute ex
   > ? (context: RequestContext<TParams, TQuery, TBody, TBodyRequired>) => MaybePromise<unknown>
   : never;
 
+/** Complete handler map required by an HTTP contract. */
 export type HttpContractHandlers<TRoutes extends HttpContractRoutes> = {
   readonly [TName in keyof TRoutes]: HttpContractHandler<TRoutes[TName]>;
 };
 
+/** Registers every contract route and gives unnamed operations their contract key. */
 export function registerHttpContract<TRoutes extends HttpContractRoutes>(
   api: RouteGroupApi,
   contract: HttpContract<TRoutes>,

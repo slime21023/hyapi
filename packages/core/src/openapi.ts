@@ -1,7 +1,10 @@
+/** Defines OpenAPI documents and their application-level configuration. @module */
+
 import { type AnyRouteDefinition } from "./types.ts";
 import type { SchemaValidator } from "./schema.ts";
 import { isProtectedAuth, resolveResponseSchemas } from "./routing.ts";
 
+/** Fully resolved OpenAPI document served by the application. */
 export interface OpenApiDocument {
   readonly id: string;
   readonly title: string;
@@ -10,6 +13,7 @@ export interface OpenApiDocument {
   readonly path: string;
 }
 
+/** User-provided values for one named OpenAPI document. */
 export interface OpenApiDocumentOptions {
   readonly id: string;
   readonly title?: string;
@@ -18,12 +22,14 @@ export interface OpenApiDocumentOptions {
   readonly path: string;
 }
 
+/** Normalized set of OpenAPI documents exposed by an application. */
 export interface OpenApiConfig {
   readonly enabled: boolean;
   readonly defaultDocument: string;
   readonly documents: readonly OpenApiDocument[];
 }
 
+/** Optional OpenAPI configuration accepted by {@link defineConfig}. */
 export interface OpenApiConfigOptions {
   readonly enabled?: boolean;
   readonly defaultDocument?: string;

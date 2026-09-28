@@ -1,3 +1,5 @@
+/** Normalizes application and OpenAPI configuration before startup. @module */
+
 import { ConfigurationError } from "./errors.ts";
 import type {
   OpenApiConfig,
@@ -13,6 +15,7 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 const DEFAULT_OPENAPI_DOCUMENT_ID = "default";
 const DEFAULT_OPENAPI_PATH = "/openapi.json";
 
+/** Fully normalized configuration used by a running application. */
 export interface AppConfig {
   readonly name: string;
   readonly version: string;
@@ -25,6 +28,7 @@ export interface AppConfig {
   readonly openapi: OpenApiConfig;
 }
 
+/** User-provided application configuration; omitted values receive framework defaults. */
 export interface AppConfigOptions {
   readonly name: string;
   readonly version?: string;
@@ -36,6 +40,10 @@ export interface AppConfigOptions {
   readonly openapi?: OpenApiConfigOptions;
 }
 
+/**
+ * Validates configuration and supplies application and OpenAPI defaults.
+ * @param options User-provided configuration.
+ */
 export function defineConfig(options: AppConfigOptions): AppConfig {
   const version = options.version ?? "0.1.0";
   const requestIdHeader = options.requestIdHeader ?? "x-request-id";
