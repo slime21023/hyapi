@@ -25,7 +25,6 @@ import {
   verifyPortContracts,
   withHttpContext,
 } from "@hyapi/core";
-import { expectStatus, requestJson } from "@hyapi/core";
 import { ConfigurationError } from "@hyapi/core";
 import { createApp } from "../../../packages/core/src/app.ts";
 import { sleep } from "../../../packages/core/src/runtime/timers.ts";
@@ -82,9 +81,9 @@ Deno.test("routes validate input, return typed JSON, and preserve request ids wi
   const defaultedQuery = await app.request("http://test/items/abc");
   assertEquals(defaultedQuery.status, 200);
   assertEquals(await defaultedQuery.json(), { id: "abc", limit: 10 });
-  const jsonResult = await requestJson(app, "http://test/items/abc");
-  expectStatus(jsonResult.response, 200);
-  assertEquals(jsonResult.body, { id: "abc", limit: 10 });
+  const jsonResponse = await app.request("http://test/items/abc");
+  assertEquals(jsonResponse.status, 200);
+  assertEquals(await jsonResponse.json(), { id: "abc", limit: 10 });
 
   const invalid = await app.request("http://test/items/a?limit=0");
   assertEquals(invalid.status, 400);

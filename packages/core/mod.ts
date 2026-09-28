@@ -24,7 +24,6 @@ export { defineHttpContract } from "./src/http/contract.ts";
 export { registerHttpContract } from "./src/http/server.ts";
 export { createHttpClient, createHttpHealthCheck, withHttpContext } from "./src/http/client.ts";
 export { provideHttp } from "./src/http/provider.ts";
-export { expectStatus, requestJson } from "./src/testing.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
 export type {

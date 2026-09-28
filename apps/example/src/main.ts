@@ -72,11 +72,9 @@ async function abortAfter(deadline: number, signal: AbortSignal): Promise<void> 
   }
 }
 
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  Deno.addSignalListener(signal, () => {
-    void stop().catch(console.error);
-  });
-}
+const onShutdown = () => void stop().catch(console.error);
+Deno.addSignalListener("SIGINT", onShutdown);
+if (Deno.build.os !== "windows") Deno.addSignalListener("SIGTERM", onShutdown);
 console.log(`HyAPI listening on http://${config.host}:${config.port}`);
 try {
   await server.finished;
