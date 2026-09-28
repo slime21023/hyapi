@@ -19,7 +19,7 @@ rules:
       - "The complete formatter, lint, type-check, and test gate succeeds."
   - id: roadmap-is-actionable
     name: roadmap-and-issue-conventions-exist
-    apply: "docs/roadmap.md,.github/ISSUE_TEMPLATE/development.md"
+    apply: "_design/roadmap.md,.github/ISSUE_TEMPLATE/development.md"
     level: error
     desc:
       - "The roadmap names release gates and implementation tasks."

@@ -1,13 +1,23 @@
 {
-  "workspace": ["./packages/core", "./packages/cli", "./apps/example"],
+  "workspace": [
+    "./packages/core",
+    "./packages/cli",
+    "./packages/plugin-cors",
+    "./packages/plugin-rate-limit",
+    "./apps/example"
+  ],
   "imports": {
     "@hyapi/core": "./packages/core/mod.ts",
+    "@hyapi/plugin-cors": "./packages/plugin-cors/mod.ts",
+    "@hyapi/plugin-rate-limit": "./packages/plugin-rate-limit/mod.ts",
     "@hono/hono": "jsr:@hono/hono@4",
     "@std/assert": "jsr:@std/assert@1",
     "typebox": "npm:typebox@1",
     "typebox/compile": "npm:typebox@1/compile",
     "typebox/format": "npm:typebox@1/format",
-    "typebox/value": "npm:typebox@1/value"
+    "typebox/value": "npm:typebox@1/value",
+    "vitepress": "npm:vitepress@1.6.4",
+    "vue": "npm:vue@3.5.43"
   },
   "tasks": {
     "dev": "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort apps/example/src/main.ts",
@@ -15,13 +25,17 @@
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
     "lint": "deno run --allow-read --allow-env --allow-ffi npm:oxlint@1 .",
-    "check": "deno check packages/core/mod.ts packages/cli/mod.ts apps/example/src/main.ts bench/core/app_bench.ts scripts/verify-starter.ts",
-    "test": "deno test --allow-env --allow-read --allow-write tests/",
+    "check": "deno check packages/core/mod.ts packages/cli/mod.ts packages/plugin-cors/mod.ts packages/plugin-rate-limit/mod.ts apps/example/src/main.ts bench/core/app_bench.ts scripts/verify-starter.ts",
+    "test": "deno test --allow-env --allow-read --allow-write --allow-run tests/",
+    "test:public": "deno test --allow-env --allow-read --allow-write --allow-run tests/core/public/ tests/core/integration/ tests/cli/public/ tests/plugins/cors/public/ tests/plugins/rate-limit/public/",
     "doctor:example": "deno run --allow-read packages/cli/mod.ts doctor apps/example",
     "verify:starter": "deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts",
     "bench": "deno bench --allow-env bench/",
+    "docs:dev": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress dev docs",
+    "docs:build": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress build docs",
+    "docs:preview": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress preview docs",
     "publish:check": "deno publish --dry-run",
-    "verify": "deno fmt --check && deno task lint && deno task check && deno task test && deno task doctor:example && deno task verify:starter"
+    "verify": "deno fmt --check && deno task lint && deno task check && deno task test && deno task doctor:example && deno task verify:starter && deno task docs:build"
   },
   "fmt": {
     "lineWidth": 100,

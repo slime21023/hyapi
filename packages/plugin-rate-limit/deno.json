@@ -1,7 +1,10 @@
 {
-  "imports": {
-    "@hyapi/core": "../../packages/core/mod.ts",
-    "typebox": "npm:typebox@1"
+  "name": "@hyapi/plugin-rate-limit",
+  "version": "1.0.0-rc.4",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "publish": {
+    "exclude": ["**/*_test.ts"]
   },
   "fmt": {
     "lineWidth": 100,

@@ -1,7 +1,7 @@
 # Operating HyAPI
 
 This guide covers deploying, observing, and splitting a HyAPI application. The reference
-implementation is the example app in [`apps/example`](../apps/example).
+implementation is the [example app](https://github.com/slime21023/hyapi/tree/main/apps/example).
 
 ## Deployment
 
@@ -23,7 +23,8 @@ scope is active; deadline and shutdown aborts remain independently owned by HyAP
 
 ### Environment variables
 
-The example app reads the following variables (see [`.env.example`](../.env.example)):
+The example app reads the following variables (see
+[`.env.example`](https://github.com/slime21023/hyapi/blob/main/.env.example)):
 
 | Variable       | Required | Purpose                                                  |
 | -------------- | -------- | -------------------------------------------------------- |
@@ -39,7 +40,8 @@ The example app reads the following variables (see [`.env.example`](../.env.exam
 ### Graceful shutdown
 
 On SIGINT/SIGTERM, start `app.close()` immediately and stop the listener after any active
-transmissions complete, as in [`apps/example/src/main.ts`](../apps/example/src/main.ts).
+transmissions complete, as in
+[`apps/example/src/main.ts`](https://github.com/slime21023/hyapi/blob/main/apps/example/src/main.ts).
 `info.completed` observes network delivery only; request scopes still close when a `Response`
 returns. Deno 2.9 can raise `BadResource` if the ServeOptions signal aborts during an already
 running `server.shutdown()` with an unfinished stream. Therefore the listener defers
@@ -71,7 +73,7 @@ order. Nested cleanup aggregates are flattened; the failed provider stage remain
 aggregate's `cause`, with the connect exception as its own `cause`.
 
 The ownership and error-routing decisions are recorded in
-[ADR 0001](adr/0001-layered-error-scopes.md).
+[ADR 0001](https://github.com/slime21023/hyapi/blob/main/_design/decisions/0001-layered-error-scopes.md).
 
 ### Reverse proxies
 
@@ -124,10 +126,11 @@ returned in the same response header, included in every problem+json body, and a
 ### Logs and metrics
 
 Use global lifecycle hooks from a plugin to emit logs and metrics. The example app's
-`request-logging` plugin in [`apps/example/src/app.ts`](../apps/example/src/app.ts) records a start
-time in `onRequest` and logs a structured `request.complete` event with the request ID, method,
-path, status, and duration in `onResponse`. Error responses also pass through `onResponse`, so the
-same hook observes failures; use `onError` to record the underlying error.
+`request-logging` plugin in
+[`apps/example/src/app.ts`](https://github.com/slime21023/hyapi/blob/main/apps/example/src/app.ts)
+records a start time in `onRequest` and logs a structured `request.complete` event with the request
+ID, method, path, status, and duration in `onResponse`. Error responses also pass through
+`onResponse`, so the same hook observes failures; use `onError` to record the underlying error.
 
 `onError` observers are invoked group then global, in order, and each receives the failure being
 reported even if another observer changed `lifecycle.error`. Each is awaited only until it settles
@@ -164,9 +167,10 @@ endpoints:
 ## Service extraction
 
 A module that needs an independent deployment keeps its Port and replaces only its local provider
-with `provideHttp()`. Follow the [v0.5 extraction guide](migrations/v0.5.0.md) for the Users ->
-Orders walkthrough, including shared HTTP contracts, explicit response mapping, and request-context
-propagation.
+with `provideHttp()`. Follow the
+[v0.5 extraction guide](https://github.com/slime21023/hyapi/blob/main/_design/migrations/v0.5.0.md)
+for the Users -> Orders walkthrough, including shared HTTP contracts, explicit response mapping, and
+request-context propagation.
 
 `provideHttp()` registers the port with the HTTP contract's version, so the application's
 major/minor compatibility check at startup compares the consumer's required version against the

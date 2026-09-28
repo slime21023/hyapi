@@ -46,7 +46,7 @@ before removal in the next major.
 
 Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
 old API, with no alias or transition period, and the change ships a migration note in
-`docs/migrations/`.
+`_design/migrations/`.
 
 Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
 
@@ -56,11 +56,11 @@ and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publis
 rejects a tag that differs from either package version before repeating `deno task verify` and
 publishing both packages to JSR.
 
-The `v1.0.0-rc.2` freeze was reopened for lifecycle correctness fixes. `v1.0.0-rc.3` is the next
-candidate, not a published release; its verification gate must pass before tagging. After that gate,
-runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression of more than
-20% on the same hardware must be explained in the pull request; see
-[docs/baselines/performance.md](docs/baselines/performance.md).
+The `v1.0.0-rc.3` candidate was superseded before publication. `v1.0.0-rc.4` is the next candidate,
+not a published release; its verification gate must pass before tagging. After that gate, runtime
+and public API changes are out of scope before `v1.0.0`. A benchmark regression of more than 20% on
+the same hardware must be explained in the pull request; see
+[`_design/baselines/performance.md`](_design/baselines/performance.md).
 
-The roadmap and release gates are maintained in [docs/roadmap.md](docs/roadmap.md). Report security
-issues privately as described in [SECURITY.md](SECURITY.md).
+The roadmap and release gates are maintained in [`_design/roadmap.md`](_design/roadmap.md). Report
+security issues privately as described in [SECURITY.md](SECURITY.md).

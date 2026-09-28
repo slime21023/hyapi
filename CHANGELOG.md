@@ -5,15 +5,19 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-rc.3] - Unreleased
+## [1.0.0-rc.4] - Unreleased
 
 ### Added
 
+- English VitePress usage documentation and a focused `deno task test:public` release-contract
+  suite.
+- `@hyapi/plugin-cors` and `@hyapi/plugin-rate-limit`: optional native HTTP wrappers for explicit
+  CORS rules and bounded in-process fixed-window rate limiting.
 - `shutdownTimeoutMs` application setting (default 30000 ms): `app.close()` drains in-flight
   requests for up to this long, aborts remaining `ctx.signal`s, then uses a separate cleanup budget
   of the same length for application resources.
-- [ADR 0001](docs/adr/0001-layered-error-scopes.md) records the error owners, request/stream
-  lifetimes, bounded cleanup, and Deno listener tradeoffs.
+- [ADR 0001](_design/decisions/0001-layered-error-scopes.md) records the error owners,
+  request/stream lifetimes, bounded cleanup, and Deno listener tradeoffs.
 
 ### Changed
 
@@ -79,7 +83,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `ctx.signal`, aborted when the request times out, and `ctx.requestIdHeader`.
 - `HttpContractClientError` reasons `"deadline"` and `"aborted"`.
 - 413 and 415 OpenAPI responses on routes with a request body; 401 on every protected route.
-- MIT `LICENSE`, `SECURITY.md`, `docs/operations.md`, and `docs/baselines/performance.md`.
+- MIT `LICENSE`, `SECURITY.md`, `docs/guide/operations.md`, and `_design/baselines/performance.md`.
 - Core benchmarks (`deno task bench`), example `doctor` and generated-starter verification in
   `deno task verify`, a Windows CI matrix, a JSR publish dry-run, and tag-based publishing.
 - CLI `inspect` reads shared ports from `src/contracts/` and `src/app.ts` and lists requirements and

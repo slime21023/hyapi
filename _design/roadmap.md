@@ -28,7 +28,8 @@ provider without changing use case code.
 | v0.9.0      | Distributed resilience and remote-call governance                                 | Completed  |
 | v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Superseded |
 | v1.0.0-rc.2 | Audit remediation, Hono-free public API, release automation                       | Superseded |
-| v1.0.0-rc.3 | Lifecycle correctness and next release-candidate gate                             | Candidate  |
+| v1.0.0-rc.3 | Lifecycle correctness and next release-candidate gate                             | Superseded |
+| v1.0.0-rc.4 | Public-contract tests and developer documentation                                 | Candidate  |
 | v1.0.0      | Production baseline and public API stability                                      | Future     |
 
 ## v0.8.0 — Provider lifecycle and contract compatibility
@@ -160,6 +161,18 @@ with an explicit migration path and a release gate that cannot publish mismatche
       `@hyapi/core@1.0.0-rc.3` and `@hyapi/cli@1.0.0-rc.3`; `git diff --check` reported no errors.
       No JSR package was published.
 
+## v1.0.0-rc.4 — Public-contract and documentation candidate
+
+**Goal:** establish a maintainable, package-consumer test boundary and an English usage guide before
+the first JSR publication.
+
+- [x] Separate public Core and CLI facade tests from source-coupled internal tests.
+- [x] Add public coverage for Port composition, problem responses, multiple OpenAPI documents, HTTP
+      contracts/providers, JWT, resilience, and CLI starter creation.
+- [x] Correct pre-publication installation guidance and the Composition example.
+- [ ] Run the full verification and package dry runs on the final candidate, then verify a starter
+      against published Core and CLI packages.
+
 ## v1.0.0-rc.2 verification record
 
 The release candidate is verified from the repository root with:
@@ -176,7 +189,7 @@ establish that JSR dependencies resolve; after publishing, run
 `deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts --published`
 to check an unmodified starter. CI runs the gate on Ubuntu and Windows, and a release-checks job
 runs a whole-tree whitespace check and the JSR publish dry-run. Performance results are recorded in
-[docs/baselines/performance.md](baselines/performance.md).
+[`_design/baselines/performance.md`](baselines/performance.md).
 
 ## v1.0.0-rc.1 verification record
 

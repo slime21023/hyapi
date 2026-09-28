@@ -1,9 +1,9 @@
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import cliConfig from "../../packages/cli/deno.json" with { type: "json" };
-import { run } from "../../packages/cli/src/main.ts";
+import cliConfig from "../../../packages/cli/deno.json" with { type: "json" };
+import { run } from "../../../packages/cli/src/main.ts";
 
 Deno.test("CLI explains supported commands and rejects incomplete input", async () => {
-  const facade = await import(new URL("../../packages/cli/mod.ts", import.meta.url).href);
+  const facade = await import(new URL("../../../packages/cli/mod.ts", import.meta.url).href);
   assertEquals(Object.keys(facade), []);
 
   const output: string[] = [];

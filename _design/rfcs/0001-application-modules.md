@@ -75,8 +75,8 @@ failed initialization is not cached: the next resolution runs the factory again.
 Automatic cleanup applies to values implementing `close(): void | Promise<void>`. Request cleanup
 errors reach `onError` without replacing the response; application shutdown collects closer errors
 and uses a bounded asynchronous cleanup deadline. Later
-[ADR 0001](../adr/0001-layered-error-scopes.md) records the exact return-time stream ownership and
-forced-shutdown limits.
+[ADR 0001](../decisions/0001-layered-error-scopes.md) records the exact return-time stream ownership
+and forced-shutdown limits.
 
 ## Application lifecycle and validation
 

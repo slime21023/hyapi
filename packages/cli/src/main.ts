@@ -1,7 +1,7 @@
 import { diagnose, formatDiagnostics, formatInspection, inspectProject } from "./inspect.ts";
 import { createModule, createProject } from "./project.ts";
 
-const VERSION = "1.0.0-rc.3";
+const VERSION = "1.0.0-rc.4";
 
 type Command =
   | { readonly kind: "help" }
