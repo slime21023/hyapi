@@ -18,7 +18,7 @@ export default defineConfig({
           { text: "Composition", link: "/guide/composition" },
           { text: "Configuration", link: "/guide/configuration" },
           { text: "HTTP and OpenAPI", link: "/guide/http-and-openapi" },
-          { text: "Optional HTTP Plugins", link: "/guide/plugins" },
+          { text: "Optional Packages", link: "/guide/plugins" },
           { text: "Operations", link: "/guide/operations" },
         ],
       }],

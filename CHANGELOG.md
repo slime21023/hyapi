@@ -13,6 +13,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   suite.
 - `@hyapi/plugin-cors` and `@hyapi/plugin-rate-limit`: optional native HTTP wrappers for explicit
   CORS rules and bounded in-process fixed-window rate limiting.
+- `@hyapi/plugin-oidc`: optional OIDC Bearer authentication through explicit issuer, audience,
+  algorithms, and remote JWKS settings.
+- `@hyapi/plugin-csrf`: optional signed double-submit CSRF wrapper for cookie-authenticated browser
+  traffic with exact Origin rules.
 - `shutdownTimeoutMs` application setting (default 30000 ms): `app.close()` drains in-flight
   requests for up to this long, aborts remaining `ctx.signal`s, then uses a separate cleanup budget
   of the same length for application resources.

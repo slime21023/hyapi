@@ -14,15 +14,17 @@ project records under [`_design/`](_design/).
 ## Workspace
 
 ```text
-packages/core   framework package (@hyapi/core)
-packages/cli    project generator and diagnostics (@hyapi/cli)
+packages/core               framework package (@hyapi/core)
+packages/cli                project generator and diagnostics (@hyapi/cli)
 packages/plugin-cors        optional CORS HTTP wrapper
+packages/plugin-csrf        optional signed double-submit CSRF wrapper
+packages/plugin-oidc        optional OIDC Bearer authentication plugin
 packages/plugin-rate-limit  optional local rate-limit HTTP wrapper
-apps/example    example API
-tests/          workspace tests
-bench/          workspace benchmarks
-docs/           VitePress user documentation
-_design/        architecture and project records
+apps/example                example API
+tests/                      workspace tests
+bench/                      workspace benchmarks
+docs/                       VitePress user documentation
+_design/                    architecture and project records
 ```
 
 ## Development
