@@ -21,10 +21,17 @@ jobs:
         run: |
           deno eval '
             const tag = Deno.env.get("RELEASE_TAG");
-            const core = JSON.parse(Deno.readTextFileSync("packages/core/deno.json")).version;
-            const cli = JSON.parse(Deno.readTextFileSync("packages/cli/deno.json")).version;
-            if (core !== cli || tag !== `v${core}`) {
-              console.error(`Release mismatch: tag=${tag}, core=${core}, cli=${cli}`);
+            const expectedVersion = tag?.startsWith("v") ? tag.slice(1) : undefined;
+            const workspace = JSON.parse(Deno.readTextFileSync("deno.json")).workspace;
+            const packages = workspace
+              .map((member) => JSON.parse(Deno.readTextFileSync(`${member}/deno.json`)))
+              .filter((member) => typeof member.name === "string");
+            const mismatched = packages.filter((member) => member.version !== expectedVersion);
+            if (!expectedVersion || packages.length === 0 || mismatched.length > 0) {
+              console.error(
+                `Release mismatch: tag=${tag}, packages=${packages.map((member) =>
+                  `${member.name}@${member.version}`).join(", ")}`,
+              );
               Deno.exit(1);
             }
           '
