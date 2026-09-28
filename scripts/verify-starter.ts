@@ -1,5 +1,8 @@
-import { main, VERSION } from "../packages/cli/mod.ts";
+import cliConfig from "../packages/cli/deno.json" with { type: "json" };
+import { run } from "../packages/cli/src/main.ts";
 import rootConfig from "../deno.json" with { type: "json" };
+
+const VERSION = cliConfig.version;
 
 const cliEntry = new URL("../packages/cli/mod.ts", import.meta.url).href;
 const coreEntry = new URL("../packages/core/mod.ts", import.meta.url).href;
@@ -12,12 +15,12 @@ const root = await Deno.makeTempDir({ prefix: "hyapi-starter-" });
 const project = `${root}/starter`;
 
 try {
-  await main(["new", project], () => undefined);
+  await run(["new", project], () => undefined);
 
   const originalCwd = Deno.cwd();
   Deno.chdir(project);
   try {
-    await main(["generate", "module", "billing"], () => undefined);
+    await run(["generate", "module", "billing"], () => undefined);
   } finally {
     Deno.chdir(originalCwd);
   }
