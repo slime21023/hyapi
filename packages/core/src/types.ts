@@ -1,7 +1,7 @@
 import type { Static, TSchema } from "typebox";
 import type { AppConfig, AppConfigOptions } from "./config.ts";
 import type { HealthCheck, HealthReport } from "./health.ts";
-import type { Port, PortProvider } from "./port.ts";
+import type { Port, PortProvider, ProviderLifecycle } from "./port.ts";
 import type { RequestState } from "./state.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
@@ -215,6 +215,14 @@ export interface ModuleApi<TConfig = unknown> extends RouteGroupApi {
   transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
   transient<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
   use<T>(port: Port<T>): T;
+  /** Implements a Port declared in `provides`; the factory resolves after this module's setup. */
+  provide<T>(port: Port<T>, factory: ServiceFactory<T>, lifecycle?: ProviderLifecycle): void;
+  /** Registers a readiness check; names are unique across the application. */
+  healthCheck(check: HealthCheck): void;
+  /** Runs readiness checks; reports unhealthy unless the application is running. */
+  health(): Promise<HealthReport>;
+  /** Reports liveness without running checks; healthy while running or draining. */
+  liveness(): HealthReport;
 }
 
 /** Independently composed application unit with explicit dependencies and lifecycle hooks. */
@@ -224,7 +232,8 @@ export interface Module<TConfig extends Schema | undefined = Schema | undefined>
   readonly config?: TConfig;
   readonly dependencies?: readonly string[];
   readonly requires?: readonly Port<unknown>[];
-  readonly provides?: readonly PortProvider<unknown>[];
+  /** Ports this module implements with {@link ModuleApi.provide} during setup. */
+  readonly provides?: readonly Port<unknown>[];
   setup(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
   onStart?(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
   onClose?(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
@@ -235,7 +244,10 @@ export interface HyApplication {
   readonly config: AppConfig;
   fetch(request: Request): MaybePromise<Response>;
   request(input: RequestInfo | URL, init?: RequestInit): MaybePromise<Response>;
+  /** Readiness: runs health checks while running; unhealthy while draining or closed. */
   health(): Promise<HealthReport>;
+  /** Liveness: healthy while running or draining; does not run health checks. */
+  liveness(): HealthReport;
   close(): Promise<void>;
 }
 

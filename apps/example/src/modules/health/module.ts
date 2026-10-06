@@ -1,10 +1,7 @@
-import { type HealthReport, type Module } from "@hyapi/core";
+import type { Module } from "@hyapi/core";
 import { HealthResponseSchema, NotReadyResponseSchema, ReadyResponseSchema } from "./schema.ts";
 
-export function createHealthModule(
-  serviceName: string,
-  readiness: () => Promise<HealthReport>,
-): Module {
+export function createHealthModule(serviceName: string): Module {
   return {
     name: "health",
     setup(module) {
@@ -30,7 +27,7 @@ export function createHealthModule(
             responses: { 200: ReadyResponseSchema, 503: NotReadyResponseSchema },
             metadata: { operationId: "healthReady", summary: "Readiness probe" },
             handler: async ({ ok, json }) => {
-              const report = await readiness();
+              const report = await module.health();
               const timestamp = new Date().toISOString();
               if (report.status === "unhealthy") {
                 return json({

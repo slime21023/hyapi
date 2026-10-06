@@ -256,6 +256,20 @@ function scanBoundaries(sources: readonly Source[], sharedSources: readonly Sour
       }
     }
   }
+  for (const source of moduleSources) {
+    for (const match of source.text.matchAll(/provides\s*:\s*\[([\s\S]*?)\]/g)) {
+      for (const reference of (match[1] ?? "").split(",")) {
+        const port = resolvePortReference(
+          reference,
+          sourcePortNames.get(source)!,
+          importedPortNames.get(source)!,
+          modulePortNames.get(source.module)!,
+          portNames,
+        );
+        if (port) providedPorts.set(port, { module: source.module, port, path: source.path });
+      }
+    }
+  }
   for (const source of allSources) {
     for (const match of source.text.matchAll(/provide(?:Port|Http)\(\s*([^,\s)]+)/g)) {
       const port = resolvePortReference(

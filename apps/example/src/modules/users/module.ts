@@ -1,23 +1,25 @@
-import { type Module, providePort } from "@hyapi/core";
+import type { Module } from "@hyapi/core";
 import { type UserDirectoryEntry, userDirectoryPort } from "../../contracts/user-directory.ts";
 import { InMemoryUserRepository } from "./repository.ts";
 import { UserService } from "./service.ts";
 import { registerUserRoutes } from "./routes.ts";
 import type { User } from "./schema.ts";
 
-export function createUsersModule(): Module {
-  const repository = new InMemoryUserRepository();
-  return {
-    name: "users",
-    provides: [providePort(userDirectoryPort, {
-      find: async (id) => toDirectoryEntry(repository.findById(id)),
-    })],
-    setup(module) {
-      const service = module.singleton(() => new UserService(repository));
-      registerUserRoutes(module, service);
-    },
-  };
-}
+export const usersModule: Module = {
+  name: "users",
+  provides: [userDirectoryPort],
+  setup(module) {
+    const repository = module.singleton(() => new InMemoryUserRepository());
+    const service = module.singleton(async (services) =>
+      new UserService(await services.get(repository))
+    );
+    module.provide(userDirectoryPort, async (services) => {
+      const users = await services.get(repository);
+      return { find: async (id) => toDirectoryEntry(users.findById(id)) };
+    });
+    registerUserRoutes(module, service);
+  },
+};
 
 function toDirectoryEntry(user: User | null): UserDirectoryEntry | null {
   if (!user) return null;

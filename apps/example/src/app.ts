@@ -7,7 +7,7 @@ import {
 } from "@hyapi/core";
 import { createHealthModule } from "./modules/health/module.ts";
 import { ordersModule } from "./modules/orders/module.ts";
-import { createUsersModule } from "./modules/users/module.ts";
+import { usersModule } from "./modules/users/module.ts";
 
 const requestStartedAt = defineStateKey<number>("request-logging.startedAt");
 
@@ -20,12 +20,7 @@ export async function buildExampleApp(
   jwtSecret: string,
   options: ExampleAppOptions = {},
 ): Promise<HyApplication> {
-  let application: HyApplication | undefined;
-  const healthModule = createHealthModule(
-    config.name,
-    async () => application ? await application.health() : { status: "unhealthy", checks: [] },
-  );
-  const usersModule = createUsersModule();
+  const healthModule = createHealthModule(config.name);
   const plugins = [
     jwtPlugin({
       secret: jwtSecret,
@@ -58,10 +53,9 @@ export async function buildExampleApp(
     });
   }
 
-  application = await createApplication({
+  return await createApplication({
     config,
     modules: [healthModule, usersModule, ordersModule],
     plugins,
   });
-  return application;
 }

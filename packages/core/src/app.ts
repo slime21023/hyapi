@@ -17,8 +17,8 @@ import {
   type ServiceFactory,
   type ServiceReference,
 } from "./types.ts";
-import type { HealthReport } from "./health.ts";
-import type { Port } from "./port.ts";
+import type { HealthCheck, HealthReport } from "./health.ts";
+import { type Port, type PortProvider, providePort, type ProviderLifecycle } from "./port.ts";
 import {
   type AppConfig,
   DEFAULT_BODY_LIMIT_BYTES,
@@ -92,6 +92,7 @@ interface DependencyNode {
 function sortByDependencies<T extends DependencyNode>(
   items: readonly T[],
   kind: "Module" | "Plugin",
+  implicitDependencies: (item: T) => readonly string[] = () => [],
 ): T[] {
   const byName = new Map<string, T>();
   for (const item of items) {
@@ -124,6 +125,7 @@ function sortByDependencies<T extends DependencyNode>(
     const item = byName.get(name)!;
     visiting.push(name);
     for (const dependency of item.dependencies ?? []) visit(dependency);
+    for (const dependency of implicitDependencies(item)) visit(dependency);
     visiting.pop();
     visited.add(name);
     sorted.push(item);
@@ -131,6 +133,23 @@ function sortByDependencies<T extends DependencyNode>(
 
   for (const item of items) visit(item.name);
   return sorted;
+}
+
+/** Maps each module-provided Port id to its module, rejecting a Port declared twice. */
+function modulePortProviders(modules: readonly Module[]): Map<string, string> {
+  const providers = new Map<string, string>();
+  for (const module of modules) {
+    for (const port of module.provides ?? []) {
+      const previous = providers.get(port.id);
+      if (previous !== undefined) {
+        throw new ConfigurationError(
+          `Port '${port.id}' is provided by both '${previous}' and '${module.name}'.`,
+        );
+      }
+      providers.set(port.id, module.name);
+    }
+  }
+  return providers;
 }
 
 function deepFreeze<T>(value: T): T {
@@ -489,6 +508,16 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     return await this.healthChecks.check();
   }
 
+  liveness(): HealthReport {
+    const alive = this.state === "running" || this.state === "draining";
+    return { status: alive ? "healthy" : "unhealthy", checks: [] };
+  }
+
+  addHealthCheck(check: HealthCheck): void {
+    this.assertConfiguring("register health checks");
+    this.healthChecks.register([check]);
+  }
+
   /**
    * Acquires every resource in order and registers its release on the application scope, so a
    * failure at any step (and a later close) releases exactly what was acquired, in reverse.
@@ -501,19 +530,28 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
 
       await this.services.setOverrides(this.options.overrides ?? []);
       this.healthChecks.register(this.options.healthChecks ?? []);
-      const modules = sortByDependencies(this.options.modules ?? [], "Module");
+      const declaredModules = this.options.modules ?? [];
+      const portProviders = modulePortProviders(declaredModules);
+      const modules = sortByDependencies(
+        declaredModules,
+        "Module",
+        (module) =>
+          (module.requires ?? []).flatMap((port) => {
+            const provider = portProviders.get(port.id);
+            return provider !== undefined && provider !== module.name ? [provider] : [];
+          }),
+      );
       const plugins = sortByDependencies(this.options.plugins ?? [], "Plugin");
       const moduleConfigs = resolveModuleConfigs(
         modules,
         this.options.moduleConfig ?? {},
         this.validator,
       );
-      this.providers.register([
-        ...(this.options.providers ?? []),
-        ...modules.flatMap((module) => module.provides ?? []),
-      ]);
+      this.providers.register(this.options.providers ?? []);
       for (const module of modules) {
-        for (const port of module.requires ?? []) this.usePort(port);
+        for (const port of module.requires ?? []) {
+          if (!portProviders.has(port.id)) this.usePort(port);
+        }
       }
 
       const platform = createPlatformApi(this);
@@ -523,10 +561,12 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       }
       const contexts = new Map<Module, ModuleContext>();
       for (const module of modules) {
+        for (const port of module.requires ?? []) this.usePort(port);
         const context = new ModuleContext(this, module, moduleConfigs.get(module));
         contexts.set(module, context);
         await module.setup(context);
         if (module.onClose) this.appScope.defer(() => module.onClose!(context));
+        this.providers.register(await context.resolveProviders());
       }
 
       this.registrationOpen = false;
@@ -611,11 +651,19 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   }
 }
 
+interface PendingProvider {
+  readonly port: Port<unknown>;
+  readonly factory: ServiceFactory<unknown>;
+  readonly lifecycle: ProviderLifecycle | undefined;
+}
+
 class ModuleContext extends RouterGroup implements ModuleApi {
   readonly config: unknown;
   readonly #app: HyApiApp;
   readonly #moduleName: string;
   readonly #requiredPortIds: ReadonlySet<string>;
+  readonly #declaredPorts: ReadonlyMap<string, Port<unknown>>;
+  readonly #provided = new Map<string, PendingProvider>();
 
   constructor(app: HyApiApp, module: Module, config: unknown) {
     super(app);
@@ -623,6 +671,56 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     this.#app = app;
     this.#moduleName = module.name;
     this.#requiredPortIds = new Set(module.requires?.map((port) => port.id));
+    this.#declaredPorts = new Map(module.provides?.map((port) => [port.id, port]));
+  }
+
+  provide<T>(port: Port<T>, factory: ServiceFactory<T>, lifecycle?: ProviderLifecycle): void {
+    this.#app.assertConfiguring("provide ports");
+    const declared = this.#declaredPorts.get(port.id);
+    if (!declared) {
+      throw new ConfigurationError(
+        `Module '${this.#moduleName}' provides port '${port.id}' without declaring it in provides.`,
+      );
+    }
+    if (this.#provided.has(port.id)) {
+      throw new ConfigurationError(
+        `Module '${this.#moduleName}' provides port '${port.id}' more than once.`,
+      );
+    }
+    this.#provided.set(port.id, {
+      port: declared,
+      factory: factory as ServiceFactory<unknown>,
+      lifecycle,
+    });
+  }
+
+  /** Resolves this module's provider factories once its setup has completed. */
+  async resolveProviders(): Promise<PortProvider<unknown>[]> {
+    for (const id of this.#declaredPorts.keys()) {
+      if (!this.#provided.has(id)) {
+        throw new ConfigurationError(
+          `Module '${this.#moduleName}' declares port '${id}' in provides but did not provide it.`,
+        );
+      }
+    }
+    const providers: PortProvider<unknown>[] = [];
+    for (const { port, factory, lifecycle } of this.#provided.values()) {
+      const value = await factory(this.#app.services.resolver());
+      providers.push(providePort(port, value, lifecycle));
+    }
+    return providers;
+  }
+
+  healthCheck(check: HealthCheck): void {
+    this.#app.addHealthCheck(check);
+  }
+
+  health(): Promise<HealthReport> {
+    return this.#app.health();
+  }
+
+  liveness(): HealthReport {
+    return this.#app.liveness();
   }
 
   singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -716,6 +814,7 @@ export async function createApplication(options: ApplicationOptions): Promise<Hy
     fetch: (request) => app.fetch(request),
     request: (input, init) => app.request(input, init),
     health: () => app.health(),
+    liveness: () => app.liveness(),
     close: () => app.close(),
   };
 }

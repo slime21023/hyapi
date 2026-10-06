@@ -111,9 +111,15 @@ Deno.test("inspect and doctor share module and Port boundary discovery", async (
         "providePort(remotePort, {});",
       ].join("\n"),
       "src/modules/orders/local.ts": 'export const port = definePort("orders.local");\n',
+      "src/contracts/directory.ts": 'export const directory = definePort("users.directory");\n',
+      "src/modules/users/module.ts": [
+        'import { directory } from "../../contracts/directory.ts";',
+        "export const users = { provides: [directory] };",
+      ].join("\n"),
       "src/modules/orders/module.ts": [
         'import { port as remotePort } from "../../contracts/shared.ts";',
-        "export const orders = { requires: [remotePort] };",
+        'import { directory } from "../../contracts/directory.ts";',
+        "export const orders = { requires: [remotePort, directory] };",
       ].join("\n"),
     });
     const healthyOutput: string[] = [];
