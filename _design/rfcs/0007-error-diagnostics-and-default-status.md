@@ -1,6 +1,6 @@
 # RFC 0007: Error diagnostics and default response status
 
-- Status: Proposed (implemented for review in v1.0.0-rc.5)
+- Status: Accepted (implemented in v1.0.0-rc.5)
 - Target: v1.0.0-rc.5
 
 ## Problem

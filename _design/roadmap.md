@@ -196,8 +196,9 @@ v1.0.0, while breaking changes are still cheap.
       ([RFC 0008](rfcs/0008-serve.md)).
 - [x] **RC5-10:** Guard injection through a Port in the guide and example; route and module typing
       guidance.
-- [ ] Accept RFCs 0002-0008, run the full verification and package dry runs on the final candidate,
-      then verify a starter against published packages.
+- [x] Accept RFCs 0002-0008.
+- [ ] Run the full verification and package dry runs on the final candidate, then verify a starter
+      against published packages.
 
 ## Post-1.0 candidates
 

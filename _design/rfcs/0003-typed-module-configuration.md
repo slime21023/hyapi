@@ -1,6 +1,6 @@
 # RFC 0003: Typed module configuration
 
-- Status: Proposed (implemented for review in v1.0.0-rc.5)
+- Status: Accepted (implemented in v1.0.0-rc.5)
 - Target: v1.0.0-rc.5
 
 ## Problem
