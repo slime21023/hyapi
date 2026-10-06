@@ -1,4 +1,3 @@
-import type { Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type LifecycleContext,
@@ -15,7 +14,8 @@ import {
 } from "../errors.ts";
 import { type GuardContext, type Identity, isIdentity } from "../guards.ts";
 import { SchemaValidationError, SchemaValidator } from "../schema.ts";
-import { type HttpPipelineEnv, HttpRequestScope, HttpTaskTracker } from "./lifecycle.ts";
+import { HttpRequestScope, HttpTaskTracker } from "./lifecycle.ts";
+import type { Router } from "./router.ts";
 import { errorResponse, problemOptions } from "./problem.ts";
 import {
   defaultResponseStatus,
@@ -123,7 +123,7 @@ export class RequestPipeline {
     this.#host = host;
   }
 
-  async dispatch(request: Request, http: Hono<HttpPipelineEnv>): Promise<Response> {
+  async dispatch(request: Request, router: Router): Promise<Response> {
     const host = this.#host;
     const requestId = resolveRequestId(request, host.config.requestIdHeader);
     const scope = new HttpRequestScope(request, requestId, host.requestTimeoutMs);
@@ -135,7 +135,7 @@ export class RequestPipeline {
           () => runHookList(host.globalHooks("onRequest"), scope.lifecycle),
           host.tasks,
         );
-        response = await http.fetch(request, { scope });
+        response = await router.dispatch(request, scope);
       } catch (error) {
         response = await this.failure(scope, error);
       }
@@ -173,15 +173,18 @@ export class RequestPipeline {
     }
   }
 
-  async runRoute(context: Context<HttpPipelineEnv>, route: AnyRouteDefinition): Promise<Response> {
-    const scope = context.env.scope;
+  async runRoute(
+    scope: HttpRequestScope,
+    params: Record<string, string>,
+    route: AnyRouteDefinition,
+  ): Promise<Response> {
     scope.lifecycle.route = route;
     const hooks = this.#host.routeHooks(route);
     let response: Response;
     try {
       if (Date.now() >= scope.deadline) throw scope.deadlineError();
       response = await scope.race(
-        () => this.#executeRoute(context, route, scope, hooks),
+        () => this.#executeRoute(scope, params, route, hooks),
         this.#host.tasks,
       );
     } catch (error) {
@@ -256,22 +259,22 @@ export class RequestPipeline {
   }
 
   async #executeRoute(
-    context: Context<HttpPipelineEnv>,
-    route: AnyRouteDefinition,
     scope: HttpRequestScope,
+    pathParams: Record<string, string>,
+    route: AnyRouteDefinition,
     hooks: RouteHooks,
   ): Promise<Response> {
     const host = this.#host;
-    const request = context.req.raw;
+    const request = scope.request;
     await runHookList(hooks.onRequest, scope.lifecycle);
 
-    const identity = await this.#runGuards(context, route, scope);
+    const identity = await this.#runGuards(scope, pathParams, route);
     scope.lifecycle.identity = identity;
 
     const requestSchemas = route.request;
     const params = requestSchemas?.params
-      ? validateRequest(host.validator, requestSchemas.params, context.req.param(), "params")
-      : context.req.param();
+      ? validateRequest(host.validator, requestSchemas.params, pathParams, "params")
+      : pathParams;
     const query = requestSchemas?.query
       ? validateRequest(host.validator, requestSchemas.query, queryObject(request), "query")
       : queryObject(request);
@@ -362,18 +365,18 @@ export class RequestPipeline {
 
   /** Runs the route's guard chain in order; the first identity a guard returns is kept. */
   async #runGuards(
-    context: Context<HttpPipelineEnv>,
-    route: AnyRouteDefinition,
     scope: HttpRequestScope,
+    params: Record<string, string>,
+    route: AnyRouteDefinition,
   ): Promise<Identity | null> {
     const guards = route.guards ?? [];
     if (guards.length === 0) return null;
     let identity: Identity | null = null;
-    const request = context.req.raw;
+    const request = scope.request;
     const guardContext: GuardContext = {
       request,
       requestId: scope.requestId,
-      params: context.req.param(),
+      params,
       query: queryObject(request),
       get identity() {
         return identity;

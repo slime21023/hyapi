@@ -1,4 +1,3 @@
-import { Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type ApplicationOptions,
@@ -41,7 +40,8 @@ import { collectError, Scope } from "./runtime/scope.ts";
 import { ServiceContainer } from "./runtime/services.ts";
 import { HealthRegistry } from "./runtime/health.ts";
 import { ProviderRegistry } from "./runtime/providers.ts";
-import { type HttpPipelineEnv, HttpTaskTracker } from "./http/lifecycle.ts";
+import { HttpTaskTracker } from "./http/lifecycle.ts";
+import { Router } from "./http/router.ts";
 import { errorResponse, problemOptions } from "./http/problem.ts";
 import {
   type PipelineHost,
@@ -89,10 +89,6 @@ function isTimerDelay(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_TIMER_MS;
 }
 
-function toHonoPath(path: string): string {
-  return path.replace(/\{([^}/]+)\}/g, ":$1");
-}
-
 /**
  * The application runtime. One state machine owns every lifecycle phase:
  * configuring → starting → running → draining → closing → closed (or failed).
@@ -108,7 +104,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   readonly tasks = new HttpTaskTracker();
 
   private readonly options: HyApiOptions;
-  private readonly http = new Hono<HttpPipelineEnv>();
+  private readonly router: Router;
   private readonly pipeline: RequestPipeline;
   private readonly healthChecks = new HealthRegistry();
   private readonly providers = new ProviderRegistry();
@@ -148,24 +144,26 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     );
     this.services = new ServiceContainer(this.singletonScope);
     this.pipeline = new RequestPipeline(this);
+    this.router = new Router({
+      notFound: (scope) =>
+        errorResponse(
+          new NotFoundError(),
+          scope.request,
+          scope.requestId,
+          problemOptions(this.config),
+        ),
+      error: (scope, error) => this.pipeline.failure(scope, error),
+    });
 
     if (this.config.openapi.enabled !== false) {
       for (const document of this.config.openapi.documents) {
-        this.http.get(
+        this.router.add(
+          "GET",
           document.path,
-          (context) => context.json(this.openApiDocuments.get(document.id)!),
+          () => Response.json(this.openApiDocuments.get(document.id)!),
         );
       }
     }
-    this.http.notFound((context) =>
-      errorResponse(
-        new NotFoundError(),
-        context.env.scope.request,
-        context.env.scope.requestId,
-        problemOptions(this.config),
-      )
-    );
-    this.http.onError((error, context) => this.pipeline.failure(context.env.scope, error));
   }
 
   group(
@@ -217,10 +215,10 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     validateRoute(registeredRoute, this.routes, this.config.openapi);
     this.routes.push(registeredRoute);
     if (scope) this.routeScopes.set(registeredRoute, scope);
-    this.http.on(
+    this.router.add(
       registeredRoute.method.toUpperCase(),
-      toHonoPath(registeredRoute.path),
-      (context) => this.pipeline.runRoute(context, registeredRoute),
+      registeredRoute.path,
+      (scope, params) => this.pipeline.runRoute(scope, params, registeredRoute),
     );
   }
 
@@ -264,7 +262,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         ),
       );
     }
-    const pending = this.pipeline.dispatch(request, this.http);
+    const pending = this.pipeline.dispatch(request, this.router);
     this.tasks.track(pending);
     return pending;
   }

@@ -10,9 +10,6 @@ type MutableLifecycleContext = {
   -readonly [Key in keyof LifecycleContext]: LifecycleContext[Key];
 };
 
-/** Hono bindings owned by the HTTP request lifecycle. */
-export type HttpPipelineEnv = { Bindings: { scope: HttpRequestScope } };
-
 /**
  * Everything one HTTP request owns: its deadline, abort signal, lifecycle context, and
  * request-scoped services. A single timer aborts the request when its effective deadline passes.
