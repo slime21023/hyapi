@@ -18,8 +18,11 @@ export interface HealthCheck {
 }
 
 /** A health result associated with the registered check that supplied it. */
-export interface HealthCheckReport extends HealthCheckResult {
+export interface HealthCheckReport {
   readonly name: string;
+  readonly status: HealthStatus;
+  /** Omitted, never `undefined`, when the check supplied no detail. */
+  readonly detail?: string;
 }
 
 /** Aggregated health status and the result of every registered check. */

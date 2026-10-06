@@ -6,6 +6,7 @@ import type {
   RequestContext,
   RouteDefinition,
   RouteGroupApi,
+  RouteResult,
   Schema,
 } from "../types.ts";
 import type {
@@ -21,9 +22,11 @@ export type HttpContractHandler<TRoute extends AnyHttpContractRoute> = TRoute ex
     infer TParams,
     infer TQuery,
     infer TBody,
-    infer _TResponse,
+    infer TResponse,
     infer TBodyRequired
-  > ? (context: RequestContext<TParams, TQuery, TBody, TBodyRequired>) => MaybePromise<unknown>
+  > ? (
+    context: RequestContext<TParams, TQuery, TBody, TBodyRequired, TResponse>,
+  ) => MaybePromise<RouteResult<TResponse>>
   : never;
 
 /** Complete handler map required by an HTTP contract. */

@@ -46,18 +46,73 @@ export interface Identity {
   readonly claims: Readonly<Record<string, unknown>>;
 }
 
-/** Framework response descriptor returned by a route handler. */
-export interface ResponseResult<T = unknown> {
+/** Framework response descriptor returned by a route handler; `S` is its status at compile time. */
+export interface ResponseResult<T = unknown, S extends number = number> {
   readonly __hyapiResponse: true;
   readonly body: T;
   readonly init?: ResponseInit;
+  readonly __status?: S;
 }
 
 /** Response schemas keyed by HTTP status code. */
 export type ResponseSchemas = Record<number, Schema>;
 
+/** Status codes declared by a route's `responses`. */
+export type DeclaredStatus<R extends ResponseSchemas> = keyof R & number;
+
+/** Body type for one declared status; a 204 response never has a body. */
+export type ResponseBody<R extends ResponseSchemas, S extends number> = S extends 204 ? undefined
+  : S extends keyof R ? Static<R[S]>
+  : never;
+
+/** Response helpers typed by the route's declared responses. */
+export interface TypedResponseHelpers<R extends ResponseSchemas> {
+  ok(body: ResponseBody<R, 200>, init?: ResponseInit): ResponseResult<ResponseBody<R, 200>, 200>;
+  created(
+    body: ResponseBody<R, 201>,
+    init?: ResponseInit,
+  ): ResponseResult<ResponseBody<R, 201>, 201>;
+  noContent(init?: ResponseInit): ResponseResult<undefined, 204>;
+  json(body: ResponseBody<R, 200>): ResponseResult<ResponseBody<R, 200>, 200>;
+  json<S extends DeclaredStatus<R>>(
+    body: ResponseBody<R, S>,
+    status: S,
+    init?: ResponseInit,
+  ): ResponseResult<ResponseBody<R, S>, S>;
+  /** Escape hatch for a status chosen at runtime; the body must match some declared response. */
+  respond(
+    body: ResponseBody<R, DeclaredStatus<R>>,
+    init?: ResponseInit,
+  ): ResponseResult<ResponseBody<R, DeclaredStatus<R>>, DeclaredStatus<R>>;
+}
+
+/** Response helpers for a route without declared responses. */
+export interface UntypedResponseHelpers {
+  ok<T>(body: T, init?: ResponseInit): ResponseResult<T, 200>;
+  created<T>(body: T, init?: ResponseInit): ResponseResult<T, 201>;
+  noContent(init?: ResponseInit): ResponseResult<undefined, 204>;
+  json<T>(body: T, status?: number, init?: ResponseInit): ResponseResult<T>;
+  respond<T>(body: T, init?: ResponseInit): ResponseResult<T>;
+}
+
+/** Response helpers: typed when the route declares `responses`, otherwise generic. */
+export type ResponseHelpers<R extends ResponseSchemas | undefined> = R extends ResponseSchemas
+  ? TypedResponseHelpers<R>
+  : UntypedResponseHelpers;
+
+/**
+ * What a handler may return. With declared responses: a helper result for a declared status, a bare
+ * body matching a declared response, or a native `Response` whose status is checked at runtime.
+ */
+export type RouteResult<R extends ResponseSchemas | undefined> = R extends ResponseSchemas ?
+    | { [S in DeclaredStatus<R>]: ResponseResult<ResponseBody<R, S>, S> }[DeclaredStatus<R>]
+    | ResponseResult<ResponseBody<R, DeclaredStatus<R>>, DeclaredStatus<R>>
+    | ResponseBody<R, DeclaredStatus<R>>
+    | Response
+  : unknown;
+
 /** Typed request input and request-scoped capabilities supplied to a route handler. */
-export interface RequestContext<
+export interface RequestInput<
   TParams extends Schema | undefined = undefined,
   TQuery extends Schema | undefined = undefined,
   TBody extends Schema | undefined = undefined,
@@ -77,12 +132,16 @@ export interface RequestContext<
   readonly identity: Identity | null;
   readonly state: RequestState;
   readonly services: ServiceResolver;
-  ok<T>(body: T, init?: ResponseInit): ResponseResult<T>;
-  created<T>(body: T, init?: ResponseInit): ResponseResult<T>;
-  noContent(init?: ResponseInit): ResponseResult<undefined>;
-  json<T>(body: T, status?: number, init?: ResponseInit): ResponseResult<T>;
-  respond<T>(body: T, init?: ResponseInit): ResponseResult<T>;
 }
+
+/** Request input plus response helpers typed by the route's declared responses. */
+export type RequestContext<
+  TParams extends Schema | undefined = undefined,
+  TQuery extends Schema | undefined = undefined,
+  TBody extends Schema | undefined = undefined,
+  TBodyRequired extends boolean = true,
+  TResponse extends ResponseSchemas | undefined = undefined,
+> = RequestInput<TParams, TQuery, TBody, TBodyRequired> & ResponseHelpers<TResponse>;
 
 /** Read-only pipeline snapshot observed by lifecycle hooks. */
 export interface LifecycleContext {
@@ -105,7 +164,10 @@ export type RouteHandler<
   TQuery extends Schema | undefined = undefined,
   TBody extends Schema | undefined = undefined,
   TBodyRequired extends boolean = true,
-> = (context: RequestContext<TParams, TQuery, TBody, TBodyRequired>) => MaybePromise<unknown>;
+  TResponse extends ResponseSchemas | undefined = undefined,
+> = (
+  context: RequestContext<TParams, TQuery, TBody, TBodyRequired, TResponse>,
+) => MaybePromise<RouteResult<TResponse>>;
 
 /** Declarative HTTP route, including validation, response, and authorization rules. */
 export interface RouteDefinition<
@@ -123,7 +185,7 @@ export interface RouteDefinition<
   /** Guards run after inherited group guards, before the request body is parsed. */
   guards?: readonly Guard[];
   metadata?: RouteMetadata;
-  handler: RouteHandler<TParams, TQuery, TBody, TBodyRequired>;
+  handler: RouteHandler<TParams, TQuery, TBody, TBodyRequired, TResponse>;
 }
 
 /** Defaults inherited by routes and nested groups. */

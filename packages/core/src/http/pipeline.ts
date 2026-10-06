@@ -331,17 +331,17 @@ export class RequestPipeline {
       identity,
       state: scope.lifecycle.state,
       services: host.services.resolver(scope.services),
-      ok: <T>(value: T, init?: ResponseInit): ResponseResult<T> => ({
+      ok: <T>(value: T, init?: ResponseInit): ResponseResult<T, 200> => ({
         [RESPONSE_RESULT]: true,
         body: value,
         init: { ...init, status: init?.status ?? 200 },
       }),
-      created: <T>(value: T, init?: ResponseInit): ResponseResult<T> => ({
+      created: <T>(value: T, init?: ResponseInit): ResponseResult<T, 201> => ({
         [RESPONSE_RESULT]: true,
         body: value,
         init: { ...init, status: init?.status ?? 201 },
       }),
-      noContent: (init?: ResponseInit): ResponseResult<undefined> => ({
+      noContent: (init?: ResponseInit): ResponseResult<undefined, 204> => ({
         [RESPONSE_RESULT]: true,
         body: undefined,
         init: { ...init, status: 204 },

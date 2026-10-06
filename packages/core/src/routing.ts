@@ -29,6 +29,22 @@ export function resolveResponseSchemas(
   return { 200: undefined };
 }
 
+/**
+ * Returns a route unchanged so a route defined apart from `route()` keeps its literal method and
+ * inferred schemas.
+ */
+export function defineRoute<
+  TParams extends Schema | undefined = undefined,
+  TQuery extends Schema | undefined = undefined,
+  TBody extends Schema | undefined = undefined,
+  TResponse extends ResponseSchemas | undefined = undefined,
+  TBodyRequired extends boolean = true,
+>(
+  route: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired>,
+): RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired> {
+  return route;
+}
+
 /** The narrow application boundary used by route groups. */
 export interface RouteRegistrar {
   assertConfiguring(action: string): void;

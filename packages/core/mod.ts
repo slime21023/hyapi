@@ -30,6 +30,7 @@ export {
   verifyPortContracts,
 } from "./src/port.ts";
 export { defineHttpContract } from "./src/http/contract.ts";
+export { defineRoute } from "./src/routing.ts";
 export { registerHttpContract } from "./src/http/server.ts";
 export { createHttpClient, createHttpHealthCheck, withHttpContext } from "./src/http/client.ts";
 export { provideHttp } from "./src/http/provider.ts";
@@ -40,6 +41,7 @@ export type { RequestState, StateKey } from "./src/state.ts";
 export type {
   AnyRouteDefinition,
   ApplicationOptions,
+  DeclaredStatus,
   HyApplication,
   Identity,
   LifecycleContext,
@@ -49,6 +51,9 @@ export type {
   PlatformApi,
   Plugin,
   RequestContext,
+  RequestInput,
+  ResponseBody,
+  ResponseHelpers,
   ResponseResult,
   ResponseSchemas,
   RouteDefinition,
@@ -57,9 +62,12 @@ export type {
   RouteHandler,
   RouteMetadata,
   RouteRequestSchemas,
+  RouteResult,
   Schema,
   ServiceOverride,
   ServiceReference,
+  TypedResponseHelpers,
+  UntypedResponseHelpers,
 } from "./src/types.ts";
 export type { AppConfig, AppConfigOptions } from "./src/config.ts";
 export type {

@@ -912,6 +912,7 @@ Deno.test("app - rejects undeclared statuses and missing response bodies", async
       method: "get",
       path: "/undeclared-status",
       responses: { 200: responseSchema },
+      // @ts-expect-error 202 is not declared; the runtime contract check is under test.
       handler: ({ json }) => json({ ok: true }, 202),
     },
   );
@@ -920,6 +921,7 @@ Deno.test("app - rejects undeclared statuses and missing response bodies", async
       method: "get",
       path: "/missing-response-body",
       responses: { 200: responseSchema },
+      // @ts-expect-error a declared 200 requires a body; the runtime contract check is under test.
       handler: () => undefined,
     },
   );
@@ -942,6 +944,7 @@ Deno.test("app - validates composite response schemas", async () => {
       method: "get",
       path: "/composite-response",
       responses: { 200: Type.Union([Type.String(), Type.Number()]) },
+      // @ts-expect-error booleans are outside the union; runtime validation is under test.
       handler: () => true,
     },
   );
@@ -1810,7 +1813,10 @@ Deno.test("app - response bodies drop properties the schema does not declare", a
     method: "get",
     path: "/users/me",
     responses: { 200: Type.Object({ id: Type.String(), name: Type.String() }) },
-    handler: ({ ok }) => ok({ id: "u1", name: "Ada", passwordHash: "secret" }),
+    handler: ({ ok }) => {
+      const user = { id: "u1", name: "Ada", passwordHash: "secret" };
+      return ok(user);
+    },
   });
   await app.start();
 
@@ -1826,7 +1832,7 @@ Deno.test("header schemas match HTTP names regardless of case", async () => {
     path: "/tenant",
     request: { headers: Type.Object({ "X-Tenant-Id": Type.String({ minLength: 3 }) }) },
     responses: { 200: Type.Object({ tenant: Type.String() }) },
-    handler: ({ headers, ok }) => ok({ tenant: headers.get("X-Tenant-Id") }),
+    handler: ({ headers, ok }) => ok({ tenant: headers.get("X-Tenant-Id")! }),
   });
   await app.start();
 
