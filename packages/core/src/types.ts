@@ -3,7 +3,7 @@ import type { AppConfig, AppConfigOptions } from "./config.ts";
 import type { HealthCheck, HealthReport } from "./health.ts";
 import type { Port, PortProvider, ProviderLifecycle } from "./port.ts";
 import type { RequestState } from "./state.ts";
-import type { Guard } from "./guards.ts";
+import type { Guard, Identity } from "./guards.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 /** A TypeBox schema used to validate and infer HTTP values. */
@@ -36,14 +36,6 @@ export interface RouteMetadata {
   /** OpenAPI document IDs; omitted routes use the configured default document. */
   documentIds?: readonly string[];
   deprecated?: boolean;
-}
-
-/** Immutable principal established by a guard. */
-export interface Identity {
-  readonly subject: string;
-  readonly scopes: readonly string[];
-  /** Verified credential claims, such as token claims; empty when the guard has none. */
-  readonly claims: Readonly<Record<string, unknown>>;
 }
 
 /** Framework response descriptor returned by a route handler; `S` is its status at compile time. */

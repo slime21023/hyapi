@@ -1,6 +1,5 @@
 /** Defines typed module boundaries and provider compatibility rules. @module */
 
-import type { MaybePromise } from "./types.ts";
 import { ConfigurationError } from "./errors.ts";
 
 /** Major/minor version used to determine Port compatibility. */
@@ -18,8 +17,8 @@ export interface Port<T> {
 
 /** Optional lifecycle owned by a Port provider. */
 export interface ProviderLifecycle {
-  connect?(): MaybePromise<void>;
-  close?(): MaybePromise<void>;
+  connect?(): void | Promise<void>;
+  close?(): void | Promise<void>;
 }
 
 /** Concrete value supplied for a Port, optionally with connection lifecycle hooks. */
@@ -32,7 +31,7 @@ export interface PortProvider<T> {
 /** Runtime assertion that verifies a provider satisfies a Port's expected behavior. */
 export interface PortContract<T> {
   readonly name: string;
-  verify(provider: T): MaybePromise<void>;
+  verify(provider: T): void | Promise<void>;
 }
 
 export function validateContractVersion(version: ContractVersion): void {
@@ -89,7 +88,7 @@ export const providePort = <T>(
 /** Creates a named runtime assertion for a Port provider. */
 export function definePortContract<T>(
   name: string,
-  verify: (provider: T) => MaybePromise<void>,
+  verify: (provider: T) => void | Promise<void>,
 ): PortContract<T> {
   return { name, verify };
 }

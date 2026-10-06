@@ -1,12 +1,6 @@
 /** Normalizes application and OpenAPI configuration before startup. @module */
 
 import { ConfigurationError } from "./errors.ts";
-import type {
-  OpenApiConfig,
-  OpenApiConfigOptions,
-  OpenApiDocument,
-  OpenApiDocumentOptions,
-} from "./openapi.ts";
 
 export const DEFAULT_BODY_LIMIT_BYTES = 10_485_760;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000;
@@ -14,6 +8,38 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 
 const DEFAULT_OPENAPI_DOCUMENT_ID = "default";
 const DEFAULT_OPENAPI_PATH = "/openapi.json";
+
+/** Fully resolved OpenAPI document served by the application. */
+export interface OpenApiDocument {
+  readonly id: string;
+  readonly title: string;
+  readonly description?: string;
+  readonly version: string;
+  readonly path: string;
+}
+
+/** User-provided values for one named OpenAPI document. */
+export interface OpenApiDocumentOptions {
+  readonly id: string;
+  readonly title?: string;
+  readonly description?: string;
+  readonly version?: string;
+  readonly path: string;
+}
+
+/** Normalized set of OpenAPI documents exposed by an application. */
+export interface OpenApiConfig {
+  readonly enabled: boolean;
+  readonly defaultDocument: string;
+  readonly documents: readonly OpenApiDocument[];
+}
+
+/** Optional OpenAPI configuration accepted by {@link defineConfig}. */
+export interface OpenApiConfigOptions {
+  readonly enabled?: boolean;
+  readonly defaultDocument?: string;
+  readonly documents?: readonly OpenApiDocumentOptions[];
+}
 
 /** Fully normalized configuration used by a running application. */
 export interface AppConfig {

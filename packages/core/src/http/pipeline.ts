@@ -1,7 +1,6 @@
 import type { Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
-  type Identity,
   type LifecycleContext,
   type LifecycleHook,
   type RequestContext,
@@ -14,7 +13,7 @@ import {
   ResponseValidationError,
   ValidationError,
 } from "../errors.ts";
-import { type GuardContext, isIdentity } from "../guards.ts";
+import { type GuardContext, type Identity, isIdentity } from "../guards.ts";
 import { SchemaValidationError, SchemaValidator } from "../schema.ts";
 import { type HttpPipelineEnv, HttpRequestScope, HttpTaskTracker } from "./lifecycle.ts";
 import { errorResponse, problemOptions } from "./problem.ts";

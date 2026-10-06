@@ -2,7 +2,14 @@
 
 import { ConfigurationError, ForbiddenError, UnauthorizedError } from "./errors.ts";
 import type { RequestState } from "./state.ts";
-import type { Identity, MaybePromise } from "./types.ts";
+
+/** Immutable principal established by a guard. */
+export interface Identity {
+  readonly subject: string;
+  readonly scopes: readonly string[];
+  /** Verified credential claims, such as token claims; empty when the guard has none. */
+  readonly claims: Readonly<Record<string, unknown>>;
+}
 
 /** Request values available to a guard; input has not been parsed or validated yet. */
 export interface GuardContext {
@@ -39,7 +46,7 @@ export interface GuardSecurity {
 export interface Guard {
   readonly name: string;
   readonly security?: GuardSecurity;
-  check(context: GuardContext): MaybePromise<Identity | void>;
+  check(context: GuardContext): Identity | void | Promise<Identity | void>;
 }
 
 /** Validates and freezes a guard. */

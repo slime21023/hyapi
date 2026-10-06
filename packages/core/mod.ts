@@ -19,7 +19,7 @@ export {
   ValidationError,
 } from "./src/errors.ts";
 export { anyOf, defineGuard, requireScopes } from "./src/guards.ts";
-export type { Guard, GuardContext, GuardSecurity } from "./src/guards.ts";
+export type { Guard, GuardContext, GuardSecurity, Identity } from "./src/guards.ts";
 export {
   definePort,
   definePortContract,
@@ -45,7 +45,6 @@ export type {
   ApplicationOptions,
   DeclaredStatus,
   HyApplication,
-  Identity,
   LifecycleContext,
   LifecycleHook,
   Module,
@@ -71,13 +70,14 @@ export type {
   TypedResponseHelpers,
   UntypedResponseHelpers,
 } from "./src/types.ts";
-export type { AppConfig, AppConfigOptions } from "./src/config.ts";
 export type {
+  AppConfig,
+  AppConfigOptions,
   OpenApiConfig,
   OpenApiConfigOptions,
   OpenApiDocument,
   OpenApiDocumentOptions,
-} from "./src/openapi.ts";
+} from "./src/config.ts";
 export type {
   ContractVersion,
   Port,
