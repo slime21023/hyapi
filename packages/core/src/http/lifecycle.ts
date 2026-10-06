@@ -2,6 +2,7 @@ import type { LifecycleContext } from "../types.ts";
 import { AppError } from "../errors.ts";
 import type { RequestServices } from "../runtime/services.ts";
 import { Scope } from "../runtime/scope.ts";
+import { createRequestState } from "../state.ts";
 import { sleep } from "../runtime/timers.ts";
 import { DEADLINE_HEADER, parseDeadlineHeader } from "./deadline.ts";
 
@@ -59,7 +60,7 @@ export class HttpRequestScope {
         return lifecycleRequest();
       },
       requestId,
-      state: new Map(),
+      state: createRequestState(),
       route: null,
       identity: null,
       response: null,

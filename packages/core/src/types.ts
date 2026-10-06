@@ -2,6 +2,7 @@ import type { Static, TSchema } from "typebox";
 import type { AppConfig, AppConfigOptions } from "./config.ts";
 import type { HealthCheck, HealthReport } from "./health.ts";
 import type { Port, PortProvider } from "./port.ts";
+import type { RequestState } from "./state.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 /** A TypeBox schema used to validate and infer HTTP values. */
@@ -82,7 +83,7 @@ export interface RequestContext<
   readonly body: TBodyRequired extends false ? InferSchema<TBody> | undefined : InferSchema<TBody>;
   readonly headers: Headers;
   readonly identity: Identity | null;
-  readonly state: Map<string, unknown>;
+  readonly state: RequestState;
   readonly services: ServiceResolver;
   ok<T>(body: T, init?: ResponseInit): ResponseResult<T>;
   created<T>(body: T, init?: ResponseInit): ResponseResult<T>;
@@ -96,7 +97,7 @@ export interface LifecycleContext {
   readonly request: Request;
   readonly requestId: string;
   /** Deliberate mutable channel shared by hooks and handlers. */
-  readonly state: Map<string, unknown>;
+  readonly state: RequestState;
   readonly route: AnyRouteDefinition | null;
   readonly identity: Identity | null;
   readonly response: Response | null;

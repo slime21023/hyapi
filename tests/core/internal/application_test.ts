@@ -16,6 +16,7 @@ import {
   defineConfig,
   definePort,
   definePortContract,
+  defineStateKey,
   type HealthCheckResult,
   type Identity,
   NotFoundError,
@@ -1274,8 +1275,9 @@ Deno.test("app - rejects duplicate routes", () => {
 
 Deno.test("app - shares request state across hooks and handler", async () => {
   const app = createApp({ config });
+  const userRole = defineStateKey<string>("userRole");
   app.addHook("onRequest", ({ state }) => {
-    state.set("userRole", "superadmin");
+    state.set(userRole, "superadmin");
   });
 
   app.route(
@@ -1284,7 +1286,7 @@ Deno.test("app - shares request state across hooks and handler", async () => {
       path: "/state-test",
       responses: { 200: Type.Object({ role: Type.String() }) },
       handler: ({ state, ok }) => {
-        return ok({ role: state.get("userRole") as string });
+        return ok({ role: state.require(userRole) });
       },
     },
   );

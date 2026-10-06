@@ -34,6 +34,8 @@ export { createHttpClient, createHttpHealthCheck, withHttpContext } from "./src/
 export { provideHttp } from "./src/http/provider.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
+export { defineStateKey } from "./src/state.ts";
+export type { RequestState, StateKey } from "./src/state.ts";
 export type {
   AnyRouteDefinition,
   ApplicationOptions,

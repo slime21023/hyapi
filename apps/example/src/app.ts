@@ -1,7 +1,15 @@
-import { type AppConfig, createApplication, type HyApplication, jwtPlugin } from "@hyapi/core";
+import {
+  type AppConfig,
+  createApplication,
+  defineStateKey,
+  type HyApplication,
+  jwtPlugin,
+} from "@hyapi/core";
 import { createHealthModule } from "./modules/health/module.ts";
 import { ordersModule } from "./modules/orders/module.ts";
 import { createUsersModule } from "./modules/users/module.ts";
+
+const requestStartedAt = defineStateKey<number>("request-logging.startedAt");
 
 export interface ExampleAppOptions {
   readonly enableRequestLogging?: boolean;
@@ -31,10 +39,10 @@ export async function buildExampleApp(
       name: "request-logging",
       setup(platform) {
         platform.addHook("onRequest", ({ state }) => {
-          state.set("startedAt", performance.now());
+          state.set(requestStartedAt, performance.now());
         });
         platform.addHook("onResponse", ({ request, requestId, response, state }) => {
-          const startedAt = (state.get("startedAt") as number | undefined) ?? performance.now();
+          const startedAt = state.get(requestStartedAt) ?? performance.now();
           const elapsed = performance.now() - startedAt;
           console.log(JSON.stringify({
             level: "info",
