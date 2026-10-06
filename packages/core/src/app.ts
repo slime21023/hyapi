@@ -27,13 +27,15 @@ import {
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
 import { buildOpenApiDocument, selectOpenApiRoutes } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./runtime/timers.ts";
-import { objectSchemaProperties, SchemaValidationError, SchemaValidator } from "./schema.ts";
+import { SchemaValidator } from "./schema.ts";
+import { modulePortProviders, resolveModuleConfigs, sortByDependencies } from "./composition.ts";
 import {
   type HookPoint,
   normalizeGroupArgs,
   type RouteHooks,
   type RouteRegistrar,
   RouterGroup,
+  validateRoute,
 } from "./routing.ts";
 import { collectError, Scope } from "./runtime/scope.ts";
 import { ServiceContainer } from "./runtime/services.ts";
@@ -85,118 +87,6 @@ function validatedLimit(value: number, name: string, isValid: (value: number) =>
 
 function isTimerDelay(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_TIMER_MS;
-}
-
-interface DependencyNode {
-  readonly name: string;
-  readonly dependencies?: readonly string[];
-}
-
-function sortByDependencies<T extends DependencyNode>(
-  items: readonly T[],
-  kind: "Module" | "Plugin",
-  implicitDependencies: (item: T) => readonly string[] = () => [],
-): T[] {
-  const byName = new Map<string, T>();
-  for (const item of items) {
-    if (byName.has(item.name)) {
-      throw new ConfigurationError(`${kind} '${item.name}' is already registered.`);
-    }
-    byName.set(item.name, item);
-  }
-
-  for (const item of items) {
-    for (const dependency of item.dependencies ?? []) {
-      if (!byName.has(dependency)) {
-        throw new ConfigurationError(
-          `${kind} '${item.name}' requires '${dependency}' to be registered.`,
-        );
-      }
-    }
-  }
-
-  const visited = new Set<string>();
-  const visiting: string[] = [];
-  const sorted: T[] = [];
-  const visit = (name: string): void => {
-    if (visiting.includes(name)) {
-      throw new ConfigurationError(
-        `Circular ${kind.toLowerCase()} dependency detected: ${[...visiting, name].join(" -> ")}.`,
-      );
-    }
-    if (visited.has(name)) return;
-    const item = byName.get(name)!;
-    visiting.push(name);
-    for (const dependency of item.dependencies ?? []) visit(dependency);
-    for (const dependency of implicitDependencies(item)) visit(dependency);
-    visiting.pop();
-    visited.add(name);
-    sorted.push(item);
-  };
-
-  for (const item of items) visit(item.name);
-  return sorted;
-}
-
-/** Maps each module-provided Port id to its module, rejecting a Port declared twice. */
-function modulePortProviders(modules: readonly Module[]): Map<string, string> {
-  const providers = new Map<string, string>();
-  for (const module of modules) {
-    for (const port of module.provides ?? []) {
-      const previous = providers.get(port.id);
-      if (previous !== undefined) {
-        throw new ConfigurationError(
-          `Port '${port.id}' is provided by both '${previous}' and '${module.name}'.`,
-        );
-      }
-      providers.set(port.id, module.name);
-    }
-  }
-  return providers;
-}
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const child of Object.values(value)) deepFreeze(child);
-  }
-  return value;
-}
-
-/** Validates every module's configuration entry before any module or plugin runs setup. */
-function resolveModuleConfigs(
-  modules: readonly Module[],
-  entries: Readonly<Record<string, unknown>>,
-  validator: SchemaValidator,
-): Map<Module, unknown> {
-  const byName = new Map(modules.map((module) => [module.name, module]));
-  for (const name of Object.keys(entries)) {
-    const module = byName.get(name);
-    if (!module) {
-      throw new ConfigurationError(`moduleConfig references unknown module '${name}'.`);
-    }
-    if (!module.config) {
-      throw new ConfigurationError(`Module '${name}' does not declare a configuration schema.`);
-    }
-  }
-  const configs = new Map<Module, unknown>();
-  for (const module of modules) {
-    if (!module.config) continue;
-    const entry = Object.hasOwn(entries, module.name) ? entries[module.name] : {};
-    try {
-      configs.set(
-        module,
-        deepFreeze(validator.validateInput(module.config, structuredClone(entry))),
-      );
-    } catch (error) {
-      if (!(error instanceof SchemaValidationError)) throw error;
-      throw new ConfigurationError(`Module '${module.name}' configuration is invalid.`, {
-        module: module.name,
-        errors: error.issues,
-      });
-    }
-  }
-  return configs;
 }
 
 function toHonoPath(path: string): string {
@@ -324,93 +214,12 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   ): void {
     this.assertConfiguring("register routes");
     const registeredRoute = route as unknown as AnyRouteDefinition;
-    const label = `${registeredRoute.method.toUpperCase()} ${registeredRoute.path}`;
-    const honoPath = toHonoPath(registeredRoute.path);
-    if (registeredRoute.request?.bodyRequired !== undefined && !registeredRoute.request.body) {
-      throw new ConfigurationError("request.bodyRequired requires a request.body schema.");
-    }
-    if (registeredRoute.method === "get" && registeredRoute.request?.body) {
-      throw new ConfigurationError(`Route '${label}' cannot declare a request body.`);
-    }
-    const paramsSchema = registeredRoute.request?.params;
-    if (paramsSchema) {
-      const properties = objectSchemaProperties(paramsSchema);
-      if (properties) {
-        const pathNames = new Set(
-          [...honoPath.matchAll(/(?:^|\/):([^/?{]+)/g)].map((match) => match[1]),
-        );
-        const required = "required" in paramsSchema ? paramsSchema.required : undefined;
-        for (const name of Array.isArray(required) ? required : []) {
-          if (
-            typeof name !== "string" || pathNames.has(name) ||
-            (properties[name] && Object.hasOwn(properties[name], "default"))
-          ) continue;
-          throw new ConfigurationError(
-            `Route '${label}' request.params requires '${name}', but its path has no matching parameter.`,
-          );
-        }
-      }
-    }
-    const headersSchema = registeredRoute.request?.headers;
-    if (headersSchema) {
-      const properties = objectSchemaProperties(headersSchema);
-      if (properties) {
-        const spellings = new Map<string, string>();
-        for (const name of Object.keys(properties)) {
-          const lower = name.toLowerCase();
-          const previous = spellings.get(lower);
-          if (previous !== undefined) {
-            throw new ConfigurationError(
-              `Route '${label}' request.headers declares '${previous}' and '${name}' for the same HTTP header.`,
-            );
-          }
-          spellings.set(lower, name);
-        }
-      }
-    }
-    for (const guard of registeredRoute.guards ?? []) {
-      if (typeof guard?.check !== "function" || typeof guard.name !== "string") {
-        throw new ConfigurationError(`Route '${label}' has an invalid guard.`);
-      }
-    }
-    const documentIds = registeredRoute.metadata?.documentIds;
-    if (documentIds) {
-      const knownDocumentIds = new Set(
-        this.config.openapi.documents.map((document) => document.id),
-      );
-      const seenDocumentIds = new Set<string>();
-      for (const documentId of documentIds) {
-        if (!knownDocumentIds.has(documentId)) {
-          throw new ConfigurationError(
-            `Route '${label}' references unknown OpenAPI document '${documentId}'.`,
-          );
-        }
-        if (seenDocumentIds.has(documentId)) {
-          throw new ConfigurationError(
-            `Route '${label}' references OpenAPI document '${documentId}' more than once.`,
-          );
-        }
-        seenDocumentIds.add(documentId);
-      }
-    }
-    if (
-      this.config.openapi.enabled !== false && registeredRoute.method === "get" &&
-      this.config.openapi.documents.some((document) => document.path === registeredRoute.path)
-    ) {
-      throw new ConfigurationError(`Route '${label}' conflicts with the OpenAPI document route.`);
-    }
-    if (
-      this.routes.some((registered) =>
-        registered.method === registeredRoute.method && registered.path === registeredRoute.path
-      )
-    ) {
-      throw new ConfigurationError(`Route '${label}' is already registered.`);
-    }
+    validateRoute(registeredRoute, this.routes, this.config.openapi);
     this.routes.push(registeredRoute);
     if (scope) this.routeScopes.set(registeredRoute, scope);
     this.http.on(
       registeredRoute.method.toUpperCase(),
-      honoPath,
+      toHonoPath(registeredRoute.path),
       (context) => this.pipeline.runRoute(context, registeredRoute),
     );
   }
