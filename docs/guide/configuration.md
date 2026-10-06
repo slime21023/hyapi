@@ -26,6 +26,18 @@ const config = defineConfig({
 outlives `requestTimeoutMs` receives a timeout response and its `AbortSignal` is aborted. During
 `app.close()`, `shutdownTimeoutMs` bounds request draining and resource cleanup.
 
+## Problem types
+
+Error responses are RFC 9457 `application/problem+json` documents. Their `type` is `about:blank`
+unless `problemTypeBaseUrl` is set, in which case it is `<base>/<lowercase code>`, for example
+`https://errors.example.com/not_found`.
+
+## Module configuration
+
+Module settings are not part of `defineConfig()`. Each module declares its own schema and receives
+values through `createApplication({ moduleConfig })`; see
+[Composition](/guide/composition#module-configuration).
+
 ## Multiple OpenAPI documents
 
 Every route is eligible for the `defaultDocument` unless it declares `metadata.documentIds`.

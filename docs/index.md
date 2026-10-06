@@ -24,7 +24,7 @@ features:
 
 HyAPI is a structured, type-safe API framework for Deno. Start with the
 [guide](/guide/getting-started), then use the example application as a complete reference for health
-checks, JWT authentication, modules, and Ports.
+checks, guard-based authentication, modules, and Ports.
 
 This site documents how to use HyAPI. Architecture decisions, release history, benchmarks, and
 migration records live in the repository's

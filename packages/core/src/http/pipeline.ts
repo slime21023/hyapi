@@ -190,7 +190,12 @@ export class RequestPipeline {
   async failure(scope: HttpRequestScope, error: unknown): Promise<Response> {
     scope.failureSelected = true;
     await this.#notifyError(scope, error);
-    return errorResponse(error, scope.request, scope.requestId);
+    return errorResponse(
+      error,
+      scope.request,
+      scope.requestId,
+      this.#host.config.problemTypeBaseUrl,
+    );
   }
 
   /** Runs route-scoped and global onError hooks; hook failures are swallowed. */

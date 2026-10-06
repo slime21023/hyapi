@@ -5,7 +5,41 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-rc.4] - Unreleased
+## [1.0.0-rc.5] - Unreleased
+
+### Added
+
+- Guards ([RFC 0005](_design/rfcs/0005-guards.md)): `defineGuard`, `anyOf`, and `requireScopes`;
+  `guards` on routes and groups run before body parsing and validation. OpenAPI security schemes and
+  requirements are projected from guard metadata.
+- `@hyapi/plugin-jwt`: `jwtBearer()`, an HS256 Bearer guard with the previous Core JWT rules.
+- Module Port providers and module health
+  ([RFC 0002](_design/rfcs/0002-provider-factories-and-module-health.md)): `module.provide()`,
+  `module.healthCheck()`, `module.health()`, `module.liveness()`, and `app.liveness()`. Modules are
+  ordered by the Ports they require and provide.
+- Typed module configuration ([RFC 0003](_design/rfcs/0003-typed-module-configuration.md)):
+  `Module.config` schemas, `createApplication({ moduleConfig })`, `module.config`, and
+  `defineModule()`.
+- Typed request state ([RFC 0004](_design/rfcs/0004-typed-request-state.md)): `defineStateKey()` and
+  `RequestState`.
+- `problemTypeBaseUrl` application setting for problem `type` URIs.
+
+### Changed
+
+- **Breaking:** `AuthProvider`, `AuthRequirement`, `PlatformApi.setAuthProvider`, and the `auth`
+  route/group option are removed in favor of guards. `jwtPlugin` and `JwtAuthProvider` moved out of
+  Core; `@hyapi/plugin-oidc` exports `oidcBearer()` instead of `oidcPlugin()`.
+- **Breaking:** `Identity` has a required `claims` field.
+- **Breaking:** 401 responses carry `www-authenticate` only when the thrown `UnauthorizedError` sets
+  a `challenge`; Core no longer hardcodes `Bearer`.
+- **Breaking:** OpenAPI documents no longer include a default `bearerAuth` security scheme.
+- **Breaking:** `Module.provides` lists Ports; implementations move into `module.provide()`.
+- **Breaking:** `RequestContext.state` and `LifecycleContext.state` are `RequestState` instead of
+  `Map<string, unknown>`.
+- **Breaking:** problem `type` is `about:blank` unless `problemTypeBaseUrl` is configured.
+- CLI `doctor` recognizes `provides: [...]` declarations as module Port providers.
+
+## [1.0.0-rc.4] - Superseded
 
 ### Added
 

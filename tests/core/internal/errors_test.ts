@@ -1,4 +1,4 @@
-import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import { assertEquals, assertThrows } from "@std/assert";
 import {
   AppError,
   ConfigurationError,
@@ -99,7 +99,11 @@ Deno.test("toProblemDetails formats AppErrors correctly with RFC 7807 schema", (
   assertEquals(problem.code, "NOT_FOUND");
   assertEquals(problem.instance, "/v1/users/999");
   assertEquals(problem.requestId, "req-uuid-123");
-  assertStringIncludes(problem.type, "https://hyapi.dev/problems/not_found");
+  assertEquals(problem.type, "about:blank");
+  assertEquals(
+    toProblemDetails(notFound, req, "req-uuid-123", "https://errors.example.com").type,
+    "https://errors.example.com/not_found",
+  );
 });
 
 Deno.test("toProblemDetails includes details for ValidationError", () => {

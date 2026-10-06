@@ -7,7 +7,7 @@
 
 ## Candidate status
 
-HyAPI `v1.0.0-rc.4` is a pre-release candidate. `@hyapi/core` and `@hyapi/cli` are not yet published
+HyAPI `v1.0.0-rc.5` is a pre-release candidate. `@hyapi/core` and `@hyapi/cli` are not yet published
 to JSR, so this guide does not provide an installation command.
 
 ## Evaluate the example

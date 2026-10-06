@@ -155,9 +155,16 @@ request should stop with the incoming request.
 
 ### Health endpoints
 
-`app.health()` runs every configured health check in parallel, each with a 5-second timeout, and
-aggregates the result as `healthy`, `degraded`, or `unhealthy`. The example maps it to two
-endpoints:
+`app.health()` is the readiness report. It runs every health check registered through `healthChecks`
+or a module's `module.healthCheck()` in parallel, each with a 5-second timeout, and aggregates the
+result as `healthy`, `degraded`, or `unhealthy`. It reports `unhealthy` while the application
+drains.
+
+`app.liveness()` does not run checks. It reports `healthy` while the application is running or
+draining, so an orchestrator does not restart an instance that is still finishing requests. Modules
+reach both reports through `module.health()` and `module.liveness()`.
+
+The example maps them to two endpoints:
 
 - `GET /health/live` reports that the process is serving requests and does not run health checks.
 - `GET /health/ready` returns 200 `{ status: "ready" }` unless `app.health()` reports `unhealthy`,

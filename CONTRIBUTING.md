@@ -56,10 +56,10 @@ and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publis
 rejects a tag that differs from either package version before repeating `deno task verify` and
 publishing both packages to JSR.
 
-The `v1.0.0-rc.3` candidate was superseded before publication. `v1.0.0-rc.4` is the next candidate,
-not a published release; its verification gate must pass before tagging. After that gate, runtime
-and public API changes are out of scope before `v1.0.0`. A benchmark regression of more than 20% on
-the same hardware must be explained in the pull request; see
+The `v1.0.0-rc.3` and `v1.0.0-rc.4` candidates were superseded before publication. `v1.0.0-rc.5` is
+the next candidate, not a published release; its verification gate must pass before tagging. After
+that gate, runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression
+of more than 20% on the same hardware must be explained in the pull request; see
 [`_design/baselines/performance.md`](_design/baselines/performance.md).
 
 The roadmap and release gates are maintained in [`_design/roadmap.md`](_design/roadmap.md). Report

@@ -93,7 +93,7 @@ function loadConfig(): AppConfig & { host: string; port: number } {
   }
   return {
     name: "hyapi-example",
-    version: "1.0.0-rc.4",
+    version: "1.0.0-rc.5",
     environment,
     requestIdHeader: "x-request-id",
     openapi: {
@@ -103,7 +103,7 @@ function loadConfig(): AppConfig & { host: string; port: number } {
         id: "default",
         title: "HyAPI Example API",
         description: "A structured TypeScript API running on Deno.",
-        version: "1.0.0-rc.4",
+        version: "1.0.0-rc.5",
         path: "/openapi.json",
       }],
     },

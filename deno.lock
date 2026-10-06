@@ -1240,12 +1240,12 @@
       },
       "packages/plugin-jwt": {
         "dependencies": [
-          "jsr:@hyapi/core@^1.0.0-rc.4"
+          "jsr:@hyapi/core@^1.0.0-rc.5"
         ]
       },
       "packages/plugin-oidc": {
         "dependencies": [
-          "jsr:@hyapi/core@^1.0.0-rc.4"
+          "jsr:@hyapi/core@^1.0.0-rc.5"
         ]
       }
     }

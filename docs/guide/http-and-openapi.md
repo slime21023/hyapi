@@ -24,6 +24,6 @@ caller's control.
 
 ## OpenAPI output
 
-Route request schemas, response schemas, tags, and authentication metadata form the OpenAPI 3.1
-document. The output is available at the configured document paths; the example serves its default
-document at `/openapi.json`.
+Route request schemas, response schemas, tags, and guard security metadata form the OpenAPI 3.1
+document. Security schemes come only from the guards on documented routes. The output is available
+at the configured document paths; the example serves its default document at `/openapi.json`.

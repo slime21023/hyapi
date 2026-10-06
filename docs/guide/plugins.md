@@ -4,10 +4,11 @@ Optional packages do not expand Core. They use one of the public extension bound
 
 - HTTP wrappers receive an `app.fetch` handler and return a standard `Request` to `Response`
   handler.
-- Application plugins use the narrow Core `Plugin` API, currently for authentication providers.
+- Guard packages export `Guard` factories that routes and groups attach with `guards`.
+- Application plugins use the narrow Core `Plugin` API to add global lifecycle hooks.
 
-`@hyapi/plugin-cors`, `@hyapi/plugin-rate-limit`, `@hyapi/plugin-oidc`, and `@hyapi/plugin-csrf` are
-part of this candidate checkout and are not yet published to JSR.
+`@hyapi/plugin-cors`, `@hyapi/plugin-rate-limit`, `@hyapi/plugin-jwt`, `@hyapi/plugin-oidc`, and
+`@hyapi/plugin-csrf` are part of this candidate checkout and are not yet published to JSR.
 
 ```ts
 import { createApplication } from "@hyapi/core";
@@ -73,32 +74,65 @@ be used as the sole traffic-control boundary for a multi-instance deployment. Us
 for global traffic policy; add a separate shared-store plugin only when that integration is
 required.
 
-## OIDC bearer authentication
+## HS256 JWT bearer authentication
 
-`oidcPlugin()` verifies Bearer access tokens from one OIDC issuer through its remote JWKS endpoint.
-It installs Core's existing authentication provider; protected routes continue to declare their own
-required scopes. The plugin maps the standard space-delimited `scope` claim to `identity.scopes`.
+`jwtBearer()` returns a guard that verifies HS256 Bearer tokens signed with a shared secret of at
+least 32 bytes. It requires `exp`, checks `nbf`, `iss`, and `aud` when present or configured, maps
+the `scope` string or `scopes` array to `identity.scopes`, and exposes all verified claims as
+`identity.claims`.
 
 ```ts
-import { createApplication } from "@hyapi/core";
-import { oidcPlugin } from "@hyapi/plugin-oidc";
+import { type Module, requireScopes } from "@hyapi/core";
+import { jwtBearer } from "@hyapi/plugin-jwt";
 
-const app = await createApplication({
-  config: { name: "orders-api" },
-  plugins: [oidcPlugin({
-    issuer: "https://issuer.example.com/",
-    audience: "orders-api",
-    jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
-    algorithms: ["RS256"],
-  })],
-  modules: [],
+const authenticate = jwtBearer({ secret: Deno.env.get("JWT_SECRET")! });
+
+const reportsModule: Module = {
+  name: "reports",
+  setup(module) {
+    module.group("/reports", { guards: [authenticate] }, (reports) => {
+      reports.route({
+        method: "get",
+        path: "",
+        guards: [requireScopes("reports:read")],
+        handler: ({ identity, ok }) => ok({ subject: identity?.subject }),
+      });
+    });
+  },
+};
+```
+
+Missing credentials are rejected with 401 and `www-authenticate: Bearer` unless the guard is created
+with `optional: true`. Invalid credentials are always rejected with 401 and
+`www-authenticate: Bearer error="invalid_token"`. The guard contributes a `bearerAuth` security
+scheme to OpenAPI; set `schemeName` to choose another name.
+
+## OIDC bearer authentication
+
+`oidcBearer()` returns a guard that verifies Bearer access tokens from one OIDC issuer through its
+remote JWKS endpoint. It maps the standard space-delimited `scope` claim to `identity.scopes` and
+the verified payload to `identity.claims`.
+
+```ts
+import { requireScopes } from "@hyapi/core";
+import { oidcBearer } from "@hyapi/plugin-oidc";
+
+const authenticate = oidcBearer({
+  issuer: "https://issuer.example.com/",
+  audience: "orders-api",
+  jwksUrl: "https://issuer.example.com/.well-known/jwks.json",
+  algorithms: ["RS256"],
+});
+
+module.group("/orders", { guards: [authenticate, requireScopes("orders:read")] }, (orders) => {
+  // routes
 });
 ```
 
-Set the issuer, audience, JWKS URL, and accepted asymmetric algorithms explicitly. Missing Bearer
-credentials leave a request anonymous; malformed or invalid credentials return the Core generic 401
-response when a protected route uses them. The package does not add login redirects, discovery,
-sessions, cookies, refresh tokens, user-info calls, or retry policy.
+Set the issuer, audience, JWKS URL, and accepted asymmetric algorithms explicitly. Missing and
+invalid credentials follow the same 401 rules as `jwtBearer()`, including `optional`. The package
+does not add login redirects, discovery, sessions, cookies, refresh tokens, user-info calls, or
+retry policy.
 
 ## CSRF protection
 

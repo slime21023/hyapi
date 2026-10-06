@@ -18,7 +18,8 @@ packages/core               framework package (@hyapi/core)
 packages/cli                project generator and diagnostics (@hyapi/cli)
 packages/plugin-cors        optional CORS HTTP wrapper
 packages/plugin-csrf        optional signed double-submit CSRF wrapper
-packages/plugin-oidc        optional OIDC Bearer authentication plugin
+packages/plugin-jwt         optional HS256 JWT Bearer authentication guard
+packages/plugin-oidc        optional OIDC Bearer authentication guard
 packages/plugin-rate-limit  optional local rate-limit HTTP wrapper
 apps/example                example API
 tests/                      workspace tests
@@ -36,7 +37,7 @@ deno task bench       run benchmarks
 deno task docs:dev    preview the documentation locally
 ```
 
-The current candidate is `v1.0.0-rc.4`. No JSR publication has occurred.
+The current candidate is `v1.0.0-rc.5`. No JSR publication has occurred.
 
 ## License
 

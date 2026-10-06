@@ -21,6 +21,8 @@ export interface AppConfig {
   readonly version: string;
   readonly environment: "development" | "test" | "production";
   readonly requestIdHeader: string;
+  /** Base URL for problem `type` URIs; problems use `about:blank` when omitted. */
+  readonly problemTypeBaseUrl?: string;
   readonly bodyLimitBytes?: number;
   readonly requestTimeoutMs?: number;
   /** How long `close()` waits for in-flight requests before aborting them. */
@@ -34,6 +36,8 @@ export interface AppConfigOptions {
   readonly version?: string;
   readonly environment?: AppConfig["environment"];
   readonly requestIdHeader?: string;
+  /** Absolute base URL for problem `type` URIs, such as `https://errors.example.com`. */
+  readonly problemTypeBaseUrl?: string;
   readonly bodyLimitBytes?: number;
   readonly requestTimeoutMs?: number;
   readonly shutdownTimeoutMs?: number;
@@ -52,11 +56,19 @@ export function defineConfig(options: AppConfigOptions): AppConfig {
   } catch {
     throw new ConfigurationError("requestIdHeader must be a valid HTTP header name.");
   }
+  let problemTypeBaseUrl: string | undefined;
+  if (options.problemTypeBaseUrl !== undefined) {
+    if (!URL.canParse(options.problemTypeBaseUrl)) {
+      throw new ConfigurationError("problemTypeBaseUrl must be an absolute URL.");
+    }
+    problemTypeBaseUrl = options.problemTypeBaseUrl.replace(/\/+$/, "");
+  }
   return {
     name: options.name,
     version,
     environment: options.environment ?? "development",
     requestIdHeader,
+    ...(problemTypeBaseUrl === undefined ? {} : { problemTypeBaseUrl }),
     bodyLimitBytes: options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES,
     requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     shutdownTimeoutMs: options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,

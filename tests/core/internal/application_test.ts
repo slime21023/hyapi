@@ -4,7 +4,6 @@ import {
   assertMatch,
   assertRejects,
   assertStrictEquals,
-  assertStringIncludes,
   assertThrows,
 } from "@std/assert";
 import {
@@ -247,7 +246,14 @@ Deno.test("unmatched routes return problem details", async () => {
   assertEquals(response.status, 404);
   const problem = await response.json();
   assertEquals(problem.code, "NOT_FOUND");
-  assertStringIncludes(problem.type, "not_found");
+  assertEquals(problem.type, "about:blank");
+
+  const typed = createApp({
+    config: defineConfig({ name: "typed", problemTypeBaseUrl: "https://errors.example.com/" }),
+  });
+  await typed.start();
+  const typedProblem = await (await typed.request("http://test/missing")).json();
+  assertEquals(typedProblem.type, "https://errors.example.com/not_found");
 });
 
 Deno.test("createApplication composes ordered plugins and modules", async () => {

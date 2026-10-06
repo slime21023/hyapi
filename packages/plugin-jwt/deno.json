@@ -1,13 +1,13 @@
 {
   "name": "@hyapi/plugin-jwt",
-  "version": "1.0.0-rc.4",
+  "version": "1.0.0-rc.5",
   "license": "MIT",
   "exports": "./mod.ts",
   "publish": {
     "exclude": ["**/*_test.ts"]
   },
   "imports": {
-    "@hyapi/core": "jsr:@hyapi/core@^1.0.0-rc.4"
+    "@hyapi/core": "jsr:@hyapi/core@^1.0.0-rc.5"
   },
   "fmt": {
     "lineWidth": 100,

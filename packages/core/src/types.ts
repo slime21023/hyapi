@@ -256,16 +256,6 @@ export interface ApplicationOptions {
   readonly healthChecks?: readonly HealthCheck[];
 }
 
-export interface HyApiOptions {
-  readonly config: AppConfig;
-  readonly modules?: readonly Module[];
-  readonly moduleConfig?: Readonly<Record<string, unknown>>;
-  readonly plugins?: readonly Plugin[];
-  readonly overrides?: readonly ServiceOverride[];
-  readonly providers?: readonly PortProvider<unknown>[];
-  readonly healthChecks?: readonly HealthCheck[];
-}
-
 /** Non-generic route shape used when processing routes as a collection. */
 export type AnyRouteDefinition = RouteDefinition<
   Schema | undefined,

@@ -2,7 +2,6 @@ import { Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type ApplicationOptions,
-  type HyApiOptions,
   type HyApplication,
   type LifecycleHook,
   type Module,
@@ -48,6 +47,12 @@ import {
   resolveRequestId,
   withHeader,
 } from "./http/pipeline.ts";
+
+/** Application options after configuration normalization; modules may be added in tests. */
+type HyApiOptions = Omit<ApplicationOptions, "config" | "modules"> & {
+  readonly config: AppConfig;
+  readonly modules?: readonly Module[];
+};
 
 type AppLifecycleState =
   | "configuring"
@@ -263,7 +268,12 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       }
     }
     this.http.notFound((context) =>
-      errorResponse(new NotFoundError(), context.env.scope.request, context.env.scope.requestId)
+      errorResponse(
+        new NotFoundError(),
+        context.env.scope.request,
+        context.env.scope.requestId,
+        this.config.problemTypeBaseUrl,
+      )
     );
     this.http.onError((error, context) => this.pipeline.failure(context.env.scope, error));
   }
@@ -477,7 +487,11 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       const header = this.config.requestIdHeader;
       const requestId = resolveRequestId(request, header);
       return Promise.resolve(
-        withHeader(errorResponse(unavailableError(), request, requestId), header, requestId),
+        withHeader(
+          errorResponse(unavailableError(), request, requestId, this.config.problemTypeBaseUrl),
+          header,
+          requestId,
+        ),
       );
     }
     const pending = this.pipeline.dispatch(request, this.http);

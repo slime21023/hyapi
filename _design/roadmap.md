@@ -29,7 +29,8 @@ provider without changing use case code.
 | v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Superseded |
 | v1.0.0-rc.2 | Audit remediation, Hono-free public API, release automation                       | Superseded |
 | v1.0.0-rc.3 | Lifecycle correctness and next release-candidate gate                             | Superseded |
-| v1.0.0-rc.4 | Public-contract tests and developer documentation                                 | Candidate  |
+| v1.0.0-rc.4 | Public-contract tests and developer documentation                                 | Superseded |
+| v1.0.0-rc.5 | Guards, module Port providers, module config, typed request state                 | Candidate  |
 | v1.0.0      | Production baseline and public API stability                                      | Future     |
 
 ## v0.8.0 — Provider lifecycle and contract compatibility
@@ -172,6 +173,35 @@ the first JSR publication.
 - [x] Correct pre-publication installation guidance and the Composition example.
 - [ ] Run the full verification and package dry runs on the final candidate, then verify a starter
       against published Core and CLI packages.
+
+## v1.0.0-rc.5 — Composition and authentication candidate
+
+**Goal:** settle the public module, configuration, request-state, and authentication APIs before
+v1.0.0, while breaking changes are still cheap.
+
+- [x] **RC5-01:** Typed request state ([RFC 0004](rfcs/0004-typed-request-state.md)).
+- [x] **RC5-02:** Typed module configuration ([RFC 0003](rfcs/0003-typed-module-configuration.md)).
+- [x] **RC5-03:** Module Port providers and liveness/readiness health
+      ([RFC 0002](rfcs/0002-provider-factories-and-module-health.md)).
+- [x] **RC5-04:** Guards replace authentication providers; JWT moves to `@hyapi/plugin-jwt`; OIDC
+      exports a guard ([RFC 0005](rfcs/0005-guards.md)).
+- [x] **RC5-05:** Configurable problem `type` URIs; remove duplicated contract-version helpers and
+      the duplicate internal options type.
+- [x] **RC5-06:** Migration notes, user guide, and CLI `doctor` support for `provides: [...]`.
+- [ ] Accept RFCs 0002-0005, run the full verification and package dry runs on the final candidate,
+      then verify a starter against published packages.
+
+## Post-1.0 candidates
+
+These additions are expected to be additive, so they do not block v1.0.0:
+
+- Typed HTTP contract clients with response validation and a declared error catalog.
+- Observability extension points for tracing and metrics, with exporters as plugins.
+- `Deprecation`/`Sunset` response headers from route metadata.
+- A `@hyapi/testing` package for provider substitution and in-memory contract clients.
+- Recipes for in-process module events with an application-owned outbox, streaming responses, and
+  uploads.
+- `hyapi inspect --graph` output of the module and Port graph.
 
 ## v1.0.0-rc.2 verification record
 

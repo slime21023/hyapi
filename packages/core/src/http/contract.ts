@@ -1,7 +1,7 @@
 /** Defines transport-level HTTP contracts independently of module Port behavior. @module */
 
 import { ConfigurationError } from "../errors.ts";
-import type { ContractVersion } from "../port.ts";
+import { type ContractVersion, validateContractVersion } from "../port.ts";
 import type {
   HttpMethod,
   ResponseSchemas,
@@ -44,36 +44,11 @@ export interface HttpContract<TRoutes extends HttpContractRoutes = HttpContractR
   readonly routes: TRoutes;
 }
 
-function validateHttpContractVersion(version: ContractVersion): void {
-  if (
-    typeof version !== "object" || version === null ||
-    !Number.isInteger(version.major) || version.major < 0 ||
-    !Number.isInteger(version.minor) || version.minor < 0
-  ) {
-    throw new ConfigurationError(
-      `Invalid contract version '${
-        JSON.stringify(version)
-      }': major and minor must be non-negative integers.`,
-    );
-  }
-}
-
-export function isCompatibleHttpContractVersion(
-  required: ContractVersion,
-  provided: ContractVersion,
-): boolean {
-  return required.major === provided.major && provided.minor >= required.minor;
-}
-
-export function formatHttpContractVersion(version: ContractVersion): string {
-  return `${version.major}.${version.minor}`;
-}
-
 /** Validates and returns a versioned HTTP contract. */
 export function defineHttpContract<TRoutes extends HttpContractRoutes>(
   contract: HttpContract<TRoutes>,
 ): HttpContract<TRoutes> {
-  validateHttpContractVersion(contract.version);
+  validateContractVersion(contract.version);
   for (const [key, route] of Object.entries(contract.routes)) {
     if (!route.path.startsWith("/")) {
       throw new ConfigurationError(
