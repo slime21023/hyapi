@@ -24,6 +24,28 @@ listener settings.
 The example requires a JWT secret. Generate at least 32 random bytes and expose the value through
 `JWT_SECRET`; do not use a human-chosen password as an HS256 key.
 
+## A minimal application
+
+```ts
+import { createApplication, serve } from "@hyapi/core";
+
+const app = await createApplication({
+  config: { name: "hello-api" },
+  modules: [{
+    name: "hello",
+    setup(module) {
+      module.route({ method: "get", path: "/hello", handler: ({ ok }) => ok({ hello: "world" }) });
+    },
+  }],
+});
+
+const server = serve(app, { port: 8000, shutdownSignals: ["SIGINT", "SIGTERM"] });
+await server.finished;
+```
+
+Run it with `deno run --allow-net --unstable-no-legacy-abort main.ts`. Set `config.environment` to
+`"development"` while developing to see internal error details.
+
 ## Verify a checkout
 
 When working on HyAPI itself, use one command to format, lint, type-check, test, inspect the

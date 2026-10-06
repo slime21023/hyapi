@@ -23,6 +23,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Typed request state ([RFC 0004](_design/rfcs/0004-typed-request-state.md)): `defineStateKey()` and
   `RequestState`.
 - `problemTypeBaseUrl` application setting for problem `type` URIs.
+- Typed route responses ([RFC 0006](_design/rfcs/0006-typed-route-responses.md)): response helpers,
+  bare results, and HTTP contract handlers are checked against declared `responses`; `defineRoute()`
+  keeps inference for routes defined in their own files.
+- Development diagnostics ([RFC 0007](_design/rfcs/0007-error-diagnostics-and-default-status.md)):
+  with `environment: "development"`, problem responses include internal messages and details.
+- `serve()` ([RFC 0008](_design/rfcs/0008-serve.md)): a listener helper that coordinates
+  `app.close()` and graceful listener shutdown; the example and CLI starter use it.
 
 ### Changed
 
@@ -37,6 +44,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Breaking:** `RequestContext.state` and `LifecycleContext.state` are `RequestState` instead of
   `Map<string, unknown>`.
 - **Breaking:** problem `type` is `about:blank` unless `problemTypeBaseUrl` is configured.
+- **Breaking:** handlers whose results disagree with their declared `responses` no longer compile.
+- **Breaking:** `defineConfig()` defaults `environment` to `production`.
+- **Breaking:** a `DELETE` handler that returns a body responds with 200 instead of failing the 204
+  contract.
+- `HealthCheckReport.detail` is typed as an omitted `string` rather than `string | undefined`.
+- The example application provides its guard through an `authPort` Port, so its modules are plain
+  values again.
 - CLI `doctor` recognizes `provides: [...]` declarations as module Port providers.
 
 ## [1.0.0-rc.4] - Superseded

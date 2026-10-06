@@ -4,11 +4,13 @@ import {
   defineStateKey,
   type HyApplication,
   type Plugin,
+  providePort,
 } from "@hyapi/core";
 import { jwtBearer } from "@hyapi/plugin-jwt";
+import { authPort } from "./contracts/auth.ts";
 import { createHealthModule } from "./modules/health/module.ts";
-import { createOrdersModule } from "./modules/orders/module.ts";
-import { createUsersModule } from "./modules/users/module.ts";
+import { ordersModule } from "./modules/orders/module.ts";
+import { usersModule } from "./modules/users/module.ts";
 
 const requestStartedAt = defineStateKey<number>("request-logging.startedAt");
 
@@ -54,11 +56,8 @@ export async function buildExampleApp(
 
   return await createApplication({
     config,
-    modules: [
-      createHealthModule(config.name),
-      createUsersModule(authenticate),
-      createOrdersModule(authenticate),
-    ],
+    modules: [createHealthModule(config.name), usersModule, ordersModule],
+    providers: [providePort(authPort, authenticate)],
     plugins,
   });
 }

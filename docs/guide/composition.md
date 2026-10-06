@@ -93,6 +93,9 @@ await createApplication({
 
 HyAPI does not read the environment; the application passes values explicitly.
 
+Annotating such a module as `const ordersModule: Module = { ... }` widens its configuration to
+`unknown`. Use `defineModule()` for every module that declares `config`.
+
 ## Keep boundaries small
 
 - Put a shared Port beside its contract, not inside a provider implementation.

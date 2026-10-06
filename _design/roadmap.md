@@ -188,7 +188,15 @@ v1.0.0, while breaking changes are still cheap.
 - [x] **RC5-05:** Configurable problem `type` URIs; remove duplicated contract-version helpers and
       the duplicate internal options type.
 - [x] **RC5-06:** Migration notes, user guide, and CLI `doctor` support for `provides: [...]`.
-- [ ] Accept RFCs 0002-0005, run the full verification and package dry runs on the final candidate,
+- [x] **RC5-07:** Development error diagnostics, `production` default environment, and body-based
+      default status ([RFC 0007](rfcs/0007-error-diagnostics-and-default-status.md)).
+- [x] **RC5-08:** Typed route responses and `defineRoute()`
+      ([RFC 0006](rfcs/0006-typed-route-responses.md)).
+- [x] **RC5-09:** `serve()` for the example, starter, and applications
+      ([RFC 0008](rfcs/0008-serve.md)).
+- [x] **RC5-10:** Guard injection through a Port in the guide and example; route and module typing
+      guidance.
+- [ ] Accept RFCs 0002-0008, run the full verification and package dry runs on the final candidate,
       then verify a starter against published packages.
 
 ## Post-1.0 candidates
@@ -202,6 +210,9 @@ These additions are expected to be additive, so they do not block v1.0.0:
 - Recipes for in-process module events with an application-owned outbox, streaming responses, and
   uploads.
 - `hyapi inspect --graph` output of the module and Port graph.
+- Typed claims for the JWT and OIDC guards from an optional claims schema.
+- Port substitution in tests for applications that keep the providing module installed.
+- A typed `ctx.headers` view for routes that declare a header schema.
 
 ## v1.0.0-rc.2 verification record
 

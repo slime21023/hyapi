@@ -39,12 +39,27 @@ The example app reads the following variables (see
 
 ### Graceful shutdown
 
-On SIGINT/SIGTERM, start `app.close()` immediately and stop the listener after any active
-transmissions complete, as in
-[`apps/example/src/main.ts`](https://github.com/slime21023/hyapi/blob/main/apps/example/src/main.ts).
-`info.completed` observes network delivery only; request scopes still close when a `Response`
-returns. Deno 2.9 can raise `BadResource` if the ServeOptions signal aborts during an already
-running `server.shutdown()` with an unfinished stream. Therefore the listener defers
+Serve the application with `serve()`, which coordinates the listener and `app.close()`:
+
+```ts
+import { serve } from "@hyapi/core";
+
+const server = serve(app, {
+  hostname: "0.0.0.0",
+  port: 8000,
+  shutdownSignals: ["SIGINT", "SIGTERM"],
+});
+await server.finished;
+```
+
+`serve()` binds `127.0.0.1` unless `hostname` is set and installs signal handlers only for the
+listed `shutdownSignals` (on Windows, only `SIGINT` and `SIGBREAK` are supported). `shutdown()` and
+an aborted `signal` option start the same graceful shutdown.
+
+On shutdown, `serve()` starts `app.close()` immediately and stops the listener after any active
+transmissions complete. `info.completed` observes network delivery only; request scopes still close
+when a `Response` returns. Deno 2.9 can raise `BadResource` if the ServeOptions signal aborts during
+an already running `server.shutdown()` with an unfinished stream. Therefore the listener defers
 `server.shutdown()` until active transmissions finish; at the `2 * shutdownTimeoutMs + 1000` ms
 grace deadline, it aborts ServeOptions first, then calls `server.shutdown()`. The shutdown promise
 is memoized across repeated signals and normal `server.finished` completion; both application and

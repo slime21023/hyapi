@@ -35,11 +35,11 @@ behavior, so the new default changes nothing for applications that never set it 
 
 Without `responseStatus` or a status from a response helper:
 
-| Handler result         | Status |
-| ---------------------- | ------ |
-| `undefined`            | 204    |
-| A body from `POST`     | 201    |
-| A body from any method | 200    |
+| Handler result     | Status |
+| ------------------ | ------ |
+| `undefined`        | 204    |
+| A body from `POST` | 201    |
+| Any other body     | 200    |
 
 The only change is that `DELETE` with a body now returns 200 instead of failing. In OpenAPI, a
 `DELETE` route without declared `responses` documents both 200 and 204.

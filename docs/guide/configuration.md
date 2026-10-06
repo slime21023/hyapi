@@ -20,6 +20,13 @@ const config = defineConfig({
 });
 ```
 
+## Environment
+
+`environment` defaults to `production`. Set it to `development` locally to include internal error
+messages and details in problem responses: a thrown error's message and stack, or the issues behind
+a response contract or validation failure. `test` and `production` keep internal errors hidden.
+Never use `development` where clients are untrusted.
+
 ## Request and shutdown limits
 
 `bodyLimitBytes` applies even when a client streams a body without `Content-Length`. A request that
