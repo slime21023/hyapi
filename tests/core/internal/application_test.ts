@@ -1638,7 +1638,7 @@ Deno.test("app - replaces malformed request ids and tags immutable responses", a
 Deno.test("app - request cleanup failures reach onError without replacing the response", async () => {
   const errors: unknown[] = [];
   const app = createApp({ config });
-  const connection = app.requestService(() => ({
+  const connection = app.services.reference("request", () => ({
     close: () => {
       throw new Error("close failed");
     },
@@ -1669,7 +1669,7 @@ Deno.test("never-settling cleanup error observer cannot replace or stall a chose
   const app = createApp({
     config: { ...config, requestTimeoutMs: 150, shutdownTimeoutMs: 20 },
   });
-  const connection = app.requestService(() => ({
+  const connection = app.services.reference("request", () => ({
     close: () => {
       throw new Error("close failed");
     },
@@ -1705,10 +1705,10 @@ Deno.test("request cleanup bounds stalled closers and returns the chosen respons
   const app = createApp({
     config: { ...config, requestTimeoutMs: 80, shutdownTimeoutMs: 20 },
   });
-  const later = app.requestService(() => ({
+  const later = app.services.reference("request", () => ({
     close: () => void events.push("later"),
   }));
-  const stalled = app.requestService(() => ({
+  const stalled = app.services.reference("request", () => ({
     close: () => {
       events.push("stalled");
       return new Promise<void>(() => {});
@@ -1743,7 +1743,7 @@ Deno.test("forced shutdown releases a request waiting on its service closer", as
   const app = createApp({
     config: { ...config, requestTimeoutMs: 5_000, shutdownTimeoutMs: 20 },
   });
-  const stalled = app.requestService(() => ({
+  const stalled = app.services.reference("request", () => ({
     close: () => {
       entered.resolve();
       return new Promise<void>(() => {});
@@ -2281,8 +2281,11 @@ Deno.test("routes and nested groups keep inherited guards", async () => {
 
 Deno.test("singleton factories cannot resolve request-scoped services", async () => {
   const app = createApp({ config });
-  const requestScoped = app.requestService(() => ({ id: 1 }));
-  const leaky = app.singletonService(async (services) => await services.get(requestScoped));
+  const requestScoped = app.services.reference("request", () => ({ id: 1 }));
+  const leaky = app.services.reference(
+    "singleton",
+    async (services) => await services.get(requestScoped),
+  );
   app.route({
     method: "get",
     path: "/leaky",
@@ -2298,7 +2301,7 @@ Deno.test("singleton factories cannot resolve request-scoped services", async ()
 Deno.test("failed singleton factories are retried on the next resolution", async () => {
   let attempts = 0;
   const app = createApp({ config });
-  const flaky = app.singletonService(() => {
+  const flaky = app.services.reference("singleton", () => {
     attempts += 1;
     if (attempts === 1) throw new Error("first attempt fails");
     return { attempts };
@@ -2542,7 +2545,7 @@ Deno.test("request services outliving their request are closed and never created
   const log: string[] = [];
   const outcomes = Promise.withResolvers<unknown[]>();
   const app = createApp({ config: { ...config, requestTimeoutMs: 20 } });
-  const connection = app.requestService(async () => {
+  const connection = app.services.reference("request", async () => {
     await sleep(60);
     log.push("request:create");
     return { close: () => void log.push("request:close") };
@@ -2999,7 +3002,7 @@ Deno.test("client disconnect is forwarded only while the request scope is active
 Deno.test("lazy response stream owns its payload after request service cleanup", async () => {
   const events: string[] = [];
   const app = createApp({ config });
-  const service = app.requestService(() => ({
+  const service = app.services.reference("request", () => ({
     close: () => {
       events.push("service:close");
     },
@@ -3040,7 +3043,7 @@ Deno.test("forced shutdown gives cooperative request cleanup precedence over pro
       },
     })],
   });
-  const service = app.requestService(() => ({
+  const service = app.services.reference("request", () => ({
     close: () => {
       log.push("request-service:close");
     },

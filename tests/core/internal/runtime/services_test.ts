@@ -27,12 +27,18 @@ Deno.test("static and factory overrides have explicit service lifetimes", async 
       },
     ],
   });
-  const staticRequest = app.requestService(
+  const staticRequest = app.services.reference(
+    "request",
     "static-request-dependency",
     () => ({ id: "factory-static" }),
   );
-  const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
-  const singleton = app.singletonService(
+  const request = app.services.reference(
+    "request",
+    "request-dependency",
+    () => ({ id: "factory-request" }),
+  );
+  const singleton = app.services.reference(
+    "singleton",
     "singleton-dependency",
     () => ({ id: "factory-singleton" }),
   );
@@ -71,8 +77,15 @@ Deno.test("singleton factories cannot resolve overridden request services", asyn
     config: defineConfig({ name: "override-scope", openapi: { enabled: false } }),
     overrides: [{ name: "request-dependency", value: { id: "request" } }],
   });
-  const request = app.requestService("request-dependency", () => ({ id: "factory-request" }));
-  const singleton = app.singletonService(async (services) => await services.get(request));
+  const request = app.services.reference(
+    "request",
+    "request-dependency",
+    () => ({ id: "factory-request" }),
+  );
+  const singleton = app.services.reference(
+    "singleton",
+    async (services) => await services.get(request),
+  );
   app.route({
     method: "get",
     path: "/scope",

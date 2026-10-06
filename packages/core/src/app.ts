@@ -427,45 +427,6 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
     return this.providers.use(port);
   }
 
-  singletonService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  singletonService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  singletonService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  singletonService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.services.reference("singleton", nameOrFactory, maybeFactory);
-  }
-
-  requestService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  requestService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  requestService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  requestService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.services.reference("request", nameOrFactory, maybeFactory);
-  }
-
-  transientService<T>(factory: ServiceFactory<T>): ServiceReference<T>;
-  transientService<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
-  transientService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T>;
-  transientService<T>(
-    nameOrFactory: string | ServiceFactory<T>,
-    maybeFactory?: ServiceFactory<T>,
-  ): ServiceReference<T> {
-    return this.services.reference("transient", nameOrFactory, maybeFactory);
-  }
-
   async start(): Promise<void> {
     if (this.state === "running") return;
     if (this.state === "starting") return await this.starting!;
@@ -732,7 +693,7 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.#app.singletonService(nameOrFactory, maybeFactory);
+    return this.#app.services.reference("singleton", nameOrFactory, maybeFactory);
   }
 
   request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -741,7 +702,7 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.#app.requestService(nameOrFactory, maybeFactory);
+    return this.#app.services.reference("request", nameOrFactory, maybeFactory);
   }
 
   transient<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -750,7 +711,7 @@ class ModuleContext extends RouterGroup implements ModuleApi {
     nameOrFactory: string | ServiceFactory<T>,
     maybeFactory?: ServiceFactory<T>,
   ): ServiceReference<T> {
-    return this.#app.transientService(nameOrFactory, maybeFactory);
+    return this.#app.services.reference("transient", nameOrFactory, maybeFactory);
   }
 
   use<T>(port: Port<T>): T {
