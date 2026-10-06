@@ -6,7 +6,7 @@
  *
  * @module
  */
-export { createApplication } from "./src/app.ts";
+export { createApplication, defineModule } from "./src/app.ts";
 export {
   AppError,
   ConfigurationError,

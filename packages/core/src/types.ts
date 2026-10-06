@@ -205,7 +205,9 @@ export interface ServiceResolver {
 export type ServiceFactory<T> = (services: ServiceResolver) => MaybePromise<T>;
 
 /** Capabilities supplied while a module declares routes, services, and Port dependencies. */
-export interface ModuleApi extends RouteGroupApi {
+export interface ModuleApi<TConfig = unknown> extends RouteGroupApi {
+  /** The module's validated, defaulted, and frozen configuration. */
+  readonly config: TConfig;
   singleton<T>(factory: ServiceFactory<T>): ServiceReference<T>;
   singleton<T>(name: string, factory: ServiceFactory<T>): ServiceReference<T>;
   request<T>(factory: ServiceFactory<T>): ServiceReference<T>;
@@ -216,14 +218,16 @@ export interface ModuleApi extends RouteGroupApi {
 }
 
 /** Independently composed application unit with explicit dependencies and lifecycle hooks. */
-export interface Module {
+export interface Module<TConfig extends Schema | undefined = Schema | undefined> {
   readonly name: string;
+  /** Schema for this module's entry in {@link ApplicationOptions.moduleConfig}. */
+  readonly config?: TConfig;
   readonly dependencies?: readonly string[];
   readonly requires?: readonly Port<unknown>[];
   readonly provides?: readonly PortProvider<unknown>[];
-  setup(module: ModuleApi): MaybePromise<void>;
-  onStart?(module: ModuleApi): MaybePromise<void>;
-  onClose?(module: ModuleApi): MaybePromise<void>;
+  setup(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
+  onStart?(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
+  onClose?(module: ModuleApi<InferSchema<TConfig>>): MaybePromise<void>;
 }
 
 /** Ready-to-serve application facade returned by {@link createApplication}. */
@@ -239,6 +243,8 @@ export interface HyApplication {
 export interface ApplicationOptions {
   readonly config: AppConfig | AppConfigOptions;
   readonly modules: readonly Module[];
+  /** Configuration values keyed by module name, validated against each module's schema. */
+  readonly moduleConfig?: Readonly<Record<string, unknown>>;
   readonly plugins?: readonly Plugin[];
   readonly overrides?: readonly ServiceOverride[];
   readonly providers?: readonly PortProvider<unknown>[];
@@ -248,6 +254,7 @@ export interface ApplicationOptions {
 export interface HyApiOptions {
   readonly config: AppConfig;
   readonly modules?: readonly Module[];
+  readonly moduleConfig?: Readonly<Record<string, unknown>>;
   readonly plugins?: readonly Plugin[];
   readonly overrides?: readonly ServiceOverride[];
   readonly providers?: readonly PortProvider<unknown>[];

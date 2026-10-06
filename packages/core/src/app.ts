@@ -29,7 +29,7 @@ import {
 import { AppError, ConfigurationError, NotFoundError } from "./errors.ts";
 import { buildOpenApiDocument, selectOpenApiRoutes } from "./openapi.ts";
 import { MAX_TIMER_MS } from "./runtime/timers.ts";
-import { objectSchemaProperties, SchemaValidator } from "./schema.ts";
+import { objectSchemaProperties, SchemaValidationError, SchemaValidator } from "./schema.ts";
 import {
   type HookPoint,
   isProtectedAuth,
@@ -131,6 +131,50 @@ function sortByDependencies<T extends DependencyNode>(
 
   for (const item of items) visit(item.name);
   return sorted;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
+}
+
+/** Validates every module's configuration entry before any module or plugin runs setup. */
+function resolveModuleConfigs(
+  modules: readonly Module[],
+  entries: Readonly<Record<string, unknown>>,
+  validator: SchemaValidator,
+): Map<Module, unknown> {
+  const byName = new Map(modules.map((module) => [module.name, module]));
+  for (const name of Object.keys(entries)) {
+    const module = byName.get(name);
+    if (!module) {
+      throw new ConfigurationError(`moduleConfig references unknown module '${name}'.`);
+    }
+    if (!module.config) {
+      throw new ConfigurationError(`Module '${name}' does not declare a configuration schema.`);
+    }
+  }
+  const configs = new Map<Module, unknown>();
+  for (const module of modules) {
+    if (!module.config) continue;
+    const entry = Object.hasOwn(entries, module.name) ? entries[module.name] : {};
+    try {
+      configs.set(
+        module,
+        deepFreeze(validator.validateInput(module.config, structuredClone(entry))),
+      );
+    } catch (error) {
+      if (!(error instanceof SchemaValidationError)) throw error;
+      throw new ConfigurationError(`Module '${module.name}' configuration is invalid.`, {
+        module: module.name,
+        errors: error.issues,
+      });
+    }
+  }
+  return configs;
 }
 
 function toHonoPath(path: string): string {
@@ -459,6 +503,11 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       this.healthChecks.register(this.options.healthChecks ?? []);
       const modules = sortByDependencies(this.options.modules ?? [], "Module");
       const plugins = sortByDependencies(this.options.plugins ?? [], "Plugin");
+      const moduleConfigs = resolveModuleConfigs(
+        modules,
+        this.options.moduleConfig ?? {},
+        this.validator,
+      );
       this.providers.register([
         ...(this.options.providers ?? []),
         ...modules.flatMap((module) => module.provides ?? []),
@@ -474,7 +523,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       }
       const contexts = new Map<Module, ModuleContext>();
       for (const module of modules) {
-        const context = new ModuleContext(this, module);
+        const context = new ModuleContext(this, module, moduleConfigs.get(module));
         contexts.set(module, context);
         await module.setup(context);
         if (module.onClose) this.appScope.defer(() => module.onClose!(context));
@@ -563,12 +612,14 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
 }
 
 class ModuleContext extends RouterGroup implements ModuleApi {
+  readonly config: unknown;
   readonly #app: HyApiApp;
   readonly #moduleName: string;
   readonly #requiredPortIds: ReadonlySet<string>;
 
-  constructor(app: HyApiApp, module: Module) {
+  constructor(app: HyApiApp, module: Module, config: unknown) {
     super(app);
+    this.config = config;
     this.#app = app;
     this.#moduleName = module.name;
     this.#requiredPortIds = new Set(module.requires?.map((port) => port.id));
@@ -621,6 +672,26 @@ function createPlatformApi(app: HyApiApp): PlatformApi {
     setAuthProvider: (provider) => app.setAuthProvider(provider),
   };
   return Object.freeze(platform);
+}
+
+/**
+ * Returns a module unchanged so TypeScript can infer `module.config` from its schema.
+ *
+ * @example
+ * ```ts
+ * const orders = defineModule({
+ *   name: "orders",
+ *   config: Type.Object({ pageSize: Type.Integer({ default: 20 }) }),
+ *   setup(module) {
+ *     module.config.pageSize; // number
+ *   },
+ * });
+ * ```
+ */
+export function defineModule<TConfig extends Schema | undefined = undefined>(
+  module: Module<TConfig>,
+): Module<TConfig> {
+  return module;
 }
 
 /**
