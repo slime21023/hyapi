@@ -48,6 +48,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Breaking:** `defineConfig()` defaults `environment` to `production`.
 - **Breaking:** a `DELETE` handler that returns a body responds with 200 instead of failing the 204
   contract.
+- **Breaking:** a service override whose name matches no named service fails startup instead of
+  being ignored.
 - `HealthCheckReport.detail` is typed as an omitted `string` rather than `string | undefined`.
 - The example application provides its guard through an `authPort` Port, so its modules are plain
   values again.

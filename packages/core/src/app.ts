@@ -342,6 +342,8 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         if (module.onClose) this.appScope.defer(() => module.onClose!(context));
         this.providers.register(await context.resolveProviders());
       }
+      // Named services are registered during setup, so every override must have a target by now.
+      this.services.assertOverridesMatchServices();
 
       this.registrationOpen = false;
       for (const route of this.routes) {

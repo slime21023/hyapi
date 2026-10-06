@@ -96,6 +96,24 @@ HyAPI does not read the environment; the application passes values explicitly.
 Annotating such a module as `const ordersModule: Module = { ... }` widens its configuration to
 `unknown`. Use `defineModule()` for every module that declares `config`.
 
+## Overriding services
+
+Name a service to make it replaceable, then pass `overrides` to `createApplication()`, usually in
+tests:
+
+```ts
+const clock = module.singleton("clock", () => ({ now: () => new Date() }));
+
+await createApplication({
+  config,
+  modules: [ordersModule],
+  overrides: [{ name: "clock", value: { now: () => new Date("2026-01-01") } }],
+});
+```
+
+Startup fails when an override names no service registered during setup, so a misspelled name is
+reported instead of silently ignored.
+
 ## Keep boundaries small
 
 - Put a shared Port beside its contract, not inside a provider implementation.

@@ -18,6 +18,7 @@ export class ServiceContainer {
   readonly #singletonScope: Scope;
   readonly #singletons = new Map<ServiceReference<unknown>, Promise<unknown>>();
   readonly #overrides = new Map<string, ServiceOverride>();
+  readonly #names = new Set<string>();
 
   constructor(singletonScope: Scope) {
     this.#singletonScope = singletonScope;
@@ -47,7 +48,21 @@ export class ServiceContainer {
     const name = typeof nameOrFactory === "string" ? nameOrFactory : undefined;
     const factory = typeof nameOrFactory === "function" ? nameOrFactory : maybeFactory;
     if (!factory) throw new ConfigurationError("A service factory is required.");
+    if (name) this.#names.add(name);
     return { ...(name ? { name } : {}), scope, factory };
+  }
+
+  /** Rejects overrides that name no registered service, which would otherwise be ignored. */
+  assertOverridesMatchServices(): void {
+    for (const name of this.#overrides.keys()) {
+      if (this.#names.has(name)) continue;
+      const registered = [...this.#names].sort();
+      throw new ConfigurationError(
+        `Service override '${name}' does not match any named service. Registered names: ${
+          registered.length > 0 ? registered.join(", ") : "(none)"
+        }.`,
+      );
+    }
   }
 
   resolver(requestServices?: RequestServices): ServiceResolver {
