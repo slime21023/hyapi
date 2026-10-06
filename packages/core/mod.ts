@@ -34,6 +34,8 @@ export { defineRoute } from "./src/routing.ts";
 export { registerHttpContract } from "./src/http/server.ts";
 export { createHttpClient, createHttpHealthCheck, withHttpContext } from "./src/http/client.ts";
 export { provideHttp } from "./src/http/provider.ts";
+export { serve } from "./src/http/serve.ts";
+export type { HyServer, ServeOptions } from "./src/http/serve.ts";
 export { ResilienceError, withResilience } from "./src/resilience.ts";
 export { defineConfig } from "./src/config.ts";
 export { defineStateKey } from "./src/state.ts";

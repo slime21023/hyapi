@@ -100,97 +100,21 @@ function projectConfig(coreVersion: string): string {
 }
 
 function projectMain(): string {
-  return `import { app } from "./app.ts";
+  return `import { serve } from "@hyapi/core";
+import { app } from "./app.ts";
 
-const host = Deno.env.get("HOST") ?? "127.0.0.1";
+const hostname = Deno.env.get("HOST") ?? "127.0.0.1";
 const port = Number(Deno.env.get("PORT") ?? "8000");
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("PORT must be a valid TCP port.");
 }
 
-const controller = new AbortController();
-const transmissions = new Set<Promise<void>>();
-let notifyIdle: (() => void) | undefined;
-const server = Deno.serve(
-  { hostname: host, port, signal: controller.signal },
-  (request, info) => {
-    const completed = info.completed;
-    transmissions.add(completed);
-    const settled = () => {
-      transmissions.delete(completed);
-      if (transmissions.size === 0) notifyIdle?.();
-    };
-    void completed.then(settled, settled);
-    return app.fetch(request);
-  },
-);
-
-let stopping: Promise<void> | undefined;
-function stop(): Promise<void> {
-  return stopping ??= (async () => {
-    const closingApp = app.close();
-    const deadline = Date.now() + 2 * (app.config.shutdownTimeoutMs ?? 30_000) +
-      1_000;
-    const watchdog = new AbortController();
-    const closingServer = (async () => {
-      if (transmissions.size > 0) {
-        const idle = new Promise<void>((resolve) => {
-          notifyIdle = resolve;
-          if (transmissions.size === 0) resolve();
-        });
-        await Promise.race([idle, abortAfter(deadline, watchdog.signal)]);
-      }
-      if (transmissions.size > 0) controller.abort();
-      await server.shutdown();
-      await server.finished;
-    })();
-    try {
-      const results = await Promise.allSettled([closingApp, closingServer]);
-      const errors = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason as unknown] : []
-      );
-      if (errors.length > 1) {
-        throw new AggregateError(errors, "Server shutdown failed.");
-      }
-      if (errors.length === 1) throw errors[0];
-    } finally {
-      watchdog.abort();
-    }
-  })();
-}
-
-async function abortAfter(
-  deadline: number,
-  signal: AbortSignal,
-): Promise<void> {
-  while (!signal.aborted) {
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) return;
-    await new Promise<void>((resolve) => {
-      const timer = setTimeout(finish, Math.min(remaining, 2_147_483_647));
-      function finish() {
-        signal.removeEventListener("abort", finish);
-        clearTimeout(timer);
-        resolve();
-      }
-      signal.addEventListener("abort", finish, { once: true });
-      if (signal.aborted) finish();
-    });
-  }
-}
-
-function onShutdown(): void {
-  void stop().catch(console.error);
-}
-
-Deno.addSignalListener("SIGINT", onShutdown);
-if (Deno.build.os !== "windows") Deno.addSignalListener("SIGTERM", onShutdown);
-
-try {
-  await server.finished;
-} finally {
-  await stop();
-}
+const server = serve(app, {
+  hostname,
+  port,
+  shutdownSignals: ["SIGINT", "SIGTERM"],
+});
+await server.finished;
 `;
 }
 

@@ -40,11 +40,7 @@ Deno.test("new and generate module write a minimal project without overwriting f
     );
     assertStringIncludes(
       await Deno.readTextFile(`${project}/src/main.ts`),
-      'Deno.addSignalListener("SIGINT"',
-    );
-    assertStringIncludes(
-      await Deno.readTextFile(`${project}/src/main.ts`),
-      'Deno.build.os !== "windows"',
+      'shutdownSignals: ["SIGINT", "SIGTERM"]',
     );
     assertStringIncludes(output.join("\n"), "deno task check");
 
