@@ -3,11 +3,12 @@ import {
   createApplication,
   defineStateKey,
   type HyApplication,
-  jwtPlugin,
+  type Plugin,
 } from "@hyapi/core";
+import { jwtBearer } from "@hyapi/plugin-jwt";
 import { createHealthModule } from "./modules/health/module.ts";
-import { ordersModule } from "./modules/orders/module.ts";
-import { usersModule } from "./modules/users/module.ts";
+import { createOrdersModule } from "./modules/orders/module.ts";
+import { createUsersModule } from "./modules/users/module.ts";
 
 const requestStartedAt = defineStateKey<number>("request-logging.startedAt");
 
@@ -20,14 +21,12 @@ export async function buildExampleApp(
   jwtSecret: string,
   options: ExampleAppOptions = {},
 ): Promise<HyApplication> {
-  const healthModule = createHealthModule(config.name);
-  const plugins = [
-    jwtPlugin({
-      secret: jwtSecret,
-      ...(Deno.env.get("JWT_ISSUER") ? { issuer: Deno.env.get("JWT_ISSUER")! } : {}),
-      ...(Deno.env.get("JWT_AUDIENCE") ? { audience: Deno.env.get("JWT_AUDIENCE")! } : {}),
-    }),
-  ];
+  const authenticate = jwtBearer({
+    secret: jwtSecret,
+    ...(Deno.env.get("JWT_ISSUER") ? { issuer: Deno.env.get("JWT_ISSUER")! } : {}),
+    ...(Deno.env.get("JWT_AUDIENCE") ? { audience: Deno.env.get("JWT_AUDIENCE")! } : {}),
+  });
+  const plugins: Plugin[] = [];
 
   if (options.enableRequestLogging !== false) {
     plugins.push({
@@ -55,7 +54,11 @@ export async function buildExampleApp(
 
   return await createApplication({
     config,
-    modules: [healthModule, usersModule, ordersModule],
+    modules: [
+      createHealthModule(config.name),
+      createUsersModule(authenticate),
+      createOrdersModule(authenticate),
+    ],
     plugins,
   });
 }

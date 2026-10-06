@@ -1,6 +1,6 @@
 /** OIDC resource-server authentication for HyAPI applications. @module */
 
-import { type AuthProvider, type Identity, type Plugin, UnauthorizedError } from "@hyapi/core";
+import { defineGuard, type Guard, type Identity, UnauthorizedError } from "@hyapi/core";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@6";
 
 /** Asymmetric JWT signing algorithms supported by the OIDC plugin. */
@@ -26,6 +26,10 @@ export interface OidcOptions {
   readonly jwksUrl: string;
   /** Explicit asymmetric signing algorithms accepted from access tokens. */
   readonly algorithms: readonly OidcAlgorithm[];
+  /** Admit requests without an Authorization header, leaving the identity empty. */
+  readonly optional?: boolean;
+  /** OpenAPI security scheme name. Defaults to `bearerAuth`. */
+  readonly schemeName?: string;
 }
 
 interface NormalizedOidcOptions {
@@ -48,42 +52,54 @@ const ALGORITHMS = new Set<OidcAlgorithm>([
   "EdDSA",
 ]);
 
-/** Creates a plugin that verifies OIDC Bearer access tokens through a remote JWKS endpoint. */
-export function oidcPlugin(options: OidcOptions): Plugin {
+/**
+ * Creates a guard that verifies OIDC Bearer access tokens through a remote JWKS endpoint.
+ *
+ * Missing credentials are rejected with 401 unless `optional` is set; invalid credentials are
+ * always rejected with 401 and a `Bearer error="invalid_token"` challenge.
+ */
+export function oidcBearer(options: OidcOptions): Guard {
   const normalized = normalizeOptions(options);
-  return {
-    name: "oidc",
-    setup(platform) {
-      platform.setAuthProvider(new OidcAuthProvider(normalized));
+  const jwks = createRemoteJWKSet(normalized.jwksUrl);
+  return defineGuard({
+    name: "oidcBearer",
+    security: {
+      schemes: {
+        [options.schemeName ?? "bearerAuth"]: {
+          type: "http",
+          scheme: "bearer",
+          bearerFormat: "JWT",
+        },
+      },
+      ...(options.optional ? { optional: true } : {}),
     },
-  };
+    async check({ request }): Promise<Identity | void> {
+      const token = readBearerToken(request.headers.get("authorization"));
+      if (token === null) {
+        if (options.optional) return;
+        throw new UnauthorizedError(undefined, { challenge: "Bearer" });
+      }
+      try {
+        const { payload } = await jwtVerify(token, jwks, {
+          issuer: normalized.issuer,
+          audience: [...normalized.audience],
+          algorithms: [...normalized.algorithms],
+        });
+        if (typeof payload.sub !== "string" || payload.sub.length === 0) throw invalidToken();
+        return {
+          subject: payload.sub,
+          scopes: scopesFromClaim(payload.scope),
+          claims: Object.freeze({ ...payload }),
+        };
+      } catch {
+        throw invalidToken();
+      }
+    },
+  });
 }
 
-class OidcAuthProvider implements AuthProvider {
-  readonly #jwks: ReturnType<typeof createRemoteJWKSet>;
-
-  constructor(private readonly options: NormalizedOidcOptions) {
-    this.#jwks = createRemoteJWKSet(options.jwksUrl);
-  }
-
-  async authenticate(request: Request): Promise<Identity | null> {
-    const token = readBearerToken(request.headers.get("authorization"));
-    if (token === null) return null;
-
-    try {
-      const { payload } = await jwtVerify(token, this.#jwks, {
-        issuer: this.options.issuer,
-        audience: [...this.options.audience],
-        algorithms: [...this.options.algorithms],
-      });
-      if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-        throw new UnauthorizedError();
-      }
-      return { subject: payload.sub, scopes: scopesFromClaim(payload.scope) };
-    } catch {
-      throw new UnauthorizedError();
-    }
-  }
+function invalidToken(): UnauthorizedError {
+  return new UnauthorizedError(undefined, { challenge: 'Bearer error="invalid_token"' });
 }
 
 function normalizeOptions(options: OidcOptions): NormalizedOidcOptions {
@@ -119,7 +135,7 @@ function validateHttpUrl(value: string, label: string): void {
 function readBearerToken(header: string | null): string | null {
   if (header === null) return null;
   const match = /^Bearer +(\S+)$/i.exec(header);
-  if (!match?.[1]) throw new UnauthorizedError();
+  if (!match?.[1]) throw invalidToken();
   return match[1];
 }
 

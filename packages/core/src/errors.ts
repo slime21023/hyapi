@@ -45,9 +45,13 @@ export class NotFoundError extends AppError {
 
 /** Reports missing or invalid authentication. */
 export class UnauthorizedError extends AppError {
-  constructor(message = "Authentication is required.") {
+  /** `www-authenticate` value sent with the 401 response, such as `Bearer`. */
+  readonly challenge: string | undefined;
+
+  constructor(message = "Authentication is required.", options: { challenge?: string } = {}) {
     super(401, "UNAUTHORIZED", message);
     this.name = "UnauthorizedError";
+    this.challenge = options.challenge;
   }
 }
 

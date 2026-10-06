@@ -2,7 +2,18 @@ import { assert, assertEquals } from "@std/assert";
 import Type from "typebox";
 import { buildOpenApiDocument } from "../../../packages/core/src/openapi.ts";
 import { SchemaValidator } from "../../../packages/core/src/schema.ts";
-import type { AnyRouteDefinition } from "@hyapi/core";
+import { type AnyRouteDefinition, defineGuard, type Guard, requireScopes } from "@hyapi/core";
+
+function bearer(optional = false): Guard {
+  return defineGuard({
+    name: "bearer",
+    security: {
+      schemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
+      ...(optional ? { optional: true } : {}),
+    },
+    check: () => undefined,
+  });
+}
 
 Deno.test("OpenAPI - builds standard OpenAPI 3.1 document with ProblemDetails component", () => {
   const validator = new SchemaValidator();
@@ -21,10 +32,10 @@ Deno.test("OpenAPI - builds standard OpenAPI 3.1 document with ProblemDetails co
 
   const components = doc.components as Record<string, unknown>;
   const schemas = components.schemas as Record<string, unknown>;
-  const securitySchemes = components.securitySchemes as Record<string, unknown>;
 
   assert(schemas.ProblemDetails);
-  assert(securitySchemes.bearerAuth);
+  // Without guards there is no security scheme to describe.
+  assertEquals(components.securitySchemes, undefined);
 });
 
 Deno.test("OpenAPI - maps query, params, headers, and body with auto-injected 400 response", () => {
@@ -87,14 +98,14 @@ Deno.test("OpenAPI - maps security scopes and optional auth with 401/403 respons
     {
       method: "get",
       path: "/protected",
-      auth: { scopes: ["admin", "superadmin"] },
+      guards: [bearer(), requireScopes("admin", "superadmin")],
       responses: { 200: Type.Object({ secret: Type.String() }) },
       handler: () => undefined,
     },
     {
       method: "get",
       path: "/optional-auth",
-      auth: { required: false },
+      guards: [bearer(true)],
       responses: { 200: Type.Object({ public: Type.Boolean() }) },
       handler: () => undefined,
     },

@@ -1,4 +1,4 @@
-import { type RouteGroupApi, type ServiceReference } from "@hyapi/core";
+import { type Guard, requireScopes, type RouteGroupApi, type ServiceReference } from "@hyapi/core";
 import {
   CreateUserSchema,
   UpdateUserSchema,
@@ -12,9 +12,10 @@ import type { UserService } from "./service.ts";
 export function registerUserRoutes(
   api: RouteGroupApi,
   service: ServiceReference<UserService>,
+  authenticate: Guard,
 ): void {
-  api.group("/v1/users", { tags: ["users"] }, (users) => {
-    users.group({ auth: { scopes: ["users:read"] } }, (readers) => {
+  api.group("/v1/users", { tags: ["users"], guards: [authenticate] }, (users) => {
+    users.group({ guards: [requireScopes("users:read")] }, (readers) => {
       readers.route(
         {
           method: "get",
@@ -39,7 +40,7 @@ export function registerUserRoutes(
       );
     });
 
-    users.group({ auth: { scopes: ["users:write"] } }, (writers) => {
+    users.group({ guards: [requireScopes("users:write")] }, (writers) => {
       writers.route(
         {
           method: "post",

@@ -18,7 +18,8 @@ export {
   UnauthorizedError,
   ValidationError,
 } from "./src/errors.ts";
-export { JwtAuthProvider, jwtPlugin } from "./src/jwt.ts";
+export { anyOf, defineGuard, requireScopes } from "./src/guards.ts";
+export type { Guard, GuardContext, GuardSecurity } from "./src/guards.ts";
 export {
   definePort,
   definePortContract,
@@ -39,8 +40,6 @@ export type { RequestState, StateKey } from "./src/state.ts";
 export type {
   AnyRouteDefinition,
   ApplicationOptions,
-  AuthProvider,
-  AuthRequirement,
   HyApplication,
   Identity,
   LifecycleContext,

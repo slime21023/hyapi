@@ -11,22 +11,24 @@ import {
   type AnyRouteDefinition,
   type AppConfig,
   AppError,
-  type AuthProvider,
   createApplication,
   defineConfig,
+  defineGuard,
   definePort,
   definePortContract,
   defineStateKey,
+  type Guard,
   type HealthCheckResult,
   type Identity,
   NotFoundError,
   providePort,
+  requireScopes,
   type RouteGroupApi,
   verifyPortContract,
   verifyPortContracts,
   withHttpContext,
 } from "@hyapi/core";
-import { ConfigurationError } from "@hyapi/core";
+import { ConfigurationError, UnauthorizedError } from "@hyapi/core";
 import { createApp } from "../../../packages/core/src/app.ts";
 import { sleep } from "../../../packages/core/src/runtime/timers.ts";
 import Type from "typebox";
@@ -746,21 +748,34 @@ Deno.test("missing plugin dependencies throw ConfigurationError", async () => {
   );
 });
 
-Deno.test("app.group supports nested prefixes, tag and auth inheritance", async () => {
-  const app = createApp({ config });
-  const mockAuth: AuthProvider = {
-    authenticate: (req: Request): Identity | null => {
-      const auth = req.headers.get("authorization");
-      if (auth === "Bearer valid-token") {
-        return { subject: "user-1", scopes: ["users:read", "users:write"] };
-      }
-      return null;
+/** Accepts only `Bearer valid-token`, standing in for a real bearer-token guard. */
+function mockBearer(identity: Identity, options: { optional?: boolean } = {}): Guard {
+  return defineGuard({
+    name: "mockBearer",
+    security: {
+      schemes: { bearerAuth: { type: "http", scheme: "bearer" } },
+      ...(options.optional ? { optional: true } : {}),
     },
-  };
-  app.setAuthProvider(mockAuth);
+    check({ request }) {
+      const authorization = request.headers.get("authorization");
+      if (authorization === "Bearer valid-token") return identity;
+      if (authorization === null && options.optional) return;
+      throw new UnauthorizedError(undefined, { challenge: "Bearer" });
+    },
+  });
+}
+
+Deno.test("app.group supports nested prefixes, tag and guard inheritance", async () => {
+  const app = createApp({ config });
+  const bearer = mockBearer({
+    subject: "user-1",
+    scopes: ["users:read", "users:write"],
+    claims: {},
+  });
 
   app.group("/v1", (v1) => {
-    v1.group("/users", { tags: ["Users"], auth: { scopes: ["users:read"] } }, (users) => {
+    const readers = [bearer, requireScopes("users:read")];
+    v1.group("/users", { tags: ["Users"], guards: readers }, (users) => {
       users.route(
         {
           method: "get",
@@ -778,7 +793,7 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
           handler: ({ params, ok }) => ok({ id: params.id }),
         },
       );
-      users.group({ auth: { scopes: ["users:write"] } }, (writers) => {
+      users.group({ guards: [requireScopes("users:write")] }, (writers) => {
         writers.route(
           {
             method: "post",
@@ -829,15 +844,19 @@ Deno.test("app.group supports nested prefixes, tag and auth inheritance", async 
   assertEquals(await resPost.json(), { created: true });
 });
 
-Deno.test("ready rejects protected routes without an auth provider", async () => {
+Deno.test("route registration rejects malformed guards", () => {
   const app = createApp({ config });
-  app.route({
-    method: "get",
-    path: "/private",
-    auth: {},
-    handler: () => "private",
-  });
-  await assertRejects(() => app.start(), ConfigurationError);
+  assertThrows(
+    () =>
+      app.route({
+        method: "get",
+        path: "/private",
+        guards: [{ name: "broken" } as unknown as Guard],
+        handler: () => "private",
+      }),
+    ConfigurationError,
+    "Route 'GET /private' has an invalid guard.",
+  );
 });
 
 Deno.test("multi-status response schema validates matching status code schema", async () => {
@@ -1325,22 +1344,15 @@ Deno.test("app - triggers onError hooks on failures", async () => {
 
 Deno.test("app - supports optional authentication", async () => {
   const app = createApp({ config });
-  const mockAuth: AuthProvider = {
-    authenticate: (req: Request): Identity | null => {
-      const auth = req.headers.get("authorization");
-      if (auth === "Bearer valid-token") {
-        return { subject: "user-opt", scopes: ["read"] };
-      }
-      return null;
-    },
-  };
-  app.setAuthProvider(mockAuth);
+  const bearer = mockBearer({ subject: "user-opt", scopes: ["read"], claims: {} }, {
+    optional: true,
+  });
 
   app.route(
     {
       method: "get",
       path: "/optional",
-      auth: { required: false },
+      guards: [bearer],
       responses: {
         200: Type.Object({ authenticated: Type.Boolean(), sub: Type.Optional(Type.String()) }),
       },
@@ -2074,7 +2086,7 @@ Deno.test("group hooks registered after a route still run for that route", async
   assertEquals(log, ["late:request", "handler"]);
 });
 
-Deno.test("app rejects hook, route, and auth provider registration after start", async () => {
+Deno.test("app rejects hook and route registration after start", async () => {
   const app = createApp({ config });
   let captured: RouteGroupApi | undefined;
   app.group("/group", (group) => {
@@ -2096,11 +2108,6 @@ Deno.test("app rejects hook, route, and auth provider registration after start",
     () => app.route({ method: "get", path: "/late", handler: () => undefined }),
     ConfigurationError,
     "Cannot register routes after the application has started.",
-  );
-  assertThrows(
-    () => app.setAuthProvider({ authenticate: () => null }),
-    ConfigurationError,
-    "Cannot register an auth provider after the application has started.",
   );
 });
 
@@ -2166,7 +2173,7 @@ Deno.test("never-settling group onError preserves the selected 401 and notifies 
   const response = await withinOneSecond(app.request("/errors/auth"));
   assertEquals(response.status, 401);
   assertEquals(response.headers.get("content-type"), "application/problem+json");
-  assertEquals(response.headers.get("www-authenticate"), "Bearer");
+  assertEquals(response.headers.get("www-authenticate"), null);
   assertEquals((await response.json()).code, "AUTH_REQUIRED");
   assertEquals(observed, [error]);
   assertEquals(responses, [{ status: 401, code: "AUTH_REQUIRED", error }]);
@@ -2214,21 +2221,21 @@ Deno.test("onError mutations do not hide the original failure from later observe
   await app.close();
 });
 
-Deno.test("group and route scopes merge as a union", async () => {
+Deno.test("group and route scope guards must all pass", async () => {
   const app = createApp({ config });
-  app.setAuthProvider({
-    authenticate: (request) => {
+  const scopesHeader = defineGuard({
+    name: "scopesHeader",
+    check: ({ request }) => {
       const scopes = request.headers.get("x-scopes");
-      return scopes === null
-        ? null
-        : { subject: "user", scopes: scopes.split(",").filter(Boolean) };
+      if (scopes === null) return;
+      return { subject: "user", scopes: scopes.split(",").filter(Boolean), claims: {} };
     },
   });
-  app.group("/users", { auth: { scopes: ["users:read"] } }, (users) => {
+  app.group("/users", { guards: [scopesHeader, requireScopes("users:read")] }, (users) => {
     users.route({
       method: "post",
       path: "",
-      auth: { scopes: ["users:write"] },
+      guards: [requireScopes("users:write")],
       handler: ({ created }) => created({ ok: true }),
     });
   });
@@ -2241,37 +2248,23 @@ Deno.test("group and route scopes merge as a union", async () => {
   assertEquals((await call("users:read,users:write")).status, 201);
 });
 
-Deno.test("routes and groups cannot weaken inherited authentication", () => {
+Deno.test("routes and nested groups keep inherited guards", async () => {
   const app = createApp({ config });
-  app.group("/secure", { auth: { scopes: ["admin"] } }, (secure) => {
-    assertThrows(
-      () =>
-        secure.route({
-          method: "get",
-          path: "/public",
-          auth: false,
-          handler: () => undefined,
-        }),
-      ConfigurationError,
-      "Route 'GET /secure/public' cannot disable authentication inherited from its group.",
-    );
-    assertThrows(
-      () =>
-        secure.route({
-          method: "get",
-          path: "/optional",
-          auth: { required: false },
-          handler: () => undefined,
-        }),
-      ConfigurationError,
-      "Route 'GET /secure/optional' cannot make inherited required authentication optional.",
-    );
-    assertThrows(
-      () => secure.group("/open", { auth: false }, () => undefined),
-      ConfigurationError,
-      "Group '/secure/open' cannot disable authentication inherited from its group.",
-    );
+  const deny = defineGuard({
+    name: "deny",
+    check: () => {
+      throw new UnauthorizedError();
+    },
   });
+  app.group("/secure", { guards: [deny] }, (secure) => {
+    secure.route({ method: "get", path: "/route", guards: [], handler: () => "open" });
+    secure.group({ guards: [] }, (nested) => {
+      nested.route({ method: "get", path: "/nested", handler: () => "open" });
+    });
+  });
+  await app.start();
+  assertEquals((await app.request("http://test/secure/route")).status, 401);
+  assertEquals((await app.request("http://test/secure/nested")).status, 401);
 });
 
 Deno.test("singleton factories cannot resolve request-scoped services", async () => {
@@ -2496,7 +2489,7 @@ Deno.test("plugins receive only the platform API", async () => {
   assert(typeof platform === "object" && platform !== null);
   assertEquals("route" in platform, false);
   assertEquals("http" in platform, false);
-  assertEquals(Object.keys(platform).sort(), ["addHook", "setAuthProvider"]);
+  assertEquals(Object.keys(platform).sort(), ["addHook"]);
   assert(Object.isFrozen(platform));
   await app.close();
 });

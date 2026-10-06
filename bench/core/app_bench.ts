@@ -1,5 +1,6 @@
 import Type from "typebox";
-import { createApplication, defineConfig, jwtPlugin, type Module } from "@hyapi/core";
+import { createApplication, defineConfig, type Module, requireScopes } from "@hyapi/core";
+import { jwtBearer } from "@hyapi/plugin-jwt";
 
 const SECRET = "bench-secret-with-at-least-32-characters!!";
 
@@ -40,7 +41,7 @@ const itemsModule: Module = {
     module.route({
       method: "get",
       path: "/secure",
-      auth: { scopes: ["items:read"] },
+      guards: [jwtBearer({ secret: SECRET }), requireScopes("items:read")],
       responses: { 200: Type.Object({ ok: Type.Boolean() }) },
       handler: ({ ok }) => ok({ ok: true }),
     });
@@ -50,7 +51,6 @@ const itemsModule: Module = {
 const app = await createApplication({
   config: defineConfig({ name: "bench", environment: "production" }),
   modules: [itemsModule],
-  plugins: [jwtPlugin({ secret: SECRET })],
 });
 
 const token = await createToken(SECRET, ["items:read"]);

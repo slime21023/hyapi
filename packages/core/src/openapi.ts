@@ -2,7 +2,9 @@
 
 import { type AnyRouteDefinition } from "./types.ts";
 import type { SchemaValidator } from "./schema.ts";
-import { isProtectedAuth, resolveResponseSchemas } from "./routing.ts";
+import { resolveResponseSchemas } from "./routing.ts";
+import { ConfigurationError } from "./errors.ts";
+import type { Guard } from "./guards.ts";
 
 /** Fully resolved OpenAPI document served by the application. */
 export interface OpenApiDocument {
@@ -61,14 +63,100 @@ interface OpenApiOperation {
   security?: readonly Record<string, readonly string[]>[];
 }
 
+/** One way to satisfy a guard chain: the schemes it presents and the scopes it must hold. */
+interface SecurityOption {
+  readonly schemes: readonly string[];
+  readonly scopes: readonly string[];
+  /** Some guard admits requests without credentials. */
+  readonly optional: boolean;
+  /** Some guard requires an identity (it declares scopes, possibly none). */
+  readonly requiresIdentity: boolean;
+  /** Some guard has no security metadata and may reject for its own reasons. */
+  readonly opaque: boolean;
+}
+
+function guardOptions(guard: Guard): SecurityOption[] {
+  const security = guard.security;
+  if (security?.alternatives) return security.alternatives.flatMap(guardOptions);
+  return [{
+    schemes: Object.keys(security?.schemes ?? {}),
+    scopes: security?.scopes ?? [],
+    optional: security?.optional ?? false,
+    requiresIdentity: security?.scopes !== undefined,
+    opaque: security === undefined,
+  }];
+}
+
+/** Every combination of each guard's alternatives, merged along the chain. */
+function chainOptions(guards: readonly Guard[]): SecurityOption[] {
+  let options: SecurityOption[] = [{
+    schemes: [],
+    scopes: [],
+    optional: false,
+    requiresIdentity: false,
+    opaque: false,
+  }];
+  for (const guard of guards) {
+    const next = guardOptions(guard);
+    options = options.flatMap((option) =>
+      next.map((choice) => ({
+        schemes: [...new Set([...option.schemes, ...choice.schemes])],
+        scopes: [...new Set([...option.scopes, ...choice.scopes])],
+        optional: option.optional || choice.optional,
+        requiresIdentity: option.requiresIdentity || choice.requiresIdentity,
+        opaque: option.opaque || choice.opaque,
+      }))
+    );
+  }
+  return options;
+}
+
+function collectSecuritySchemes(
+  guards: readonly Guard[],
+  schemes: Map<string, Readonly<Record<string, unknown>>>,
+): void {
+  for (const guard of guards) {
+    for (const [name, scheme] of Object.entries(guard.security?.schemes ?? {})) {
+      const previous = schemes.get(name);
+      if (previous !== undefined && JSON.stringify(previous) !== JSON.stringify(scheme)) {
+        throw new ConfigurationError(
+          `OpenAPI security scheme '${name}' is declared with different definitions.`,
+        );
+      }
+      schemes.set(name, scheme);
+    }
+    collectSecuritySchemes(guard.security?.alternatives ?? [], schemes);
+  }
+}
+
+function securityRequirements(
+  options: readonly SecurityOption[],
+): Record<string, readonly string[]>[] {
+  const requirements = new Map<string, Record<string, readonly string[]>>();
+  for (const option of options) {
+    if (option.schemes.length > 0) {
+      const requirement = Object.fromEntries(
+        option.schemes.map((scheme) => [scheme, option.scopes]),
+      );
+      requirements.set(JSON.stringify(requirement), requirement);
+    }
+    if (option.optional && !option.requiresIdentity) requirements.set("{}", {});
+  }
+  return [...requirements.values()];
+}
+
 export function buildOpenApiDocument(
   routes: readonly AnyRouteDefinition[],
   schemaValidator: SchemaValidator,
   document: Pick<OpenApiDocument, "title" | "description" | "version">,
 ): Record<string, unknown> {
   const paths: Record<string, Record<string, OpenApiOperation>> = {};
+  const securitySchemes = new Map<string, Readonly<Record<string, unknown>>>();
 
   for (const route of routes) {
+    const guards = route.guards ?? [];
+    collectSecuritySchemes(guards, securitySchemes);
+    const security = chainOptions(guards);
     const { operationId, summary, description, tags, deprecated } = route.metadata ?? {};
     const responses: Record<string, unknown> = {};
 
@@ -104,11 +192,14 @@ export function buildOpenApiDocument(
       responses["415"] ??= problemResponse("Unsupported media type");
     }
 
-    if (isProtectedAuth(route.auth)) {
-      responses["401"] ??= problemResponse("Authentication required or invalid token");
-      if (route.auth.scopes && route.auth.scopes.length > 0) {
-        responses["403"] ??= problemResponse("Forbidden / insufficient scope");
-      }
+    if (
+      guards.length > 0 &&
+      security.some((option) => option.schemes.length > 0 || option.requiresIdentity)
+    ) {
+      responses["401"] ??= problemResponse("Authentication required or invalid credentials");
+    }
+    if (security.some((option) => option.scopes.length > 0 || option.opaque)) {
+      responses["403"] ??= problemResponse("Forbidden");
     }
 
     const operation: OpenApiOperation = {
@@ -163,13 +254,9 @@ export function buildOpenApiDocument(
       };
     }
 
-    if (isProtectedAuth(route.auth)) {
-      const scopes = route.auth.scopes ? [...route.auth.scopes] : [];
-      if (route.auth.required === false) {
-        operation.security = [{ bearerAuth: scopes }, {}];
-      } else {
-        operation.security = [{ bearerAuth: scopes }];
-      }
+    const requirements = securityRequirements(security);
+    if (requirements.some((requirement) => Object.keys(requirement).length > 0)) {
+      operation.security = requirements;
     }
 
     const pathItem = paths[route.path] ?? {};
@@ -186,14 +273,7 @@ export function buildOpenApiDocument(
     },
     paths,
     components: {
-      securitySchemes: {
-        bearerAuth: {
-          type: "http",
-          scheme: "bearer",
-          bearerFormat: "JWT",
-          description: "JSON Web Token with optional permission scopes",
-        },
-      },
+      ...(securitySchemes.size > 0 ? { securitySchemes: Object.fromEntries(securitySchemes) } : {}),
       schemas: {
         ProblemDetails: {
           type: "object",

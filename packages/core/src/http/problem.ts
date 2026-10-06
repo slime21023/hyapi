@@ -1,4 +1,4 @@
-import { AppError } from "../errors.ts";
+import { AppError, UnauthorizedError } from "../errors.ts";
 import { ScopeClosedError } from "../runtime/scope.ts";
 
 export interface ProblemDetails {
@@ -55,6 +55,8 @@ export function toProblemDetails(
 export function errorResponse(error: unknown, request: Request, requestId: string): Response {
   const problem = toProblemDetails(error, request, requestId);
   const headers = new Headers({ "content-type": "application/problem+json" });
-  if (problem.status === 401) headers.set("www-authenticate", "Bearer");
+  if (error instanceof UnauthorizedError && error.challenge) {
+    headers.set("www-authenticate", error.challenge);
+  }
   return Response.json(problem, { status: problem.status, headers });
 }

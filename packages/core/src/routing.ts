@@ -1,6 +1,5 @@
 import type {
   AnyRouteDefinition,
-  AuthRequirement,
   LifecycleHook,
   ResponseSchemas,
   RouteDefinition,
@@ -8,16 +7,9 @@ import type {
   RouteGroupOptions,
   Schema,
 } from "./types.ts";
-import { ConfigurationError } from "./errors.ts";
 
 export type HookPoint = "onRequest" | "onResponse" | "onError";
 export type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;
-
-export function isProtectedAuth(
-  auth: AuthRequirement | undefined,
-): auth is Exclude<AuthRequirement, false> {
-  return auth !== undefined && auth !== false;
-}
 
 export function resolveResponseSchemas(
   route: AnyRouteDefinition,
@@ -51,30 +43,6 @@ function joinPaths(base: string | undefined, path: string): string {
   if (!cleanPath) return cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   const formattedBase = cleanBase.startsWith("/") ? cleanBase : `/${cleanBase}`;
   return `${formattedBase}/${cleanPath}`;
-}
-
-function mergeAuth(
-  parent: AuthRequirement | undefined,
-  child: AuthRequirement | undefined,
-  location: string,
-): AuthRequirement | undefined {
-  if (child === undefined) return parent;
-  if (parent === undefined || parent === false) return child;
-  if (child === false) {
-    throw new ConfigurationError(
-      `${location} cannot disable authentication inherited from its group.`,
-    );
-  }
-  if (parent.required !== false && child.required === false) {
-    throw new ConfigurationError(
-      `${location} cannot make inherited required authentication optional.`,
-    );
-  }
-  const scopes = [...new Set([...(parent.scopes ?? []), ...(child.scopes ?? [])])];
-  return {
-    ...(parent.required === false && child.required === false ? { required: false } : {}),
-    ...(scopes.length > 0 ? { scopes } : {}),
-  };
 }
 
 export function normalizeGroupArgs(
@@ -137,11 +105,7 @@ export class RouterGroup implements RouteGroupApi {
     const mergedTags = [
       ...new Set([...(this.#options.tags ?? []), ...(route.metadata?.tags ?? [])]),
     ];
-    const resolvedAuth = mergeAuth(
-      this.#options.auth,
-      route.auth,
-      `Route '${route.method.toUpperCase()} ${fullPath}'`,
-    );
+    const guards = [...(this.#options.guards ?? []), ...(route.guards ?? [])];
 
     const mergedRoute: RouteDefinition<TParams, TQuery, TBody, TResponse, TBodyRequired> = {
       ...route,
@@ -154,7 +118,7 @@ export class RouterGroup implements RouteGroupApi {
           },
         }
         : {}),
-      ...(resolvedAuth !== undefined ? { auth: resolvedAuth } : {}),
+      ...(guards.length > 0 ? { guards } : {}),
     };
 
     this.#app.route(mergedRoute as unknown as AnyRouteDefinition, this);
@@ -181,16 +145,12 @@ export class RouterGroup implements RouteGroupApi {
     const { options: childOpts, fn } = normalizeGroupArgs(prefixOrOptions, optionsOrFn, maybeFn);
     const mergedPrefix = joinPaths(this.#options.prefix, childOpts.prefix ?? "");
     const mergedTags = [...new Set([...(this.#options.tags ?? []), ...(childOpts.tags ?? [])])];
-    const mergedAuth = mergeAuth(
-      this.#options.auth,
-      childOpts.auth,
-      `Group '${mergedPrefix || "/"}'`,
-    );
+    const mergedGuards = [...(this.#options.guards ?? []), ...(childOpts.guards ?? [])];
 
     const newOpts: RouteGroupOptions = {};
     if (mergedPrefix) newOpts.prefix = mergedPrefix;
     if (mergedTags.length > 0) newOpts.tags = mergedTags;
-    if (mergedAuth !== undefined) newOpts.auth = mergedAuth;
+    if (mergedGuards.length > 0) newOpts.guards = mergedGuards;
 
     fn(new RouterGroup(this.#app, newOpts, this));
   }

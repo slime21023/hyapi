@@ -3,6 +3,7 @@ import type { AppConfig, AppConfigOptions } from "./config.ts";
 import type { HealthCheck, HealthReport } from "./health.ts";
 import type { Port, PortProvider, ProviderLifecycle } from "./port.ts";
 import type { RequestState } from "./state.ts";
+import type { Guard } from "./guards.ts";
 
 export type MaybePromise<T> = T | Promise<T>;
 /** A TypeBox schema used to validate and infer HTTP values. */
@@ -37,21 +38,12 @@ export interface RouteMetadata {
   deprecated?: boolean;
 }
 
-/** Authentication required by a route or route group; `false` opts out when inheritance permits it. */
-export type AuthRequirement = false | {
-  required?: boolean;
-  scopes?: readonly string[];
-};
-
-/** Immutable principal made available after successful authentication. */
+/** Immutable principal established by a guard. */
 export interface Identity {
   readonly subject: string;
   readonly scopes: readonly string[];
-}
-
-/** Authenticates an HTTP request for protected routes. */
-export interface AuthProvider {
-  authenticate(request: Request): MaybePromise<Identity | null>;
+  /** Verified credential claims, such as token claims; empty when the guard has none. */
+  readonly claims: Readonly<Record<string, unknown>>;
 }
 
 /** Framework response descriptor returned by a route handler. */
@@ -128,7 +120,8 @@ export interface RouteDefinition<
   request?: RouteRequestSchemas<TParams, TQuery, TBody, TBodyRequired>;
   responses?: TResponse;
   responseStatus?: number;
-  auth?: AuthRequirement;
+  /** Guards run after inherited group guards, before the request body is parsed. */
+  guards?: readonly Guard[];
   metadata?: RouteMetadata;
   handler: RouteHandler<TParams, TQuery, TBody, TBodyRequired>;
 }
@@ -136,7 +129,8 @@ export interface RouteDefinition<
 /** Defaults inherited by routes and nested groups. */
 export interface RouteGroupOptions {
   prefix?: string | undefined;
-  auth?: AuthRequirement | undefined;
+  /** Guards inherited by every route and nested group; they cannot be removed below. */
+  guards?: readonly Guard[] | undefined;
   tags?: readonly string[] | undefined;
 }
 
@@ -168,7 +162,6 @@ export interface RouteGroupApi {
 /** Narrow platform capabilities available to plugins. */
 export interface PlatformApi {
   addHook(point: "onRequest" | "onResponse" | "onError", hook: LifecycleHook): void;
-  setAuthProvider(provider: AuthProvider): void;
 }
 
 /** Extension that participates in application setup, startup, and shutdown. */

@@ -1238,6 +1238,11 @@
           "npm:typebox@1"
         ]
       },
+      "packages/plugin-jwt": {
+        "dependencies": [
+          "jsr:@hyapi/core@^1.0.0-rc.4"
+        ]
+      },
       "packages/plugin-oidc": {
         "dependencies": [
           "jsr:@hyapi/core@^1.0.0-rc.4"

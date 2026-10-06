@@ -1,9 +1,14 @@
-import { NotFoundError, type RouteGroupApi } from "@hyapi/core";
+import { type Guard, NotFoundError, requireScopes, type RouteGroupApi } from "@hyapi/core";
 import { CreateOrderSchema, OrderSchema } from "./schema.ts";
 import type { UserDirectory } from "../../contracts/user-directory.ts";
 
-export function registerOrderRoutes(api: RouteGroupApi, users: UserDirectory): void {
-  api.group("/v1/orders", { tags: ["orders"], auth: { scopes: ["orders:write"] } }, (orders) => {
+export function registerOrderRoutes(
+  api: RouteGroupApi,
+  users: UserDirectory,
+  authenticate: Guard,
+): void {
+  const guards = [authenticate, requireScopes("orders:write")];
+  api.group("/v1/orders", { tags: ["orders"], guards }, (orders) => {
     orders.route(
       {
         method: "post",

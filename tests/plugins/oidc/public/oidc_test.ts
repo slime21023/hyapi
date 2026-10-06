@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
-import { createApplication } from "@hyapi/core";
-import { oidcPlugin } from "@hyapi/plugin-oidc";
+import { createApplication, requireScopes } from "@hyapi/core";
+import { oidcBearer } from "@hyapi/plugin-oidc";
 import { exportJWK, generateKeyPair, SignJWT } from "npm:jose@6";
 
 const ISSUER = "https://issuer.example.com/";
@@ -25,21 +25,21 @@ Deno.test("the public OIDC plugin verifies remote JWKS bearer tokens", async () 
   try {
     app = await createApplication({
       config: { name: "oidc-plugin" },
-      plugins: [
-        oidcPlugin({
-          issuer: ISSUER,
-          audience: AUDIENCE,
-          jwksUrl: JWKS_URL,
-          algorithms: ["RS256"],
-        }),
-      ],
       modules: [{
         name: "private",
         setup(module) {
           module.route({
             method: "get",
             path: "/private",
-            auth: { scopes: ["orders:read"] },
+            guards: [
+              oidcBearer({
+                issuer: ISSUER,
+                audience: AUDIENCE,
+                jwksUrl: JWKS_URL,
+                algorithms: ["RS256"],
+              }),
+              requireScopes("orders:read"),
+            ],
             handler: ({ identity, ok }) => ok({ subject: identity?.subject }),
           });
         },
@@ -48,6 +48,7 @@ Deno.test("the public OIDC plugin verifies remote JWKS bearer tokens", async () 
 
     const anonymous = await app.request("http://test/private");
     assertEquals(anonymous.status, 401);
+    assertEquals(anonymous.headers.get("www-authenticate"), "Bearer");
 
     const valid = await app.request("http://test/private", {
       headers: { authorization: `Bearer ${await accessToken(privateKey)}` },

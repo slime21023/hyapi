@@ -1,7 +1,6 @@
 import type { Context, Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
-  type AuthProvider,
   type Identity,
   type LifecycleContext,
   type LifecycleHook,
@@ -11,21 +10,15 @@ import {
 import type { AppConfig } from "../config.ts";
 import {
   ConfigurationError,
-  ForbiddenError,
   ResponseContractError,
   ResponseValidationError,
-  UnauthorizedError,
   ValidationError,
 } from "../errors.ts";
+import { type GuardContext, isIdentity } from "../guards.ts";
 import { SchemaValidationError, SchemaValidator } from "../schema.ts";
 import { type HttpPipelineEnv, HttpRequestScope, HttpTaskTracker } from "./lifecycle.ts";
 import { errorResponse } from "./problem.ts";
-import {
-  type HookPoint,
-  isProtectedAuth,
-  resolveResponseSchemas,
-  type RouteHooks,
-} from "../routing.ts";
+import { type HookPoint, resolveResponseSchemas, type RouteHooks } from "../routing.ts";
 import type { ServiceContainer } from "../runtime/services.ts";
 import type { Schema } from "../types.ts";
 import {
@@ -112,7 +105,6 @@ export interface PipelineHost {
   readonly tasks: HttpTaskTracker;
   globalHooks(point: HookPoint): readonly LifecycleHook[];
   routeHooks(route: AnyRouteDefinition): RouteHooks;
-  authProvider(): AuthProvider | null;
 }
 
 /**
@@ -269,7 +261,7 @@ export class RequestPipeline {
     const request = context.req.raw;
     await runHookList(hooks.onRequest, scope.lifecycle);
 
-    const identity = await this.#authenticate(request, route);
+    const identity = await this.#runGuards(context, route, scope);
     scope.lifecycle.identity = identity;
 
     const requestSchemas = route.request;
@@ -364,16 +356,40 @@ export class RequestPipeline {
     return await this.#toResponse(result, route);
   }
 
-  async #authenticate(request: Request, route: AnyRouteDefinition): Promise<Identity | null> {
-    if (!isProtectedAuth(route.auth)) return null;
-    const provider = this.#host.authProvider();
-    if (!provider) throw new ConfigurationError("No auth provider is configured.");
-    const identity = await provider.authenticate(request);
-    const required = route.auth.required !== false;
-    if (!identity && required) throw new UnauthorizedError();
-    if (identity && route.auth.scopes) {
-      const hasAllScopes = route.auth.scopes.every((scope) => identity.scopes.includes(scope));
-      if (!hasAllScopes) throw new ForbiddenError();
+  /** Runs the route's guard chain in order; the first identity a guard returns is kept. */
+  async #runGuards(
+    context: Context<HttpPipelineEnv>,
+    route: AnyRouteDefinition,
+    scope: HttpRequestScope,
+  ): Promise<Identity | null> {
+    const guards = route.guards ?? [];
+    if (guards.length === 0) return null;
+    let identity: Identity | null = null;
+    const request = context.req.raw;
+    const guardContext: GuardContext = {
+      request,
+      requestId: scope.requestId,
+      params: context.req.param(),
+      query: queryObject(request),
+      get identity() {
+        return identity;
+      },
+      state: scope.lifecycle.state,
+      signal: scope.signal,
+      deadline: scope.deadline,
+    };
+    for (const guard of guards) {
+      const result = await guard.check(guardContext);
+      if (result === undefined) continue;
+      if (!isIdentity(result)) {
+        throw new ConfigurationError(`Guard '${guard.name}' returned an invalid identity.`);
+      }
+      if (identity !== null && result !== identity) {
+        throw new ConfigurationError(
+          `Guard '${guard.name}' returned a second identity; combine alternatives with anyOf().`,
+        );
+      }
+      identity = result;
     }
     return identity;
   }

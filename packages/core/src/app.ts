@@ -2,7 +2,6 @@ import { Hono } from "@hono/hono";
 import {
   type AnyRouteDefinition,
   type ApplicationOptions,
-  type AuthProvider,
   type HyApiOptions,
   type HyApplication,
   type LifecycleHook,
@@ -32,7 +31,6 @@ import { MAX_TIMER_MS } from "./runtime/timers.ts";
 import { objectSchemaProperties, SchemaValidationError, SchemaValidator } from "./schema.ts";
 import {
   type HookPoint,
-  isProtectedAuth,
   normalizeGroupArgs,
   type RouteHooks,
   type RouteRegistrar,
@@ -230,7 +228,6 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
   };
   private readonly routeScopes = new Map<AnyRouteDefinition, RouterGroup>();
   private readonly resolvedRouteHooks = new Map<AnyRouteDefinition, RouteHooks>();
-  private auth: AuthProvider | null = null;
   private state: AppLifecycleState = "configuring";
   private registrationOpen = true;
   private starting: Promise<void> | null = null;
@@ -361,6 +358,11 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         }
       }
     }
+    for (const guard of registeredRoute.guards ?? []) {
+      if (typeof guard?.check !== "function" || typeof guard.name !== "string") {
+        throw new ConfigurationError(`Route '${label}' has an invalid guard.`);
+      }
+    }
     const documentIds = registeredRoute.metadata?.documentIds;
     if (documentIds) {
       const knownDocumentIds = new Set(
@@ -401,16 +403,6 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       honoPath,
       (context) => this.pipeline.runRoute(context, registeredRoute),
     );
-  }
-
-  setAuthProvider(provider: AuthProvider): void {
-    this.assertConfiguring("register an auth provider");
-    if (this.auth) throw new ConfigurationError("An auth provider is already registered.");
-    this.auth = provider;
-  }
-
-  authProvider(): AuthProvider | null {
-    return this.auth;
   }
 
   globalHooks(point: HookPoint): readonly LifecycleHook[] {
@@ -570,9 +562,6 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       }
 
       this.registrationOpen = false;
-      if (this.routes.some((route) => isProtectedAuth(route.auth)) && !this.auth) {
-        throw new ConfigurationError("Protected routes require an auth provider.");
-      }
       for (const route of this.routes) {
         const scope = this.routeScopes.get(route);
         this.resolvedRouteHooks.set(
@@ -767,7 +756,6 @@ export function createApp(options: HyApiOptions): HyApiApp {
 function createPlatformApi(app: HyApiApp): PlatformApi {
   const platform: PlatformApi = {
     addHook: (point, hook) => app.addHook(point, hook),
-    setAuthProvider: (provider) => app.setAuthProvider(provider),
   };
   return Object.freeze(platform);
 }
