@@ -34,6 +34,10 @@ export interface AppConfig {
 export interface AppConfigOptions {
   readonly name: string;
   readonly version?: string;
+  /**
+   * Defaults to `production`. `development` adds internal error messages and details to problem
+   * responses; never use it where clients are untrusted.
+   */
   readonly environment?: AppConfig["environment"];
   readonly requestIdHeader?: string;
   /** Absolute base URL for problem `type` URIs, such as `https://errors.example.com`. */
@@ -66,7 +70,7 @@ export function defineConfig(options: AppConfigOptions): AppConfig {
   return {
     name: options.name,
     version,
-    environment: options.environment ?? "development",
+    environment: options.environment ?? "production",
     requestIdHeader,
     ...(problemTypeBaseUrl === undefined ? {} : { problemTypeBaseUrl }),
     bodyLimitBytes: options.bodyLimitBytes ?? DEFAULT_BODY_LIMIT_BYTES,

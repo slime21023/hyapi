@@ -11,13 +11,22 @@ import type {
 export type HookPoint = "onRequest" | "onResponse" | "onError";
 export type RouteHooks = Readonly<Record<HookPoint, readonly LifecycleHook[]>>;
 
+/** `responseStatus` wins; otherwise no body is 204, a POST body is 201, and any other body is 200. */
+export function defaultResponseStatus(route: AnyRouteDefinition, body: unknown): number {
+  if (route.responseStatus !== undefined) return route.responseStatus;
+  if (body === undefined) return 204;
+  return route.method === "post" ? 201 : 200;
+}
+
 export function resolveResponseSchemas(
   route: AnyRouteDefinition,
 ): Record<number, Schema | undefined> {
   if (route.responses) return route.responses;
-  const defaultStatus = route.responseStatus ??
-    (route.method === "post" ? 201 : route.method === "delete" ? 204 : 200);
-  return { [defaultStatus]: undefined };
+  if (route.responseStatus !== undefined) return { [route.responseStatus]: undefined };
+  if (route.method === "post") return { 201: undefined };
+  // Without declared responses, the status depends on whether the handler returns a body.
+  if (route.method === "delete") return { 200: undefined, 204: undefined };
+  return { 200: undefined };
 }
 
 /** The narrow application boundary used by route groups. */

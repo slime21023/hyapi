@@ -17,8 +17,13 @@ import {
 import { type GuardContext, isIdentity } from "../guards.ts";
 import { SchemaValidationError, SchemaValidator } from "../schema.ts";
 import { type HttpPipelineEnv, HttpRequestScope, HttpTaskTracker } from "./lifecycle.ts";
-import { errorResponse } from "./problem.ts";
-import { type HookPoint, resolveResponseSchemas, type RouteHooks } from "../routing.ts";
+import { errorResponse, problemOptions } from "./problem.ts";
+import {
+  defaultResponseStatus,
+  type HookPoint,
+  resolveResponseSchemas,
+  type RouteHooks,
+} from "../routing.ts";
 import type { ServiceContainer } from "../runtime/services.ts";
 import type { Schema } from "../types.ts";
 import {
@@ -190,12 +195,7 @@ export class RequestPipeline {
   async failure(scope: HttpRequestScope, error: unknown): Promise<Response> {
     scope.failureSelected = true;
     await this.#notifyError(scope, error);
-    return errorResponse(
-      error,
-      scope.request,
-      scope.requestId,
-      this.#host.config.problemTypeBaseUrl,
-    );
+    return errorResponse(error, scope.request, scope.requestId, problemOptions(this.#host.config));
   }
 
   /** Runs route-scoped and global onError hooks; hook failures are swallowed. */
@@ -401,8 +401,10 @@ export class RequestPipeline {
 
   async #toResponse(result: unknown, route: AnyRouteDefinition): Promise<Response> {
     let body = result;
-    const defaultStatus = route.responseStatus ??
-      (route.method === "post" ? 201 : route.method === "delete" ? 204 : 200);
+    const defaultStatus = defaultResponseStatus(
+      route,
+      isResponseResult(result) ? result.body : result,
+    );
     let init: ResponseInit = { status: defaultStatus };
     if (isResponseResult(result)) {
       body = result.body;

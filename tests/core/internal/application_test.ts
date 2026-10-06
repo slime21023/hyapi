@@ -122,7 +122,7 @@ Deno.test("defineConfig provides ergonomic application defaults", () => {
   assertEquals(defineConfig({ name: "orders" }), {
     name: "orders",
     version: "0.1.0",
-    environment: "development",
+    environment: "production",
     requestIdHeader: "x-request-id",
     bodyLimitBytes: 10485760,
     requestTimeoutMs: 300000,

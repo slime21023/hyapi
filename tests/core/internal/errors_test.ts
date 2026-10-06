@@ -101,7 +101,8 @@ Deno.test("toProblemDetails formats AppErrors correctly with RFC 7807 schema", (
   assertEquals(problem.requestId, "req-uuid-123");
   assertEquals(problem.type, "about:blank");
   assertEquals(
-    toProblemDetails(notFound, req, "req-uuid-123", "https://errors.example.com").type,
+    toProblemDetails(notFound, req, "req-uuid-123", { typeBaseUrl: "https://errors.example.com" })
+      .type,
     "https://errors.example.com/not_found",
   );
 });

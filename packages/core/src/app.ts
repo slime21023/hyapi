@@ -40,7 +40,7 @@ import { ServiceContainer } from "./runtime/services.ts";
 import { HealthRegistry } from "./runtime/health.ts";
 import { ProviderRegistry } from "./runtime/providers.ts";
 import { type HttpPipelineEnv, HttpTaskTracker } from "./http/lifecycle.ts";
-import { errorResponse } from "./http/problem.ts";
+import { errorResponse, problemOptions } from "./http/problem.ts";
 import {
   type PipelineHost,
   RequestPipeline,
@@ -272,7 +272,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
         new NotFoundError(),
         context.env.scope.request,
         context.env.scope.requestId,
-        this.config.problemTypeBaseUrl,
+        problemOptions(this.config),
       )
     );
     this.http.onError((error, context) => this.pipeline.failure(context.env.scope, error));
@@ -488,7 +488,7 @@ export class HyApiApp implements RouteRegistrar, PipelineHost {
       const requestId = resolveRequestId(request, header);
       return Promise.resolve(
         withHeader(
-          errorResponse(unavailableError(), request, requestId, this.config.problemTypeBaseUrl),
+          errorResponse(unavailableError(), request, requestId, problemOptions(this.config)),
           header,
           requestId,
         ),
