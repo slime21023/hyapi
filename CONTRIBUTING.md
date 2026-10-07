@@ -20,9 +20,9 @@ record a goal, measurable key results, a `rule.yml` verification outline, and fi
 Keep an issue focused on one independently reviewable behavior.
 
 When work is complete, record the implementing commit, the relevant source or documentation path,
-and the exact verification command result in the issue before closing it. A roadmap issue may be
-closed only when its behavior is present on `main`, its documentation is current, and
-`deno task verify` passes.
+and the exact verification command result in the issue before closing it. An issue may be closed
+only when its behavior is present on `main`, its documentation is current, and `deno task verify`
+passes.
 
 For a public API change, include documentation, example updates, and migration notes in the same
 pull request. Do not expose Hono implementation details through a new HyAPI public API.
@@ -45,22 +45,21 @@ JSDoc tag, record the deprecation in `CHANGELOG.md`, and keep it for at least on
 before removal in the next major.
 
 Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
-old API, with no alias or transition period, and the change ships a migration note in
-`_design/migrations/`.
+old API, with no alias or transition period, and a design-changing decision is recorded in `_adr/`.
 
 Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
 
-Before a release, the maintainer verifies the release gate in the relevant roadmap milestone,
-updates `CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout,
-and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which
-rejects a tag that differs from either package version before repeating `deno task verify` and
-publishing both packages to JSR.
+Before a release, the maintainer verifies the release gate recorded in `_adr/`, updates
+`CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout, and tags
+the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which rejects a tag
+that differs from either package version before repeating `deno task verify` and publishing both
+packages to JSR.
 
-The `v1.0.0-rc.3` and `v1.0.0-rc.4` candidates were superseded before publication. `v1.0.0-rc.5` is
-the next candidate, not a published release; its verification gate must pass before tagging. After
-that gate, runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression
-of more than 20% on the same hardware must be explained in the pull request; see
-[`_design/baselines/performance.md`](_design/baselines/performance.md).
+The `v1.0.0-rc.3`, `v1.0.0-rc.4`, and `v1.0.0-rc.5` candidates were superseded before publication.
+`v1.0.0-rc.5` is replaced by the contract-first redesign in
+[ADR 0001](_adr/0001-contract-first-api-library.md) and will not be tagged. A benchmark regression
+of more than 20% on the same hardware must be explained in the pull request once the new design
+establishes its performance baseline in `_adr/`.
 
-The roadmap and release gates are maintained in [`_design/roadmap.md`](_design/roadmap.md). Report
+Architecture decisions, the roadmap, and release gates are maintained in [`_adr/`](_adr/). Report
 security issues privately as described in [SECURITY.md](SECURITY.md).

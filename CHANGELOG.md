@@ -5,7 +5,22 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-rc.5] - Unreleased
+## [Unreleased]
+
+### Changed
+
+- HyAPI is redesigned as a contract-first API library: contracts are written in TypeScript with
+  TypeBox, handler types are inferred from them, and they compile into a committed, governed OpenAPI
+  3.1 document for external consumers. See [ADR 0001](_adr/0001-contract-first-api-library.md).
+  `1.0.0-rc.5` is superseded and will not be published.
+
+### Removed
+
+- The `_design/` records (RFCs 0001–0008, the earlier ADR 0001, migration notes, roadmap,
+  performance baseline, and quality rule). They remain in git history at commit `c52c0be`;
+  historical links below refer to that history.
+
+## [1.0.0-rc.5] - Superseded
 
 ### Added
 

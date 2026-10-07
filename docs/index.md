@@ -26,6 +26,6 @@ HyAPI is a structured, type-safe API framework for Deno. Start with the
 [guide](/guide/getting-started), then use the example application as a complete reference for health
 checks, guard-based authentication, modules, and Ports.
 
-This site documents how to use HyAPI. Architecture decisions, release history, benchmarks, and
-migration records live in the repository's
-[`_design/`](https://github.com/slime21023/hyapi/tree/main/_design) directory.
+This site documents how to use the `v1.0.0-rc.5` design, which is superseded by a contract-first
+redesign. Architecture decisions, including the redesign, live in the repository's
+[`_adr/`](https://github.com/slime21023/hyapi/tree/main/_adr) directory.

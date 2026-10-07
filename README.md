@@ -3,13 +3,18 @@
 HyAPI is a structured, type-safe API framework for Deno. It uses TypeBox route contracts, explicit
 module Ports, native Web APIs, and deterministic lifecycle boundaries.
 
+> **Redesign in progress.** HyAPI is being rebuilt as a contract-first API library: contracts are
+> written in TypeScript, agreed before implementation, and compiled into OpenAPI 3.1 documents of
+> delivery quality. See [ADR 0001](_adr/0001-contract-first-api-library.md). The code and
+> documentation below describe the superseded `v1.0.0-rc.5` design.
+
 ## Documentation
 
 Read the English [usage guide](docs/index.md) for application setup, routes, composition,
 configuration, HTTP/OpenAPI, optional plugins, and operations.
 
-Architecture decisions, RFCs, migrations, quality rules, benchmarks, and the roadmap are internal
-project records under [`_design/`](_design/).
+Architecture decisions, RFCs, baselines, and the roadmap are internal project records under
+[`_adr/`](_adr/).
 
 ## Workspace
 
@@ -25,7 +30,7 @@ apps/example                example API
 tests/                      workspace tests
 bench/                      workspace benchmarks
 docs/                       VitePress user documentation
-_design/                    architecture and project records
+_adr/                       architecture decisions and project records
 ```
 
 ## Development
@@ -37,7 +42,8 @@ deno task bench       run benchmarks
 deno task docs:dev    preview the documentation locally
 ```
 
-The current candidate is `v1.0.0-rc.5`. No JSR publication has occurred.
+`v1.0.0-rc.5` is superseded by the redesign and will not be published. No JSR publication has
+occurred.
 
 ## License
 

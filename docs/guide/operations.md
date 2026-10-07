@@ -88,7 +88,7 @@ order. Nested cleanup aggregates are flattened; the failed provider stage remain
 aggregate's `cause`, with the connect exception as its own `cause`.
 
 The ownership and error-routing decisions are recorded in
-[ADR 0001](https://github.com/slime21023/hyapi/blob/main/_design/decisions/0001-layered-error-scopes.md).
+[ADR 0001](https://github.com/slime21023/hyapi/blob/c52c0be28c27a9a1d897d4c164cfafb7b6591815/_design/decisions/0001-layered-error-scopes.md).
 
 ### Reverse proxies
 
@@ -190,7 +190,7 @@ The example maps them to two endpoints:
 
 A module that needs an independent deployment keeps its Port and replaces only its local provider
 with `provideHttp()`. Follow the
-[v0.5 extraction guide](https://github.com/slime21023/hyapi/blob/main/_design/migrations/v0.5.0.md)
+[v0.5 extraction guide](https://github.com/slime21023/hyapi/blob/c52c0be28c27a9a1d897d4c164cfafb7b6591815/_design/migrations/v0.5.0.md)
 for the Users -> Orders walkthrough, including shared HTTP contracts, explicit response mapping, and
 request-context propagation.
 
