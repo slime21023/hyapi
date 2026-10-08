@@ -8,9 +8,11 @@ Use Deno 2.9 or later. Before opening a pull request, run:
 deno task verify
 ```
 
-During the redesign the command checks formatting and linting only. It grows with the new packages:
-type checking, public contract tests, and contract checks are added as components are implemented.
-Text files use LF line endings through `.gitattributes`, including on Windows checkouts.
+The command checks formatting, linting, and types, and runs every test under `tests/`. The tests
+include the architecture test (`tests/architecture/`), which enforces the dependency rules of
+[ADR 0002](_adr/0002-architecture-and-component-boundaries.md). CI runs the same command on every
+push to `main` and on every pull request. Text files use LF line endings through `.gitattributes`,
+including on Windows checkouts.
 
 ## Changes and issues
 

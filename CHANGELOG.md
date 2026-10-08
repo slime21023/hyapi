@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Added
+
+- Engineering foundation (roadmap M0):
+  - a workspace with the `@hyapi/core` skeleton and its four entry points;
+  - TypeBox pinned to `~1.3.34`;
+  - the public and internal test layout;
+  - an architecture test that enforces the ADR 0002 dependency rules; and
+  - a CI workflow that runs `deno task verify`.
+
 ### Changed
 
 - HyAPI is redesigned as a contract-first API library: contracts are written in TypeScript with

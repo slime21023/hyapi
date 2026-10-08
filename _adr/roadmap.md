@@ -27,16 +27,16 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                              | Goal                                                 | Components        | Depends on | Status      |
-| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ----------- |
-| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Not started |
-| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Not started |
-| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Not started |
-| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Not started |
-| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Not started |
-| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Not started |
-| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Not started |
-| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Not started |
+| Milestone                              | Goal                                                 | Components        | Depends on | Status            |
+| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ----------------- |
+| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08) |
+| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Not started       |
+| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Not started       |
+| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Not started       |
+| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Not started       |
+| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Not started       |
+| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Not started       |
+| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Not started       |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
