@@ -1,13 +1,25 @@
 import { checkContracts, type Diagnostic } from "../contract/check.ts";
 import type { AnyContract, Api } from "../contract/define.ts";
+import type { Schemes } from "../contract/security.ts";
 import type { Implementation } from "./handler.ts";
 import { execute, type OperationPlan, planOperation, type ResponseValidation } from "./pipeline.ts";
 import { describeError, problemResponse } from "./problem.ts";
 import { compileRoutes } from "./routing.ts";
+import { createSecurity, type Verifiers } from "./security.ts";
 import { createValidators } from "./validation.ts";
 
+// deno-lint-ignore no-explicit-any
+type SchemesOf<A> = A extends Api<infer S, any> ? S : Schemes;
+
+/** One verifier per security scheme, required when the API declares schemes. */
+type VerifierOption<A> = [keyof SchemesOf<A>] extends [never]
+  ? { readonly verifiers?: Readonly<Record<string, never>> }
+  : { readonly verifiers: Verifiers<SchemesOf<A>> };
+
 /** Options for {@link createApp}. */
-export interface AppOptions<A extends Api = Api> {
+export type AppOptions<A extends Api = Api> = BaseOptions<A> & VerifierOption<A>;
+
+interface BaseOptions<A extends Api> {
   /** The API created by `defineApi`. */
   readonly api: A;
   /** Exactly one implementation per contract of the API, created by `implement`. */
@@ -145,15 +157,6 @@ export function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
       );
       continue;
     }
-    if (operation.security.length > 0) {
-      error(
-        "security-not-supported",
-        "security evaluation arrives in roadmap M4; until then an operation with a security " +
-          "requirement cannot start, so that it is never served unprotected",
-        operation.operationId,
-      );
-      continue;
-    }
     if (isNotImplemented) pending.push(operation.operationId);
     plans.set(
       operation.operationId,
@@ -169,6 +172,25 @@ export function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
     }
   }
 
+  // Verifiers: exactly one function per declared security scheme.
+  const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
+  const schemeNames = new Set(model.securitySchemes.map((scheme) => scheme.name));
+  for (const name of schemeNames) {
+    if (verifiers[name] === undefined) {
+      error(
+        "missing-verifier",
+        `security scheme '${name}' has no verifier; pass verifiers.${name}`,
+      );
+    } else if (typeof verifiers[name] !== "function") {
+      error("invalid-verifier", `the verifier for '${name}' must be a function`);
+    }
+  }
+  for (const name of Object.keys(verifiers)) {
+    if (!schemeNames.has(name)) {
+      error("unknown-verifier", `'${name}' is not a security scheme declared by defineSecurity`);
+    }
+  }
+
   if (diagnostics.some((d) => d.severity === "error")) {
     return Promise.reject(new StartupError(diagnostics));
   }
@@ -180,6 +202,11 @@ export function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
   }
 
   const router = compileRoutes(model.operations);
+  const security = createSecurity(
+    model.securitySchemes,
+    verifiers as Parameters<typeof createSecurity>[1],
+    model.info.title,
+  );
   const app: App = {
     async fetch(request) {
       try {
@@ -206,6 +233,7 @@ export function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
           url,
           match.params,
           settings,
+          security,
         );
         return match.head
           ? new Response(null, { status: response.status, headers: response.headers })

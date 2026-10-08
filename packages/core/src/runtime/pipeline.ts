@@ -1,6 +1,7 @@
 import Type from "typebox";
 import type { OperationModel, ParameterLocation, ResponseModel } from "../contract/model.ts";
 import { describeError, HttpError, problemResponse, type Violation } from "./problem.ts";
+import type { SecurityEvaluator } from "./security.ts";
 import type { Validator, ValidatorFactory } from "./validation.ts";
 import { encodeBody, INPUT_KEYS, isJsonMediaType, readBody, readParameters } from "./wire.ts";
 
@@ -86,82 +87,28 @@ export async function execute(
   url: URL,
   params: Readonly<Record<string, string>>,
   settings: PipelineSettings,
+  security: SecurityEvaluator,
 ): Promise<Response> {
   const { operation } = plan;
-
-  // Parameters: read, apply defaults, coerce, and validate every location before the body.
-  const input: Record<string, unknown> = {};
-  const violations: Violation[] = [];
-  for (const { location, key, validator } of plan.locations) {
-    let value: unknown = readParameters(location, operation.parameters, {
-      params,
-      url,
-      headers: request.headers,
-    });
-    if (location !== "path") value = validator.defaults(value);
-    value = validator.convert(value);
-    violations.push(...validator.check(value, location));
-    input[key] = value;
-  }
-  if (violations.length > 0) return validationFailed(violations);
-
-  // Body.
-  if (operation.body !== undefined) {
-    const result = await readBody(request, operation.body, settings.bodyLimitBytes);
-    switch (result.kind) {
-      case "too-large":
-        return problemResponse(413, "PAYLOAD_TOO_LARGE", {
-          detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
-        });
-      case "unsupported-media-type":
-        return problemResponse(415, "UNSUPPORTED_MEDIA_TYPE", {
-          detail: `Expected ${operation.body.mediaType}, got ${
-            result.mediaType ?? "no content type"
-          }.`,
-          headers: { "accept-post": operation.body.mediaType },
-        });
-      case "malformed":
-        return problemResponse(400, "MALFORMED_REQUEST", { detail: result.detail });
-      case "absent":
-        if (operation.body.required) {
-          return validationFailed([{
-            location: "body",
-            pointer: "",
-            message: "a request body is required",
-          }]);
-        }
-        break;
-      case "ok": {
-        if (!(result.value instanceof Uint8Array)) {
-          const bodyViolations = plan.body!.check(result.value, "body");
-          if (bodyViolations.length > 0) return validationFailed(bodyViolations);
-        }
-        input.body = result.value;
-      }
-    }
-  }
-
-  if (plan.handler === undefined) {
-    return problemResponse(501, "NOT_IMPLEMENTED", {
-      detail: `Operation '${operation.operationId}' is not implemented yet.`,
-    });
-  }
-
-  // Handler, bounded by the request timeout and the client connection.
+  // One signal for the whole request: client disconnect and the request timeout. The timeout
+  // covers verifiers, body reading, and the handler.
   const timeout = new AbortController();
   const signal = AbortSignal.any([request.signal, timeout.signal]);
   const timer = setTimeout(
     () => timeout.abort(new DOMException("The request timed out.", "TimeoutError")),
     settings.requestTimeoutMs,
   );
-  let result: unknown;
+  const aborted = new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  // The race may already be over when the client disconnects; never leave the rejection unhandled.
+  aborted.catch(() => {});
+  const bounded = <T>(work: Promise<T> | T): Promise<T> =>
+    Promise.race([Promise.resolve(work), aborted]);
+
   try {
-    const ctx = { signal, request, operationId: operation.operationId, security: undefined };
-    const aborted = new Promise<never>((_, reject) => {
-      if (signal.aborted) reject(signal.reason);
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-    });
-    result = await Promise.race([Promise.resolve(plan.handler(input, ctx)), aborted]);
+    return await run();
   } catch (error) {
     if (timeout.signal.aborted && error === timeout.signal.reason) {
       return problemResponse(503, "REQUEST_TIMEOUT", {
@@ -172,7 +119,82 @@ export async function execute(
   } finally {
     clearTimeout(timer);
   }
-  return respond(plan, result, settings);
+
+  async function run(): Promise<Response> {
+    // Security runs first, so unauthenticated callers learn nothing about the schemas.
+    let identities: Readonly<Record<string, unknown>> | undefined;
+    if (operation.security.length > 0) {
+      const result = await bounded(
+        security(operation.security, request, url, {
+          signal,
+          request,
+          operationId: operation.operationId,
+        }),
+      );
+      if (result.kind === "denied") return result.response;
+      identities = result.security;
+    }
+
+    // Parameters: read, apply defaults, coerce, and validate every location before the body.
+    const input: Record<string, unknown> = {};
+    const violations: Violation[] = [];
+    for (const { location, key, validator } of plan.locations) {
+      let value: unknown = readParameters(location, operation.parameters, {
+        params,
+        url,
+        headers: request.headers,
+      });
+      if (location !== "path") value = validator.defaults(value);
+      value = validator.convert(value);
+      violations.push(...validator.check(value, location));
+      input[key] = value;
+    }
+    if (violations.length > 0) return validationFailed(violations);
+
+    // Body.
+    if (operation.body !== undefined) {
+      const result = await bounded(readBody(request, operation.body, settings.bodyLimitBytes));
+      switch (result.kind) {
+        case "too-large":
+          return problemResponse(413, "PAYLOAD_TOO_LARGE", {
+            detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
+          });
+        case "unsupported-media-type":
+          return problemResponse(415, "UNSUPPORTED_MEDIA_TYPE", {
+            detail: `Expected ${operation.body.mediaType}, got ${
+              result.mediaType ?? "no content type"
+            }.`,
+            headers: { "accept-post": operation.body.mediaType },
+          });
+        case "malformed":
+          return problemResponse(400, "MALFORMED_REQUEST", { detail: result.detail });
+        case "absent":
+          if (operation.body.required) {
+            return validationFailed([{
+              location: "body",
+              pointer: "",
+              message: "a request body is required",
+            }]);
+          }
+          break;
+        case "ok": {
+          if (!(result.value instanceof Uint8Array)) {
+            const bodyViolations = plan.body!.check(result.value, "body");
+            if (bodyViolations.length > 0) return validationFailed(bodyViolations);
+          }
+          input.body = result.value;
+        }
+      }
+    }
+
+    if (plan.handler === undefined) {
+      return problemResponse(501, "NOT_IMPLEMENTED", {
+        detail: `Operation '${operation.operationId}' is not implemented yet.`,
+      });
+    }
+    const ctx = { signal, request, operationId: operation.operationId, security: identities };
+    return respond(plan, await bounded(plan.handler(input, ctx)), settings);
+  }
 }
 
 function thrown(error: unknown, operation: OperationModel, settings: PipelineSettings): Response {

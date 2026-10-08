@@ -41,7 +41,8 @@ function fromText(text: string, parameter: ParameterModel): unknown {
   return text;
 }
 
-function parseCookies(header: string | null): Map<string, string> {
+/** Parses a Cookie header; the first occurrence of a name wins. */
+export function parseCookies(header: string | null): Map<string, string> {
   const cookies = new Map<string, string>();
   for (const part of (header ?? "").split(";")) {
     const index = part.indexOf("=");

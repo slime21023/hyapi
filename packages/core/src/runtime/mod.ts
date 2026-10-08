@@ -16,6 +16,7 @@ export {
   notImplemented,
 } from "./handler.ts";
 export type { ResponseValidation } from "./pipeline.ts";
+export type { Verified, Verifier, VerifierContext, VerifierFor, Verifiers } from "./security.ts";
 export {
   HttpError,
   problem,

@@ -35,6 +35,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - RFC 9457 problem responses with stable codes, `problem()`, and `HttpError`; and
   - request timeouts (503).
 - Contract diagnostic `unknown-format`.
+- Security (roadmap M4):
+  - `createApp({ verifiers })`, typed per scheme, with credential extraction for every v1 scheme
+    type;
+  - ordered OR/AND evaluation with per-request caching;
+  - scope checks, 401/403 classification with `WWW-Authenticate` challenges, and typed
+    `ctx.security`; and
+  - `@hyapi/plugin-jwt` with `jwtBearer` (HS256, RS256, ES256, and EdDSA, through jose).
+- An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
+  promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):
   - `emitOpenApi` and `serializeOpenApi` in `@hyapi/core/openapi`, which emit deterministic,
     formatter-stable OpenAPI 3.1 with named components;

@@ -1,7 +1,8 @@
 {
   "workspace": [
     "./packages/core",
-    "./packages/cli"
+    "./packages/cli",
+    "./packages/plugin-jwt"
   ],
   "tasks": {
     "fmt": "deno fmt",

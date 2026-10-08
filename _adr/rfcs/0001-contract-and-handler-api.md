@@ -288,6 +288,16 @@ API.
   `$ref` there too. A derived top-level schema is unnamed until it is given its own `defineSchema`
   name.
 
+## 13. Amendments made during implementation (M4)
+
+- **A11. Verifier contract.**
+  - `Verifier<typeof security, "name">` is `(credential, ctx) => { identity, scopes? } | null`,
+    which may be async.
+  - `null` means an invalid credential (401), and a thrown error is an internal failure (500).
+  - The credential is a string, except `{ username, password }` for `httpBasic`.
+  - `ctx` is `{ signal, request, operationId }`.
+  - `@hyapi/core` also exports `Verified`, `VerifierContext`, `VerifierFor`, and `Verifiers`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

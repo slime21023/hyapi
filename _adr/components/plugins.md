@@ -42,7 +42,18 @@ Public `@hyapi/core` entry points, plus each plugin's own dependencies.
 
 ADR 0001 §15; ADR 0002 §3, §4; `AGENTS.md` "Optional integrations".
 
+## Resolved in M4
+
+- **`@hyapi/plugin-jwt`.**
+  `await jwtBearer({ algorithm, key, issuer?, audience?, clockToleranceSeconds?, requiredClaims?, identity?, scopes? })`
+  returns a verifier for bearer-based schemes.
+  - It is built on [jose](https://jsr.io/@panva/jose) and accepts exactly one of `HS256` (a secret
+    of at least 32 bytes), `RS256`, `ES256`, or `EdDSA` (a `CryptoKey`, JWK, or SPKI PEM).
+  - `exp` is required by default.
+  - Scopes come from `scope` or `scp`.
+  - The factory is async, so key and option errors surface at startup.
+  - Invalid tokens yield `null`.
+
 ## Open questions
 
-- Whether `plugin-jwt` adds asymmetric algorithms in its first version.
 - Whether a typed client (a later goal) becomes a package of its own under the same rules.

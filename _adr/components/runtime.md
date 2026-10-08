@@ -125,13 +125,30 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   validated. Other declared media types reach the handler as bytes, without validation.
 - **Interim reporting.** Until read-only events arrive in M5, `log`-policy violations, development
   field stripping, and development startup warnings are written with `console.warn`.
-- **Security.** Until M4, an operation with a security requirement fails startup
-  (`security-not-supported`), so that it is never served unprotected.
+
+## Resolved in M4
+
+- **Verifiers.** `createApp({ verifiers })` takes one function per security scheme. Types require it
+  whenever the API declares schemes, and startup reports `missing-verifier`, `unknown-verifier`, and
+  `invalid-verifier`. A verifier receives the scheme's credential and
+  `{ signal, request, operationId }`. It returns `{ identity, scopes? }`, or `null` for an invalid
+  credential. A thrown error is an internal failure (500).
+- **Credentials.** `http` bearer, `oauth2`, and `openIdConnect` schemes read
+  `Authorization: Bearer <token>`. `http` basic schemes decode `Authorization: Basic` to
+  `{ username, password }`; a malformed value counts as an invalid credential. `apiKey` schemes read
+  their declared header, query parameter, or cookie. A missing credential never calls the verifier.
+- **Evaluation.** Alternatives are tried in order, and the first satisfied one wins. Schemes within
+  a requirement are verified in declaration order, stopping at the first failure. Each scheme is
+  verified at most once per request. Security runs before parameter and body validation, and
+  verifiers are bounded by the request timeout.
+- **Failures.** A credential that verifies but lacks a required scope produces 403 `FORBIDDEN`, with
+  `WWW-Authenticate: Bearer error="insufficient_scope"` for bearer schemes. Any other failure
+  produces 401 `UNAUTHORIZED`, with `Bearer` and `Basic realm="<API title>"` challenges for the
+  HTTP-based schemes involved.
 
 ## Open questions
 
 - Per-operation timeouts: declared in the contract or configured in the application (M5).
-- Whether verifiers within one AND requirement run concurrently or in order (M4).
 - Whether events carry the `Request`, so that outer wrappers can correlate tracing spans (M5).
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and
   `multipart/form-data`): a later goal.

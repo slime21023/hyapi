@@ -14,8 +14,6 @@ import {
   defineContract,
   defineResponse,
   defineSchema,
-  defineSecurity,
-  httpBearer,
   Problem,
 } from "@hyapi/core/contract";
 
@@ -506,35 +504,5 @@ Deno.test("startup rejects contract errors with their diagnostics", async () => 
   );
   assertEquals(error.diagnostics.filter((d) => d.severity === "error").map((d) => d.code), [
     "unknown-format",
-  ]);
-});
-
-Deno.test("operations with security cannot start before security evaluation exists", async () => {
-  const security = defineSecurity({ bearer: httpBearer<{ subject: string }>() });
-  const secured = defineContract({
-    securitySchemes: security,
-    operations: {
-      a: {
-        method: "GET",
-        path: "/a",
-        security: [{ bearer: [] }],
-        responses: { 204: { description: "Ok" } },
-      },
-    },
-  });
-  const error = await assertRejects(
-    () =>
-      createApp({
-        api: defineApi({
-          info: { title: "T", version: "1" },
-          securitySchemes: security,
-          contracts: [secured],
-        }),
-        implementations: [implement(secured, { a: () => ({ status: 204 }) })],
-      }),
-    StartupError,
-  );
-  assertEquals(error.diagnostics.filter((d) => d.severity === "error").map((d) => d.code), [
-    "security-not-supported",
   ]);
 });

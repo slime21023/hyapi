@@ -36,20 +36,30 @@ export type SchemeSpec =
     readonly description?: string;
   };
 
+/** The decoded credential of an HTTP basic scheme. */
+export interface BasicCredential {
+  readonly username: string;
+  readonly password: string;
+}
+
 /**
- * A security scheme. `Identity` is the value that the scheme's verifier returns. It exists only
- * in types.
+ * A security scheme. `Identity` is the value that the scheme's verifier returns, and `Credential`
+ * is what the runtime extracts from the request for it. Both exist only in types.
  */
-export interface Scheme<Identity = unknown> {
+export interface Scheme<Identity = unknown, Credential = string> {
   readonly spec: SchemeSpec;
   readonly "~identity"?: Identity;
+  readonly "~credential"?: Credential;
 }
 
 /** Security schemes keyed by name. */
-export type Schemes = Readonly<Record<string, Scheme>>;
+export type Schemes = Readonly<Record<string, Scheme<unknown, unknown>>>;
 
 /** The identity type declared by a scheme. */
-export type IdentityOf<S> = S extends Scheme<infer Identity> ? Identity : never;
+export type IdentityOf<S> = S extends Scheme<infer Identity, unknown> ? Identity : never;
+
+/** The credential type that a scheme's verifier receives. */
+export type CredentialOf<S> = S extends Scheme<unknown, infer Credential> ? Credential : never;
 
 /** A module of security schemes, shared by `defineApi` and every `defineContract`. */
 export interface Security<S extends Schemes = Schemes> {
@@ -70,7 +80,7 @@ export function defineSecurity<const S extends Schemes>(schemes: S): Security<S>
   return Object.freeze({ kind: "hyapi.security", schemes });
 }
 
-function scheme<Identity>(spec: SchemeSpec): Scheme<Identity> {
+function scheme<Identity, Credential = string>(spec: SchemeSpec): Scheme<Identity, Credential> {
   return Object.freeze({ spec });
 }
 
@@ -84,8 +94,8 @@ export function httpBearer<Identity>(
 /** An HTTP basic scheme (`Authorization: Basic <credentials>`). */
 export function httpBasic<Identity>(
   options: { readonly description?: string } = {},
-): Scheme<Identity> {
-  return scheme({ type: "http", scheme: "basic", ...options });
+): Scheme<Identity, BasicCredential> {
+  return scheme<Identity, BasicCredential>({ type: "http", scheme: "basic", ...options });
 }
 
 /** An API key in a header, query parameter, or cookie. */

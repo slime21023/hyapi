@@ -22,6 +22,8 @@ export { defineResponse, type NamedResponse, type ResponseSpec } from "./respons
 export { defineSchema, Problem } from "./schema.ts";
 export {
   apiKey,
+  type BasicCredential,
+  type CredentialOf,
   defineSecurity,
   httpBasic,
   httpBearer,
