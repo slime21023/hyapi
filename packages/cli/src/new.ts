@@ -29,8 +29,8 @@ function files(name: string, local: string | undefined): Record<string, string> 
   const { imports, cli } = wiring(local);
   const config = {
     tasks: {
-      dev: "deno run --watch --allow-net src/main.ts",
-      start: "deno run --allow-net src/main.ts",
+      dev: "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
+      start: "deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
       emit: `${cli} emit`,
       doctor: `${cli} doctor`,
       verify: "deno fmt --check && deno lint && deno check src/ contracts/ tests/ && " +
@@ -112,10 +112,12 @@ export function buildApp(options: { development?: boolean } = {}): Promise<App> 
   return createApp({ api, implementations: [greetingsImplementation], ...options });
 }
 `,
-    "src/main.ts": `import { buildApp } from "./app.ts";
+    "src/main.ts": `import { serve } from "@hyapi/core/deno";
+import { buildApp } from "./app.ts";
 
 const app = await buildApp({ development: Deno.env.get("APP_ENV") !== "production" });
-Deno.serve({ port: Number(Deno.env.get("PORT") ?? 8000) }, app.fetch);
+// Stops gracefully on SIGINT/SIGTERM: drains requests, then closes the app.
+serve(app, { port: Number(Deno.env.get("PORT") ?? 8000) });
 `,
     "tests/app_test.ts": `import { assertEquals } from "@std/assert";
 import { buildApp } from "../src/app.ts";

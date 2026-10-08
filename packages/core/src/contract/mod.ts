@@ -19,7 +19,7 @@ export {
 } from "./define.ts";
 export type { InputOf, OperationOf, ResultOf, SecurityFor, SecurityOf } from "./infer.ts";
 export { defineResponse, type NamedResponse, type ResponseSpec } from "./response.ts";
-export { defineSchema, Problem } from "./schema.ts";
+export { defineSchema, HealthReport, Problem } from "./schema.ts";
 export {
   apiKey,
   type BasicCredential,

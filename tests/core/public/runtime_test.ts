@@ -383,7 +383,7 @@ Deno.test("response validation policies", async () => {
     const log = await appWith({ responseValidation: "log" });
     const logged = await call(log, "GET", "/misbehave/invalid");
     assertEquals(logged.status, 200);
-    assert(warnings.some((w) => w.includes("response-contract-violation")));
+    assert(warnings.some((w) => w.includes("response.violation")));
 
     const off = await appWith({ responseValidation: "off" });
     assertEquals((await call(off, "GET", "/misbehave/invalid")).status, 200);

@@ -42,5 +42,19 @@ A plain `Request → Response.json` handler gives the cost floor of the same rou
   - `Default` and `Convert` on parameter objects for operations without defaults or non-string
     parameters.
 
+## Re-run after M5 (2026-10-08)
+
+M5 added per-request bookkeeping: in-flight counting, a shutdown signal, and operation events. The
+benchmark has no event listener.
+
+| Benchmark                 |      M2 |      M5 | Change |
+| ------------------------- | ------: | ------: | -----: |
+| `GET /items/{id}`         | 18.5 µs | 20.6 µs |   +11% |
+| `GET /items?q&limit&tags` | 28.3 µs | 29.4 µs |    +4% |
+| `POST /items`             | 20.1 µs | 23.0 µs |   +14% |
+| 404                       |  3.7 µs |  3.8 µs |    +3% |
+
+All changes are within the 20% threshold.
+
 A pull request that slows these benchmarks by more than 20% on the same hardware must explain the
 regression (see `CONTRIBUTING.md`).

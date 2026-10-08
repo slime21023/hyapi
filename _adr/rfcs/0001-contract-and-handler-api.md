@@ -298,6 +298,21 @@ API.
   - `ctx` is `{ signal, request, operationId }`.
   - `@hyapi/core` also exports `Verified`, `VerifierContext`, `VerifierFor`, and `Verifiers`.
 
+## 14. Amendments made during implementation (M5)
+
+- **A12. One result object per status.** A handler returns `Result | Response`. Because
+  `Response.status` is a plain `number`, TypeScript cannot split `{ status: 200 | 503, body }`
+  across that union. Write one object per status instead. Splitting the return type would fix this
+  case, but it would break async handlers that return either a declared result or a raw `Response`
+  (for example, a 404 problem or a file stream), which matters more.
+- **A13. Lifecycle, health, events, and hosting names.**
+  - `@hyapi/core` adds `createHealth`, `Health`, `HealthCheck`, `HealthReportValue`, `HealthStatus`,
+    `LifecycleResource`, `AppEvent`, `EventListener`, and `OperationIdsOf`.
+  - The `createApp` options `lifecycle`, `health`, `onEvent`, `timeouts`, `shutdownTimeoutMs`, and
+    `document` are added, and `App.close()` is added.
+  - `@hyapi/core/contract` adds the `HealthReport` schema.
+  - `@hyapi/core/deno` exports `serve`, `Server`, and `ServeOptions`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

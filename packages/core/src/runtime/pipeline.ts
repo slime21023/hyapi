@@ -1,6 +1,7 @@
 import Type from "typebox";
 import type { OperationModel, ParameterLocation, ResponseModel } from "../contract/model.ts";
 import { describeError, HttpError, problemResponse, type Violation } from "./problem.ts";
+import type { Emit } from "./events.ts";
 import type { SecurityEvaluator } from "./security.ts";
 import type { Validator, ValidatorFactory } from "./validation.ts";
 import { encodeBody, INPUT_KEYS, isJsonMediaType, readBody, readParameters } from "./wire.ts";
@@ -11,8 +12,14 @@ export type ResponseValidation = "off" | "log" | "enforce";
 export interface PipelineSettings {
   readonly development: boolean;
   readonly responseValidation: ResponseValidation;
-  readonly requestTimeoutMs: number;
   readonly bodyLimitBytes: number;
+  readonly emit: Emit;
+}
+
+/** The response, and the error a handler or verifier threw when it became a 500. */
+export interface Outcome {
+  readonly response: Response;
+  readonly error?: unknown;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -28,6 +35,8 @@ interface LocationPlan {
 export interface OperationPlan {
   readonly operation: OperationModel;
   readonly handler: AnyHandler | undefined;
+  /** The request timeout of this operation. */
+  readonly timeoutMs: number;
   readonly locations: readonly LocationPlan[];
   readonly body: Validator | undefined;
   readonly responses: ReadonlyMap<number, { model: ResponseModel; body: Validator | undefined }>;
@@ -39,6 +48,7 @@ const LOCATION_ORDER: readonly ParameterLocation[] = ["path", "query", "header",
 export function planOperation(
   operation: OperationModel,
   handler: AnyHandler | undefined,
+  timeoutMs: number,
   validators: ValidatorFactory,
 ): OperationPlan {
   const locations: LocationPlan[] = [];
@@ -62,15 +72,11 @@ export function planOperation(
   return {
     operation,
     handler,
+    timeoutMs,
     locations,
     body: operation.body ? validators(operation.body.schema) : undefined,
     responses,
   };
-}
-
-function report(kind: string, details: Record<string, unknown>): void {
-  // Interim channel until read-only operation events arrive in M5.
-  console.warn(JSON.stringify({ hyapi: kind, ...details }));
 }
 
 function validationFailed(violations: readonly Violation[]): Response {
@@ -88,15 +94,16 @@ export async function execute(
   params: Readonly<Record<string, string>>,
   settings: PipelineSettings,
   security: SecurityEvaluator,
-): Promise<Response> {
+  shutdown: AbortSignal,
+): Promise<Outcome> {
   const { operation } = plan;
-  // One signal for the whole request: client disconnect and the request timeout. The timeout
-  // covers verifiers, body reading, and the handler.
+  // One signal for the whole request: client disconnect, the request timeout, and forced
+  // shutdown. The timeout covers verifiers, body reading, and the handler.
   const timeout = new AbortController();
-  const signal = AbortSignal.any([request.signal, timeout.signal]);
+  const signal = AbortSignal.any([request.signal, timeout.signal, shutdown]);
   const timer = setTimeout(
     () => timeout.abort(new DOMException("The request timed out.", "TimeoutError")),
-    settings.requestTimeoutMs,
+    plan.timeoutMs,
   );
   const aborted = new Promise<never>((_, reject) => {
     if (signal.aborted) reject(signal.reason);
@@ -108,12 +115,22 @@ export async function execute(
     Promise.race([Promise.resolve(work), aborted]);
 
   try {
-    return await run();
+    return { response: await run() };
   } catch (error) {
     if (timeout.signal.aborted && error === timeout.signal.reason) {
-      return problemResponse(503, "REQUEST_TIMEOUT", {
-        detail: `The request did not complete within ${settings.requestTimeoutMs} ms.`,
-      });
+      return {
+        response: problemResponse(503, "REQUEST_TIMEOUT", {
+          detail: `The request did not complete within ${plan.timeoutMs} ms.`,
+        }),
+      };
+    }
+    if (shutdown.aborted && error === shutdown.reason) {
+      return {
+        response: problemResponse(503, "SHUTTING_DOWN", {
+          detail: "The server is shutting down.",
+          headers: { connection: "close" },
+        }),
+      };
     }
     return thrown(error, operation, settings);
   } finally {
@@ -197,21 +214,23 @@ export async function execute(
   }
 }
 
-function thrown(error: unknown, operation: OperationModel, settings: PipelineSettings): Response {
+function thrown(error: unknown, operation: OperationModel, settings: PipelineSettings): Outcome {
   if (error instanceof HttpError) {
-    return problemResponse(error.status, error.code, {
-      title: error.message,
-      ...(error.detail === undefined ? {} : { detail: error.detail }),
-      headers: error.headers,
-    });
+    return {
+      response: problemResponse(error.status, error.code, {
+        title: error.message,
+        ...(error.detail === undefined ? {} : { detail: error.detail }),
+        headers: error.headers,
+      }),
+    };
   }
-  if (settings.development) {
-    return problemResponse(500, "INTERNAL_ERROR", {
+  const response = settings.development
+    ? problemResponse(500, "INTERNAL_ERROR", {
       detail: `Operation '${operation.operationId}' threw an error.`,
       debug: describeError(error),
-    });
-  }
-  return problemResponse(500, "INTERNAL_ERROR");
+    })
+    : problemResponse(500, "INTERNAL_ERROR");
+  return { response, error };
 }
 
 function lookupHeader(headers: unknown, name: string): unknown {
@@ -225,16 +244,19 @@ function lookupHeader(headers: unknown, name: string): unknown {
 function respond(plan: OperationPlan, result: unknown, settings: PipelineSettings): Response {
   const { operation } = plan;
   const violations: Violation[] = [];
-  const contractViolation = (fallback: () => Response): Response => {
+  const contractViolation = (status: number, fallback: () => Response): Response => {
+    settings.emit({
+      type: "response.violation",
+      operationId: operation.operationId,
+      status,
+      violations: [...violations],
+    });
     if (settings.responseValidation === "enforce") {
       return problemResponse(500, "RESPONSE_CONTRACT_VIOLATION", {
         detail:
           `Operation '${operation.operationId}' returned a response that its contract does not allow.`,
         ...(settings.development ? { violations } : {}),
       });
-    }
-    if (settings.responseValidation === "log") {
-      report("response-contract-violation", { operationId: operation.operationId, violations });
     }
     return fallback();
   };
@@ -246,7 +268,7 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
         pointer: "",
         message: `status ${result.status} is not declared`,
       });
-      return contractViolation(() => result);
+      return contractViolation(result.status, () => result);
     }
     return result;
   }
@@ -280,7 +302,7 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
       pointer: "",
       message: `status ${status} is not declared`,
     });
-    return contractViolation(() => {
+    return contractViolation(status, () => {
       if (body === undefined) return new Response(null, { status, headers });
       headers.set("content-type", "application/json");
       return new Response(JSON.stringify(body), { status, headers });
@@ -319,7 +341,8 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
       const cleaned = declared.body!.clean(value, settings.development);
       value = cleaned.value;
       if (settings.development && cleaned.removed.length > 0) {
-        report("response-fields-stripped", {
+        settings.emit({
+          type: "response.stripped",
           operationId: operation.operationId,
           status,
           removed: cleaned.removed,
@@ -339,5 +362,5 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
   }
 
   const send = () => new Response(payload, { status, headers });
-  return violations.length > 0 ? contractViolation(send) : send();
+  return violations.length > 0 ? contractViolation(status, send) : send();
 }

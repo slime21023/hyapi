@@ -42,6 +42,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - scope checks, 401/403 classification with `WWW-Authenticate` challenges, and typed
     `ctx.security`; and
   - `@hyapi/plugin-jwt` with `jwtBearer` (HS256, RS256, ES256, and EdDSA, through jose).
+- Lifecycle, hosting, and events (roadmap M5):
+  - named `lifecycle` resources with ordered start, reverse stop, and rollback;
+  - `app.close()`, which refuses new requests, drains, aborts the rest, and stops resources within a
+    budget;
+  - `createHealth`, which reports draining during shutdown, and the `HealthReport` schema;
+  - read-only `onEvent` events;
+  - per-operation `timeouts`;
+  - the opt-in `document` endpoint; and
+  - `serve()` in `@hyapi/core/deno`, with graceful, signal-driven shutdown.
+- The starter uses `serve()`, and its tasks grant `--allow-env` and pass
+  `--unstable-no-legacy-abort`.
 - An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
   promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):

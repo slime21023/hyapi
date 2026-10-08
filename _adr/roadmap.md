@@ -34,7 +34,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08) |
 | [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08) |
 | [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08) |
-| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Not started       |
+| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08) |
 | [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Not started       |
 | [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Not started       |
 
@@ -198,6 +198,17 @@ failure classifications.
 - Whether events carry the `Request`.
 - Per-operation timeouts.
 - Whether rc.5's shutdown timing rules still apply on Deno 2.9.
+
+**Outcome:**
+
+- Lifecycle resources are named.
+- `createHealth` is standalone and reports draining.
+- Events do not carry the `Request`.
+- Per-operation timeouts are `createApp` options.
+- Deno 2.9 still needs `--unstable-no-legacy-abort`.
+
+See the [runtime](components/runtime.md) and [serve](components/serve.md) specifications. The
+signal-driven shutdown test runs on Linux and macOS; Windows cannot deliver SIGTERM.
 
 **Exit criteria:** tests cover startup rollback, bounded shutdown, signal-driven shutdown of a real
 listener, and event delivery with failing listeners.

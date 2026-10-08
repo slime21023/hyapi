@@ -42,7 +42,25 @@ The public `@hyapi/core` entry and Deno APIs only.
 
 ADR 0001 §12; ADR 0002 §3, §4.
 
+## Resolved in M5
+
+- **Interface.** `serve(app, { port, hostname, signals, signal, shutdownTimeoutMs, onListen })`
+  returns `{ addr, finished, shutdown() }`.
+  - `signals` default to SIGINT and SIGTERM, or SIGINT and SIGBREAK on Windows, where SIGTERM cannot
+    be observed.
+  - An `AbortSignal` can also trigger the shutdown.
+  - Signal handlers are installed only after the listener starts, and removed on shutdown.
+- **Shutdown sequence.**
+  - `app.close()` (draining, aborting, and stopping resources) and `server.shutdown()` (stopping
+    accepting connections and waiting for open responses) run concurrently.
+  - After `shutdownTimeoutMs` (default 30 s, kept above the app's budget), the listener's signal
+    aborts open connections.
+  - `shutdown()` is idempotent and rethrows close failures.
+- **Legacy abort on Deno 2.9.** Measured on Deno 2.9.7: without `--unstable-no-legacy-abort`, Deno
+  still aborts `request.signal` after every successful response, and it prints a warning when
+  listeners are attached. Handlers would see this as a client disconnect, so hosting with `serve()`
+  requires the flag. The starter's tasks pass it.
+
 ## Open questions
 
-- Whether rc.5's shutdown timing rules (the `--unstable-no-legacy-abort` requirement and the
-  forced-abort ordering) still apply on the target Deno version.
+- None.

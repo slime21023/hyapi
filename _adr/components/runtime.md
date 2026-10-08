@@ -123,8 +123,7 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   (RFC 0001 amendment A2).
 - **Bodies.** JSON (`application/json` and `+json`) is parsed and validated. `text/*` is decoded and
   validated. Other declared media types reach the handler as bytes, without validation.
-- **Interim reporting.** Until read-only events arrive in M5, `log`-policy violations, development
-  field stripping, and development startup warnings are written with `console.warn`.
+- **Reporting.** Superseded in M5 by read-only events (see below).
 
 ## Resolved in M4
 
@@ -146,9 +145,44 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   produces 401 `UNAUTHORIZED`, with `Bearer` and `Basic realm="<API title>"` challenges for the
   HTTP-based schemes involved.
 
+## Resolved in M5
+
+- **Lifecycle.** `createApp({ lifecycle: [{ name, start?, stop? }] })` starts resources in order
+  before returning the application. If one fails, the started ones are stopped in reverse order and
+  the original error is thrown; rollback failures are added in an `AggregateError`.
+- **Close.** `app.close()` is idempotent and runs these steps:
+  1. new requests get 503 `SHUTTING_DOWN`;
+  2. in-flight requests drain within `shutdownTimeoutMs` (default 10 s);
+  3. the remaining requests are aborted through their signal, and answer 503 `SHUTTING_DOWN`; and
+  4. lifecycle resources stop in reverse order, sharing one budget.
+
+  Stop failures and timeouts are aggregated, and the later resources still stop.
+- **Health.** `createHealth(checks, { timeoutMs })` is a standalone aggregator, so handlers use it
+  without a cycle. Checks run concurrently with a timeout. The overall status is the worst check
+  status. Passed to `createApp({ health })`, it reports `unhealthy` with `draining: true` once
+  `close()` starts. The `HealthReport` schema lives in `@hyapi/core/contract` for health operation
+  contracts.
+- **Events.** `createApp({ onEvent })` receives read-only events:
+  - `operation.start` and `operation.end` (status, duration, problem `code`, thrown error, and the
+    `deprecated` flag);
+  - `response.violation` and `response.stripped` (development only);
+  - `startup.warning`; and
+  - `lifecycle.error`.
+
+  Events do not carry the `Request`. Listener errors are contained. Without a listener, problem
+  events fall back to `console.warn`, so the `log` policy is never silent. Unmatched requests (404
+  and 405) emit no operation events.
+- **Per-operation timeouts.** `createApp({ timeouts: { operationId: ms } })` overrides
+  `requestTimeoutMs`. The keys are typed by the API's `operationId`s, and unknown keys fail startup.
+  Timeouts are operational settings and stay out of the contract and the emitted document.
+- **Document endpoint.** `createApp({ document: { path, content } })` serves an emitted document on
+  GET and HEAD. A path that collides with a declared route fails startup
+  (`document-route-conflict`).
+- **Conditional statuses.** Return one object per status, for example
+  `ok ? { status: 200, body } : { status: 503, body }`. TypeScript cannot split
+  `{ status: 200 | 503 }` across a union that also allows a raw `Response` (RFC 0001 A12).
+
 ## Open questions
 
-- Per-operation timeouts: declared in the contract or configured in the application (M5).
-- Whether events carry the `Request`, so that outer wrappers can correlate tracing spans (M5).
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and
   `multipart/form-data`): a later goal.

@@ -39,6 +39,32 @@ export function isSchema(value: unknown): value is TSchema & { readonly "~kind":
   return typeof value === "object" && value !== null && ("~kind" in value || "~unsafe" in value);
 }
 
+const HealthStatus = Type.Union([
+  Type.Literal("healthy"),
+  Type.Literal("degraded"),
+  Type.Literal("unhealthy"),
+]);
+
+/**
+ * The report produced by the runtime's `createHealth`. Declare it as the response of a health
+ * operation, for example `responses: { 200: HealthReport, 503: HealthReport }`.
+ */
+export const HealthReport = defineSchema(
+  "HealthReport",
+  Type.Object({
+    status: HealthStatus,
+    draining: Type.Boolean(),
+    checks: Type.Record(
+      Type.String(),
+      Type.Object({
+        status: HealthStatus,
+        durationMs: Type.Number(),
+        detail: Type.Optional(Type.String()),
+      }),
+    ),
+  }),
+);
+
 /**
  * The RFC 9457 problem details schema. A response whose body is `Problem` is served as
  * `application/problem+json`.
