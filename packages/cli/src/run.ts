@@ -1,5 +1,6 @@
 import { resolve } from "jsr:@std/path@^1";
 import { UsageError } from "./config.ts";
+import { diffCommand } from "./diff.ts";
 import { doctorCommand } from "./doctor.ts";
 import { emitCommand } from "./emit.ts";
 import { newCommand } from "./new.ts";
@@ -25,6 +26,8 @@ const USAGE = [
   "  new <dir> [--local <repository>]  Create a project; --local links an unpublished checkout.",
   "  emit [--check]                    Write the OpenAPI document, or verify that it is current.",
   "  doctor                            Check the contracts and the committed document.",
+  "  diff [--format text|markdown|json] [--allow-breaking]",
+  "                                    Compare the contracts with the document on main.",
   "",
   "Options for emit and doctor:",
   '  --api <module#export>  The defineApi module (default: deno.json "hyapi.api").',
@@ -33,7 +36,7 @@ const USAGE = [
   "Exit codes: 0 success, 1 problems found, 2 usage error.",
 ].join("\n");
 
-const BOOLEAN_FLAGS = new Set(["check", "help"]);
+const BOOLEAN_FLAGS = new Set(["check", "help", "allow-breaking"]);
 
 function parse(args: readonly string[]) {
   const positional: string[] = [];
@@ -88,6 +91,18 @@ export async function run(args: readonly string[], options: RunOptions = {}): Pr
       case "emit":
         allowOnly(flags, ["api", "out", "check"]);
         return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
+      case "diff": {
+        allowOnly(flags, ["api", "out", "format", "allow-breaking"]);
+        const format = value(flags.format) ?? "text";
+        if (format !== "text" && format !== "markdown" && format !== "json") {
+          throw new UsageError("--format must be text, markdown, or json");
+        }
+        return await diffCommand(
+          cwd,
+          { ...project, format, allowBreaking: flags["allow-breaking"] === true },
+          io,
+        );
+      }
       case "doctor":
         allowOnly(flags, ["api", "out"]);
         return await doctorCommand(cwd, project, io);

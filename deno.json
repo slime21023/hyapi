@@ -2,6 +2,7 @@
   "workspace": [
     "./packages/core",
     "./packages/cli",
+    "./packages/openapi-diff",
     "./packages/plugin-jwt"
   ],
   "tasks": {

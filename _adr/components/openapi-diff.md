@@ -48,9 +48,38 @@ is never compared partially without saying so.
 
 ADR 0001 §10; ADR 0002 §1, §3, §4.
 
+## Resolved in M6
+
+- **Inputs.** OpenAPI 3.1 documents with internal references only. Another version, or an external
+  `$ref`, is an error result (`{ ok: false, errors }`) that names the problem; nothing is compared
+  partially. References are followed through `#/...` pointers and TypeBox-style `$id`s, with a guard
+  for recursive schemas.
+- **Interface.**
+  - `diffOpenApi(base, head)` returns `{ ok: true, changes, breaking }`.
+  - Each change has a stable `rule`, a `severity`, the `operation` (`METHOD /path`), a readable
+    `location`, and a `message`.
+  - Breaking changes come first.
+  - `formatDiff(result, "text" | "markdown" | "json")` renders it.
+- **Matching.** Operations are matched by method and path template, so renaming a path parameter is
+  not a change. Header parameters are matched case-insensitively.
+- **Rule set.** HyAPI defines its own small set of 32 rules (`RuleId`). The schema rules depend on
+  direction: for what consumers send, stricter is breaking; for what they receive, looser is
+  breaking.
+
+  | Area                       | Rules                                                                                                                                                                                                   |
+  | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Operations                 | `operation-removed` (breaking), `operation-added`, `operation-deprecated`, `operation-id-changed` (breaking, because generated client names change)                                                     |
+  | Security                   | `security-added` (breaking), `security-removed`, `security-changed` (breaking)                                                                                                                          |
+  | Parameters                 | `parameter-removed` (breaking), `parameter-added` (breaking if required), `parameter-became-required` (breaking), `parameter-became-optional`                                                           |
+  | Request bodies             | `request-body-added` (breaking if required), `request-body-removed`, `request-body-became-required` (breaking), `request-body-became-optional`                                                          |
+  | Media types                | `media-type-removed` (breaking), `media-type-added`                                                                                                                                                     |
+  | Responses                  | `response-status-removed` (breaking for 2xx), `response-status-added`, `response-header-removed` (breaking if required), `response-header-added`                                                        |
+  | Schemas                    | `type-changed` (requests may widen, responses may narrow), `enum-value-removed`, and `enum-value-added` (TypeBox literal unions count as enums)                                                         |
+  | Object properties          | `property-removed`, `property-added`, `property-became-required`, `property-became-optional`, `additional-properties-restricted`                                                                        |
+  | Constraints and composites | `constraint-tightened` (breaking for requests), `constraint-loosened` (never breaking), and `schema-changed` (a changed `anyOf`/`oneOf`/`allOf` that cannot be classified; breaking, for manual review) |
+
+  The rules cover the same ground as oasdiff's common checks, but the identifiers are HyAPI's own.
+
 ## Open questions
 
-- Whether OpenAPI 3.0 and 3.2 inputs are accepted, since the package serves projects other than
-  HyAPI.
-- The initial rule set, and how it relates to existing tools such as oasdiff.
-- Whether external `$ref`s are supported, or documents must be bundled first.
+- Accepting OpenAPI 3.0 or 3.2, and bundling external references, for projects other than HyAPI.

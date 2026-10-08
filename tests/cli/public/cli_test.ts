@@ -129,5 +129,19 @@ Deno.test("new creates a starter that passes its own verification", async () => 
   const output = new TextDecoder().decode(verify.stdout) + new TextDecoder().decode(verify.stderr);
   assert(verify.success, output);
   assertStringIncludes(output, "openapi.json is up to date");
+  const workflow = await Deno.readTextFile(join(dir, ".github", "workflows", "ci.yml"));
+  assertStringIncludes(workflow, "deno task diff");
+  // The starter's diff task runs once the project is a git repository with a main branch.
+  for (const args of [["init", "-q", "-b", "main"], ["add", "."], ["commit", "-q", "-m", "init"]]) {
+    const git = await new Deno.Command("git", {
+      args: ["-c", "user.name=test", "-c", "user.email=test@example.com", ...args],
+      cwd: dir,
+    }).output();
+    assert(git.success, new TextDecoder().decode(git.stderr));
+  }
+  const diff = await new Deno.Command("deno", { args: ["task", "diff"], cwd: dir }).output();
+  const diffOutput = new TextDecoder().decode(diff.stdout) + new TextDecoder().decode(diff.stderr);
+  assert(diff.success, diffOutput);
+  assertStringIncludes(diffOutput, "0 breaking, 0 non-breaking change(s)");
   assertEquals((await cli(["new", dir, "--local", repo])).code, 2, "refuses a non-empty directory");
 });

@@ -33,6 +33,7 @@ function files(name: string, local: string | undefined): Record<string, string> 
       start: "deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
       emit: `${cli} emit`,
       doctor: `${cli} doctor`,
+      diff: `${cli} diff`,
       verify: "deno fmt --check && deno lint && deno check src/ contracts/ tests/ && " +
         `deno test && ${cli} emit --check`,
     },
@@ -43,6 +44,31 @@ function files(name: string, local: string | undefined): Record<string, string> 
   return {
     "deno.json": `${JSON.stringify(config, null, 2)}\n`,
     ".gitattributes": "* text=auto eol=lf\n",
+    ".github/workflows/ci.yml": `name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # hyapi diff compares against the document committed on main.
+          fetch-depth: 0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.x
+      - run: deno task verify
+      - name: Check API changes against main
+        run: deno task diff
+`,
     "README.md": `# ${name}
 
 A contract-first API built with [HyAPI](https://github.com/slime21023/hyapi).
@@ -55,6 +81,7 @@ A contract-first API built with [HyAPI](https://github.com/slime21023/hyapi).
 deno task dev      run the server with reload
 deno task emit     write openapi.json from the contracts
 deno task verify   format, lint, type-check, test, and check that openapi.json is current
+deno task diff     compare the contracts with openapi.json on main; breaking changes fail
 \`\`\`
 `,
     "contracts/greetings.ts": `import Type from "typebox";

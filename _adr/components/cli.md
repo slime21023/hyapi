@@ -66,6 +66,23 @@ ADR 0001 §9, §10, §15, and the development workflow; ADR 0002 §1, §5.
   string-keyed schema names, never object identity, so a second copy of `@hyapi/core` in the CLI's
   module graph is harmless.
 
+## Resolved in M6
+
+- **`hyapi diff [--format text|markdown|json] [--allow-breaking]`** compares the API compiled from
+  the current contracts with the document committed on the `main` branch.
+  - It reads the document with `git show main:./<document>`, falling back to `origin/main` for CI
+    checkouts.
+  - If `main` has no document yet, every operation is reported as new.
+  - With no `main` or `origin/main` branch, the command fails with exit code 2 and a hint to fetch
+    the branch.
+- **Breaking changes** exit with 1, unless `--allow-breaking` is given. The flag is the
+  acknowledgement mechanism: a pipeline that intends a breaking change passes it explicitly, and the
+  report still lists every breaking change.
+- **Changelog.** `--format markdown` produces an "API changes" section for pull request comments and
+  release notes.
+- **Starter.** The starter has a `diff` task and a GitHub Actions workflow that runs `verify` and
+  then `diff`, with `fetch-depth: 0` so that `main` is available.
+
 ## Open questions
 
 - The `diff` baseline (a previous tag, a published URL, or the main branch) and the acknowledgement

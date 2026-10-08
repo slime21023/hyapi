@@ -35,7 +35,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08) |
 | [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08) |
 | [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08) |
-| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Not started       |
+| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08) |
 | [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Not started       |
 
 ```text
@@ -228,6 +228,17 @@ listener, and event delivery with failing listeners.
 - The diff baseline and the acknowledgement mechanism.
 - How the changelog is produced at release time.
 - How the rule set relates to oasdiff.
+
+**Outcome:**
+
+- Inputs are OpenAPI 3.1 only.
+- The diff baseline is the `main` branch.
+- `--allow-breaking` acknowledges intended breaking changes.
+- A HyAPI-defined set of 32 direction-aware rules.
+- Markdown output serves as the API changelog.
+
+See the [openapi-diff](components/openapi-diff.md) and [cli](components/cli.md) specifications.
+Comparing against an earlier release for release notes remains open.
 
 **Exit criteria:**
 

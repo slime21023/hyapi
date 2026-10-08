@@ -53,6 +53,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - `serve()` in `@hyapi/core/deno`, with graceful, signal-driven shutdown.
 - The starter uses `serve()`, and its tasks grant `--allow-env` and pass
   `--unstable-no-legacy-abort`.
+- Evolution governance (roadmap M6):
+  - `@hyapi/openapi-diff`, with `diffOpenApi` and `formatDiff`, which classify changes between two
+    OpenAPI 3.1 documents with 32 direction-aware rules;
+  - `hyapi diff`, which compares the current contracts with the document on `main` and fails on
+    breaking changes unless `--allow-breaking` is given, with text, markdown, or JSON output; and
+  - a starter `diff` task and a CI workflow.
 - An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
   promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):
