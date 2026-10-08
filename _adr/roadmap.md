@@ -32,7 +32,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08) |
 | [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08) |
 | [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08) |
-| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Not started       |
+| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08) |
 | [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Not started       |
 | [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Not started       |
 | [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Not started       |
@@ -145,6 +145,10 @@ Public tests cover every framework error status, and the
 - OpenAPI 3.1, 3.2, or both.
 - Whether framework-generated problem responses are documented automatically.
 - How the CLI locates contract modules.
+
+**Outcome:** the decisions are recorded in the [openapi](components/openapi.md) and
+[cli](components/cli.md) specifications: OpenAPI 3.1 only, declared responses only, configuration in
+`deno.json`, and JSON or YAML output.
 
 **Exit criteria:**
 

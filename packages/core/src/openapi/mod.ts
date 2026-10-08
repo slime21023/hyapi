@@ -1,2 +1,8 @@
-// Internal implementation of the openapi component. See _adr/components/.
-export {};
+// The openapi component. See _adr/components/openapi.md.
+export {
+  emitOpenApi,
+  type JsonValue,
+  OPENAPI_VERSION,
+  type OpenApiDocument,
+  serializeOpenApi,
+} from "./emit.ts";

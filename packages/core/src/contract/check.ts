@@ -15,7 +15,7 @@ import type {
 } from "./model.ts";
 import { reasonPhrase } from "./reason.ts";
 import { isNamedResponse, type NamedResponse, type ResponseSpec } from "./response.ts";
-import { isSchema, Problem, schemaName } from "./schema.ts";
+import { isSchema, schemaName } from "./schema.ts";
 import type { SchemeSpec } from "./security.ts";
 
 /** Stable identifiers for contract diagnostics. */
@@ -790,7 +790,10 @@ export function checkContracts(api: Api): CheckResult {
       if (!isSchema(spec.body)) {
         error("invalid-response", "a response body must be a schema", operationId, `${at}/body`);
       } else {
-        const mediaType = spec.mediaType ?? (spec.body === Problem ? PROBLEM_TYPE : JSON_TYPE);
+        // Matched by component name, not identity, so a second copy of HyAPI (for example the
+        // CLI's) still recognizes the built-in Problem schema.
+        const mediaType = spec.mediaType ??
+          (schemaName(spec.body) === "Problem" ? PROBLEM_TYPE : JSON_TYPE);
         if (!MEDIA_TYPE.test(mediaType)) {
           error(
             "invalid-media-type",

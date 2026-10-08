@@ -30,8 +30,10 @@ the product HyAPI delivers, so it must be faithful, deterministic, and stable.
 
 ## Interface
 
-`emitOpenApi(model, options)` returns an OpenAPI 3.1 document object. A companion function
-serializes it to the canonical JSON text that is committed to the repository.
+`emitOpenApi(model)` returns an OpenAPI 3.1 document object (`openapi: "3.1.1"`).
+`serializeOpenApi(document)` returns the canonical JSON text: two-space indentation, LF line
+endings, and a final newline, which `deno fmt` leaves unchanged. YAML serialization lives in the
+CLI.
 
 ## Dependencies
 
@@ -46,8 +48,21 @@ a HyAPI defect and throws an internal error. It is never silently omitted.
 
 ADR 0001 §9; ADR 0002 §2, §3.
 
+## Resolved in M3
+
+- **Version.** HyAPI emits OpenAPI 3.1 only, because 3.1 has the widest code-generator support among
+  consumers. 3.2 can be added when the tooling ecosystem follows.
+- **Framework responses.** Only responses that the contract declares are emitted. `hyapi doctor`
+  lists the framework statuses (400, 413, 415, 500, 503) that each operation can produce but does
+  not declare.
+- **Security on operations.** The API root requirement is inherited in OpenAPI and is not repeated.
+  Contract defaults have no OpenAPI equivalent, so they are written on each operation.
+- **Parameters.** `style` and `explode` are written only when they differ from OpenAPI's default for
+  the location. A property schema's `description` and `deprecated` are also written on the
+  parameter.
+- **Named schemas.** A schema named with `defineSchema` becomes a `$ref` wherever it appears,
+  including inside schemas derived with `T.Omit` or `T.Partial` (see the contract specification).
+
 ## Open questions
 
-- Whether to target OpenAPI 3.2 in addition to, or instead of, 3.1. oRPC already defaults to 3.2.
-- Whether framework-generated problem responses (400, 401, 403, 413, 415, 500) are documented
-  automatically or only when declared.
+- None for v1.

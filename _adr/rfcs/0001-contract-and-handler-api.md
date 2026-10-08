@@ -281,6 +281,13 @@ API.
 - **A9. Additional public names.** `@hyapi/core` also exports `StartupError` (thrown by `createApp`
   with every diagnostic), `ProblemValue`, `ProblemCode`, `Violation`, and `ResponseValidation`.
 
+## 12. Amendments made during implementation (M3)
+
+- **A10. Names survive derivation.** A schema named with `defineSchema` keeps its name wherever
+  TypeBox copies it, for example inside `T.Omit(Book, ["id"])`, so the emitted document uses a
+  `$ref` there too. A derived top-level schema is unnamed until it is given its own `defineSchema`
+  name.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

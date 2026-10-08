@@ -17,6 +17,10 @@ and never read raw declarations.
   and `defineContract` (one per resource: an `operationId`-keyed map of operations, default `tags`,
   and a default `security`). Named document parts are declared with `defineSchema`,
   `defineResponse`, and `defineSecurity`.
+- **Component names.** `defineSchema` stores the name under a non-enumerable string key, like
+  TypeBox's own `~kind` markers. TypeBox keeps such keys when it derives schemas, so schemas nested
+  in `T.Omit` or `T.Partial` results keep their names, while the derived top-level schema does not
+  inherit one. Problem responses are recognized by the component name `Problem`.
 - **Type inference.** Helpers infer handler input, the per-operation response union, and verifier
   identity types directly from TypeBox `Static`, with no generation.
 - **Normalization into `ContractModel`.** Every interpretation decision is made here, once:

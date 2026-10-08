@@ -35,6 +35,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - RFC 9457 problem responses with stable codes, `problem()`, and `HttpError`; and
   - request timeouts (503).
 - Contract diagnostic `unknown-format`.
+- OpenAPI emission and the contract CLI (roadmap M3):
+  - `emitOpenApi` and `serializeOpenApi` in `@hyapi/core/openapi`, which emit deterministic,
+    formatter-stable OpenAPI 3.1 with named components;
+  - `@hyapi/cli` with `emit` (`--check`, JSON or YAML) and `doctor`; and
+  - `new`, which creates a starter that passes its own verification.
 - Request-path benchmarks (`deno task bench`).
 
 ### Changed
