@@ -77,7 +77,11 @@ export class HttpError extends Error {
   }
 }
 
-/** Serializes a problem response. Never throws. */
+/**
+ * Builds an RFC 9457 problem response in the same shape that HyAPI uses for its own errors:
+ * `type: "about:blank"`, the reason phrase as `title`, `status`, and a stable `code`. Never
+ * throws. Outer `fetch` wrappers (plugins) use it to answer consistently.
+ */
 export function problemResponse(
   status: number,
   code: string,

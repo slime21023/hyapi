@@ -31,6 +31,7 @@ export {
   HttpError,
   problem,
   type ProblemCode,
+  problemResponse,
   type ProblemValue,
   type Violation,
 } from "./problem.ts";

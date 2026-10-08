@@ -313,6 +313,13 @@ API.
   - `@hyapi/core/contract` adds the `HealthReport` schema.
   - `@hyapi/core/deno` exports `serve`, `Server`, and `ServeOptions`.
 
+## 15. Amendments made during implementation (M7)
+
+- **A14. `problemResponse` is public.** `@hyapi/core` exports
+  `problemResponse(status, code, { title?, detail?, violations?, headers? })`. Outer `fetch`
+  wrappers use it so that their errors match the runtime's problem shape (`type: "about:blank"`, the
+  reason phrase as `title`, `status`, and a stable `code`).
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

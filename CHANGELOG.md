@@ -59,6 +59,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - `hyapi diff`, which compares the current contracts with the document on `main` and fails on
     breaking changes unless `--allow-breaking` is given, with text, markdown, or JSON output; and
   - a starter `diff` task and a CI workflow.
+- The remaining plugins (roadmap M7a):
+  - `@hyapi/plugin-oidc` (`oidcBearer`), with discovery, JWKS rotation, and key-server failures
+    reported as errors rather than invalid tokens;
+  - `@hyapi/plugin-cors` (`withCors`), with explicit origins;
+  - `@hyapi/plugin-csrf` (`withCsrf`), a signed double-submit check; and
+  - `@hyapi/plugin-rate-limit` (`withRateLimit`), a fixed window per key, in memory.
+- `problemResponse` is public in `@hyapi/core`.
 - An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
   promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):

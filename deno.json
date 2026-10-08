@@ -3,7 +3,11 @@
     "./packages/core",
     "./packages/cli",
     "./packages/openapi-diff",
-    "./packages/plugin-jwt"
+    "./packages/plugin-cors",
+    "./packages/plugin-csrf",
+    "./packages/plugin-jwt",
+    "./packages/plugin-oidc",
+    "./packages/plugin-rate-limit"
   ],
   "tasks": {
     "fmt": "deno fmt",
