@@ -512,6 +512,18 @@ Deno.test("duplicate-response-name", () => {
   );
 });
 
+Deno.test("unknown-format", () => {
+  const withFormat = (format: string) =>
+    checkContracts(
+      apiOf({
+        a: op({ responses: { 200: defineSchema("F", T.Object({ v: T.String({ format }) })) } }),
+      }),
+    );
+  expectError(withFormat("made-up"), "unknown-format");
+  assert(withFormat("email").ok);
+  assert(withFormat("int64").ok);
+});
+
 Deno.test("unnamed-schema", () => {
   expectWarning(
     checkContracts(apiOf({ a: op({ responses: { 200: T.Object({ inline: T.String() }) } }) })),

@@ -33,6 +33,7 @@ and never read raw declarations.
   - path template parameters that do not match the `params` schema;
   - parameter styles outside the supported subset;
   - constructs that cannot be represented in JSON Schema, such as transforms and codecs;
+  - `format` values that neither TypeBox nor OpenAPI's registry recognizes;
   - security requirements that reference undeclared schemes or scopes; and
   - unregistered object schemas in requests or responses (warning).
 

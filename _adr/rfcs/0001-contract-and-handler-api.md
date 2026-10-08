@@ -274,6 +274,13 @@ API.
   contract component in M1 so that the type contract can be tested in full. `createApp` and
   `Verifier` remain in M2 and M4.
 
+## 11. Amendments made during implementation (M2)
+
+- **A8. Empty input.** An operation without parameters or a body gives its handler an empty object
+  as input, so `(_input, ctx) => ...` type-checks.
+- **A9. Additional public names.** `@hyapi/core` also exports `StartupError` (thrown by `createApp`
+  with every diagnostic), `ProblemValue`, `ProblemCode`, `Violation`, and `ResponseValidation`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

@@ -1,4 +1,5 @@
 import type { TSchema } from "typebox";
+import * as Format from "typebox/format";
 import type { AnyContract, Api, HttpMethod, OperationSpec } from "./define.ts";
 import type {
   BodyModel,
@@ -49,7 +50,8 @@ export type DiagnosticCode =
   | "invalid-component-name"
   | "duplicate-schema-name"
   | "duplicate-response-name"
-  | "unnamed-schema";
+  | "unnamed-schema"
+  | "unknown-format";
 
 /** One problem found in an API's contracts. */
 export interface Diagnostic {
@@ -86,6 +88,17 @@ const COMPONENT_NAME = /^[A-Za-z0-9._-]+$/;
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const MEDIA_TYPE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
 const RESERVED_HEADERS = new Set(["accept", "content-type", "authorization"]);
+// OpenAPI-registered formats that HyAPI recognizes without a TypeBox format check. `int32` is
+// enforced as a range by the runtime; the others are annotations.
+const OPENAPI_FORMATS = new Set([
+  "int32",
+  "int64",
+  "float",
+  "double",
+  "password",
+  "byte",
+  "binary",
+]);
 const NON_JSON_TYPES = new Set([
   "function",
   "constructor",
@@ -235,6 +248,18 @@ export function checkContracts(api: Api): CheckResult {
         error(
           "unsupported-schema",
           "refinements check values in code and cannot be represented in JSON Schema",
+          operationId,
+          at,
+        );
+      }
+      if (
+        typeof schema.format === "string" && !OPENAPI_FORMATS.has(schema.format) &&
+        !Format.Has(schema.format)
+      ) {
+        error(
+          "unknown-format",
+          `format '${schema.format}' is not checked by TypeBox or registered by OpenAPI; register ` +
+            "it with TypeBox's Format.Set or remove it, so that documentation and validation agree",
           operationId,
           at,
         );

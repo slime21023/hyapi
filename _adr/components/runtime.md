@@ -101,11 +101,37 @@ handlers, verifiers, and event listeners need. The application object exposes `f
 
 ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler, verifier, and `createApp` API).
 
+## Resolved in M2
+
+- **Options and defaults.**
+  - `createApp({ api, implementations, development = false, responseValidation, requestTimeoutMs = 30000, bodyLimitBytes = 1048576 })`.
+  - `responseValidation` defaults to `enforce` in development and `log` otherwise.
+  - Startup failures throw `StartupError` with every diagnostic.
+- **Routing.** Paths match exactly: there is no trailing-slash folding and no catch-all parameters
+  in v1. The more literal template wins, and methods are looked up across every matching template.
+- **Problem `type`.** The `type` is `about:blank`, `title` is the reason phrase, and a stable `code`
+  extension member identifies the problem. Validation failures add `violations` with `location`,
+  `pointer`, and `message`. At most 20 violations are reported per value.
+- **Formats.**
+  - TypeBox's built-in formats are asserted, and so are formats registered with TypeBox
+    `Format.Set`.
+  - OpenAPI's `int32` is enforced as a range on a validation copy of the schema; the emitted schema
+    is unchanged.
+  - `int64`, `float`, `double`, `password`, `byte`, and `binary` are annotations.
+  - Any other format fails startup (`unknown-format`).
+- **Parameter defaults.** Absent query, header, and cookie parameters get their schema `default`
+  (RFC 0001 amendment A2).
+- **Bodies.** JSON (`application/json` and `+json`) is parsed and validated. `text/*` is decoded and
+  validated. Other declared media types reach the handler as bytes, without validation.
+- **Interim reporting.** Until read-only events arrive in M5, `log`-policy violations, development
+  field stripping, and development startup warnings are written with `console.warn`.
+- **Security.** Until M4, an operation with a security requirement fails startup
+  (`security-not-supported`), so that it is never served unprotected.
+
 ## Open questions
 
-- Option names and production defaults, including the response-validation policy.
-- Per-operation timeouts: declared in the contract or configured in the application.
-- Whether verifiers within one AND requirement run concurrently or in order.
-- Whether events carry the `Request`, so that outer wrappers can correlate tracing spans.
-- Catch-all path parameters, trailing-slash policy, and the problem `type` URI scheme.
-- Request bodies beyond JSON (`application/x-www-form-urlencoded` and `multipart/form-data`).
+- Per-operation timeouts: declared in the contract or configured in the application (M5).
+- Whether verifiers within one AND requirement run concurrently or in order (M4).
+- Whether events carry the `Request`, so that outer wrappers can correlate tracing spans (M5).
+- Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and
+  `multipart/form-data`): a later goal.

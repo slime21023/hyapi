@@ -23,8 +23,13 @@ type BodyInput<B> = B extends { readonly required: false }
   ? { readonly body?: StaticOf<BodySchemaOf<B>> }
   : { readonly body: StaticOf<BodySchemaOf<B>> };
 
+// An operation without inputs gets an empty object, so `({}, ctx) => ...` type-checks.
+// deno-lint-ignore ban-types
+type NoInput = {};
+
 /** The validated input a handler receives for an operation. Only declared locations appear. */
 export type InputOf<Op> =
+  & NoInput
   & (Op extends { readonly params: infer P } ? { readonly params: StaticOf<P> } : unknown)
   & (Op extends { readonly query: infer Q } ? { readonly query: ParameterInput<Q> } : unknown)
   & (Op extends { readonly headers: infer H } ? { readonly headers: ParameterInput<H> } : unknown)

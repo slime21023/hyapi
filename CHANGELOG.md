@@ -25,6 +25,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
   `@hyapi/core` adds `Handler`, `implement`, and `notImplemented`.
 
+- Runtime request path (roadmap M2), in `@hyapi/core`:
+  - `createApp` with startup diagnostics (`StartupError`);
+  - exact routing with 404, 405 with `Allow`, and `HEAD`;
+  - parameter decoding for the v1 style subset, with defaults and coercion;
+  - bounded JSON and text bodies (413, 415, 400);
+  - TypeBox validation, with `int32` ranges and unknown formats rejected;
+  - response stripping and the `responseValidation` policy;
+  - RFC 9457 problem responses with stable codes, `problem()`, and `HttpError`; and
+  - request timeouts (503).
+- Contract diagnostic `unknown-format`.
+- Request-path benchmarks (`deno task bench`).
+
 ### Changed
 
 - HyAPI is redesigned as a contract-first API library: contracts are written in TypeScript with
