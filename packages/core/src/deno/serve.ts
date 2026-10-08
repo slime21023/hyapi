@@ -18,6 +18,11 @@ export interface ServeOptions {
    * finished closing. Defaults to 30 000 ms. Keep it above the app's `shutdownTimeoutMs`.
    */
   readonly shutdownTimeoutMs?: number;
+  /**
+   * The handler to serve. Defaults to `app.fetch`; pass a wrapped handler to apply outer `fetch`
+   * wrappers such as CORS while `serve` still closes `app` on shutdown.
+   */
+  readonly fetch?: (request: Request) => Response | Promise<Response>;
   /** Called when the listener is ready. Defaults to Deno's "Listening on" message. */
   readonly onListen?: (address: Deno.NetAddr) => void;
 }
@@ -61,7 +66,7 @@ export function serve(app: App, options: ServeOptions = {}): Server {
         onListen: (address: Deno.NetAddr) => options.onListen!(address),
       }),
     },
-    (request) => app.fetch(request),
+    options.fetch ?? ((request) => app.fetch(request)),
   );
 
   // Installed only after the listener started, so a failed start leaves no handlers behind.

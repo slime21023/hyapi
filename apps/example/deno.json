@@ -1,0 +1,13 @@
+{
+  "tasks": {
+    "dev": "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
+    "start": "deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
+    "emit": "deno run -A ../../packages/cli/mod.ts emit",
+    "doctor": "deno run -A ../../packages/cli/mod.ts doctor",
+    "diff": "deno run -A ../../packages/cli/mod.ts diff"
+  },
+  "hyapi": {
+    "api": "./contracts/api.ts#api",
+    "openapi": "./openapi.json"
+  }
+}

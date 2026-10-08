@@ -74,6 +74,23 @@ Deno.test("serve answers requests and shuts down gracefully", async () => {
   assert(server.shutdown() === stopping, "shutdown is idempotent");
 });
 
+Deno.test("a wrapped handler is served while the app still closes on shutdown", async () => {
+  const log: string[] = [];
+  const app = await makeApp(log);
+  const wrapped = async (request: Request) => {
+    const response = await app.fetch(request);
+    const headers = new Headers(response.headers);
+    headers.set("x-wrapped", "yes");
+    return new Response(response.body, { status: response.status, headers });
+  };
+  const { server, port } = listen(app, { fetch: wrapped });
+  const response = await fetch(`http://127.0.0.1:${await port}/slow?ms=1`);
+  assertEquals(response.headers.get("x-wrapped"), "yes");
+  await response.body?.cancel();
+  await server.shutdown();
+  assertEquals(log, ["resource stopped"]);
+});
+
 Deno.test("an abort signal starts the shutdown", async () => {
   const log: string[] = [];
   const controller = new AbortController();
