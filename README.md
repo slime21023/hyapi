@@ -1,49 +1,27 @@
 # HyAPI
 
-HyAPI is a structured, type-safe API framework for Deno. It uses TypeBox route contracts, explicit
-module Ports, native Web APIs, and deterministic lifecycle boundaries.
+HyAPI is a contract-first API library for Deno. Contracts are written in TypeScript, agreed before
+implementation, and compiled into OpenAPI 3.1 documents of delivery quality. Developers get native
+types; consumers in any language get a faithful, stable, and governed OpenAPI document.
 
-> **Redesign in progress.** HyAPI is being rebuilt as a contract-first API library: contracts are
-> written in TypeScript, agreed before implementation, and compiled into OpenAPI 3.1 documents of
-> delivery quality. See [ADR 0001](_adr/0001-contract-first-api-library.md). The code and
-> documentation below describe the superseded `v1.0.0-rc.5` design.
+> **Redesign in progress.** The superseded `v1.0.0-rc.5` implementation has been removed; it remains
+> available in git history. The new design is defined in
+> [ADR 0001](_adr/0001-contract-first-api-library.md) and
+> [ADR 0002](_adr/0002-architecture-and-component-boundaries.md). No code exists yet, and no version
+> has been published to JSR.
 
-## Documentation
+## Records
 
-Read the English [usage guide](docs/index.md) for application setup, routes, composition,
-configuration, HTTP/OpenAPI, optional plugins, and operations.
-
-Architecture decisions, RFCs, baselines, and the roadmap are internal project records under
-[`_adr/`](_adr/).
-
-## Workspace
-
-```text
-packages/core               framework package (@hyapi/core)
-packages/cli                project generator and diagnostics (@hyapi/cli)
-packages/plugin-cors        optional CORS HTTP wrapper
-packages/plugin-csrf        optional signed double-submit CSRF wrapper
-packages/plugin-jwt         optional HS256 JWT Bearer authentication guard
-packages/plugin-oidc        optional OIDC Bearer authentication guard
-packages/plugin-rate-limit  optional local rate-limit HTTP wrapper
-apps/example                example API
-tests/                      workspace tests
-bench/                      workspace benchmarks
-docs/                       VitePress user documentation
-_adr/                       architecture decisions and project records
-```
+Architecture decisions, component specifications, RFCs, baselines, and the roadmap live under
+[`_adr/`](_adr/). Component specifications are indexed in
+[`_adr/components/`](_adr/components/README.md), and the v1 milestones are in
+[`_adr/roadmap.md`](_adr/roadmap.md).
 
 ## Development
 
 ```text
-deno task dev         run the example API
-deno task verify      run every quality check and build the docs
-deno task bench       run benchmarks
-deno task docs:dev    preview the documentation locally
+deno task verify      check formatting and lint
 ```
-
-`v1.0.0-rc.5` is superseded by the redesign and will not be published. No JSR publication has
-occurred.
 
 ## License
 
