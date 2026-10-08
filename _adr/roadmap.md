@@ -30,7 +30,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | Milestone                              | Goal                                                 | Components        | Depends on | Status            |
 | -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ----------------- |
 | [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08) |
-| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Not started       |
+| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08) |
 | [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Not started       |
 | [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Not started       |
 | [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Not started       |
@@ -75,7 +75,9 @@ the first line of code.
 **Goal:** the complete RFC 0001 declaration API, with types, normalization, and diagnostics.
 
 - `defineApi`, `defineContract`, `defineSchema`, `defineResponse`, `defineSecurity`, the scheme
-  constructors, `Problem`, and the inference types (`Handler`, input, and result types).
+  constructors, `Problem`, and the inference types (input, result, and security types).
+- `Handler`, `implement`, and `notImplemented`, so that the type contract can be tested in full (RFC
+  0001 amendment A7).
 - Normalization into `ContractModel`, and `checkContracts` with every diagnostic listed in the
   contract specification.
 - The spike's findings applied: `NoInfer` in `implement` typing, `~kind` shorthand recognition, and
@@ -83,6 +85,10 @@ the first line of code.
 
 **Open questions to resolve:** whether parameter `default` values change inferred input types; and
 whether consumers need a type-only import.
+
+**Outcome:** both open questions were resolved by RFC 0001 amendments A2 and A3–A7, and all exit
+criteria are met. The `createApp` and verifier parts of the spike's correctness suite move to M2 and
+M4.
 
 **Exit criteria:**
 
@@ -96,7 +102,8 @@ whether consumers need a type-only import.
 **Goal:** a working `createApp` that serves typed handlers with full validation, for operations
 without security.
 
-- `createApp`, `implement`, and `notImplemented`.
+- `createApp`, including runtime handling of `notImplemented`.
+- `problem()`.
 - Routing with 404, 405 with `Allow`, and `HEAD` for `GET`.
 - Parameter decoding for the v1 style subset.
 - JSON bodies with 413, 415, and 400.

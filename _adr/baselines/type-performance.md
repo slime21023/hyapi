@@ -88,6 +88,23 @@ excessively deep" errors.
    property of the strict compiler option, not of the API, but documentation should show the
    pattern.
 
+## Re-run against the real implementation (M1, 2026-10-08)
+
+The same generated APIs were pointed at the real `@hyapi/core` contract component and `implement`
+through `spikes/type-performance/lib/real.ts`.
+
+| Shape | Operations | `deno check` median | LS cold check |  Types | Instantiations | Edit contract | Edit schema | Edit handler |
+| ----- | ---------: | ------------------: | ------------: | -----: | -------------: | ------------: | ----------: | -----------: |
+| split |         50 |              1.11 s |        1.09 s | 14,683 |        111,972 |        170 ms |      153 ms |       148 ms |
+| split |        200 |              1.54 s |        1.18 s | 36,890 |        333,087 |        157 ms |      155 ms |       154 ms |
+| split |        500 |              2.25 s |        2.58 s | 81,291 |        775,317 |        170 ms |      169 ms |       171 ms |
+| wide  |        100 |              1.13 s |        0.60 s | 17,962 |        109,350 |        334 ms |      328 ms |       324 ms |
+
+The real implementation costs about 5–8% more instantiations than the prototype, mostly from
+contract-level default security and parameter-default inference. It remains well within the RFC 0001
+targets: 200 operations check in 1.54 s against a 5 s target, and editor feedback takes 150–170 ms,
+or 330 ms for a 100-operation contract, against a 1 s target.
+
 ## Re-running
 
 ```text
@@ -95,4 +112,11 @@ cd spikes/type-performance
 deno run -A generate.ts 50 200 500 100:10 200:10 500:5
 deno check check/correctness.ts
 deno run -A measure.ts 50 200 500 100w100 200w100 500w50
+
+# Against the real implementation: copy the generated APIs and point them at lib/real.ts.
+for n in 50 200 500 100w100; do
+  rm -rf gen/nreal$n && cp -r gen/n$n gen/nreal$n
+  find gen/nreal$n -name '*.ts' -exec sed -i 's#lib/hyapi.ts#lib/real.ts#' {} +
+done
+deno run -A measure.ts real50 real200 real500 real100w100
 ```

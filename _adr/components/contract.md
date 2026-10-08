@@ -14,17 +14,20 @@ and never read raw declarations.
 
 - **Declaration.** The API shape is defined in [RFC 0001](../rfcs/0001-contract-and-handler-api.md):
   `defineApi` (one per API: `info`, `servers`, `securitySchemes`, root `security`, and `contracts`)
-  and `defineContract` (one per resource: an `operationId`-keyed map of operations). Named document
-  parts are declared with `defineSchema`, `defineResponse`, and `defineSecurity`.
+  and `defineContract` (one per resource: an `operationId`-keyed map of operations, default `tags`,
+  and a default `security`). Named document parts are declared with `defineSchema`,
+  `defineResponse`, and `defineSecurity`.
 - **Type inference.** Helpers infer handler input, the per-operation response union, and verifier
   identity types directly from TypeBox `Static`, with no generation.
 - **Normalization into `ContractModel`.** Every interpretation decision is made here, once:
   - merge contract modules into one API;
-  - resolve each operation's effective security requirement, inheriting from the root;
+  - resolve each operation's effective security requirement (operation, then contract default, then
+    API root);
   - apply parameter style and `explode` defaults;
   - resolve named components and the schema references to them; and
   - fix the canonical ordering used by every consumer.
-- **Diagnostics.** `checkContracts` collects and reports every problem together:
+- **Diagnostics.** `checkContracts(api)` collects and reports every problem together, with a stable
+  `code` per rule (see `DiagnosticCode`). The rules include:
   - duplicate `operationId`s across modules;
   - conflicting method and path pairs, including ambiguous templated paths;
   - path template parameters that do not match the `params` schema;
@@ -66,9 +69,14 @@ merged. Callers decide what is fatal: `createApp` and `hyapi emit` stop on error
 
 ADR 0001 §1–§3, §7, §8; ADR 0002 §2, §5; RFC 0001.
 
+## Resolved questions
+
+- Type-checking budget: the RFC 0001 §9 targets hold for the real implementation. See the
+  [type-performance baseline](../baselines/type-performance.md).
+- Parameter defaults are applied by the runtime, and are required in input types when declared with
+  `T.With` (RFC 0001 amendment A2).
+- No separate type-only entry point. `@hyapi/core/contract` depends only on TypeBox.
+
 ## Open questions
 
-- The type-checking performance budget. RFC 0001 §9 proposes targets to be confirmed by a spike.
-- Whether parameter `default` values change the inferred input type.
-- Whether contract modules need a lighter type-only import for consumers that never call
-  `checkContracts`.
+- None for M1. Future questions are tracked in the [roadmap](../roadmap.md).

@@ -38,6 +38,8 @@ const lazy = await import("./lazy.ts");
 // import { commented } from "./commented.ts";
 /* import { blocked } from "./blocked.ts"; */
 export const text = "import from nowhere";
+const message = "both must import " +
+  "the same value";
 `;
   assertEquals(importSpecifiers(source), [
     "./a.ts",

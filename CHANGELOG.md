@@ -16,6 +16,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - an architecture test that enforces the ADR 0002 dependency rules; and
   - a CI workflow that runs `deno task verify`.
 
+- Contract component (roadmap M1), in `@hyapi/core/contract`:
+  - `defineApi`, `defineContract`, `defineSchema`, `defineResponse`, `defineSecurity`, and the
+    scheme constructors;
+  - the `Problem` schema and input, result, and security inference types;
+  - normalization into `ContractModel`; and
+  - `checkContracts`, with 31 diagnostic rules.
+
+  `@hyapi/core` adds `Handler`, `implement`, and `notImplemented`.
+
 ### Changed
 
 - HyAPI is redesigned as a contract-first API library: contracts are written in TypeScript with

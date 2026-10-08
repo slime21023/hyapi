@@ -119,13 +119,13 @@ serve(app);
 - **`defineApi`** is declared once per API. It holds `info`, `servers`, `securitySchemes`, an
   optional root `security` requirement, and the list of `contracts`. It is the single entry point
   for `createApp` and `hyapi emit`.
-- **`defineContract`** is declared once per resource module. It holds `operations` and optional
-  default `tags`. It references the same `securitySchemes` module as the API, so scheme names and
-  scopes are checked at compile time without importing the API module, which would be a cycle.
+- **`defineContract`** is declared once per resource module. It holds `operations`, optional default
+  `tags`, and an optional default `security` requirement (amendment A1). It references the same
+  `securitySchemes` module as the API, so scheme names are checked at compile time without importing
+  the API module, which would be a cycle. Scopes are checked by diagnostics (A3).
 - Operations are an object literal keyed by `operationId`. A builder chain was rejected: object
   literals are plain data, closest to OpenAPI, and easiest to review.
-- `defineApi` checks at type level and in diagnostics that every contract uses the same
-  `securitySchemes` module.
+- Diagnostics check that every contract uses the same `securitySchemes` module as `defineApi`.
 
 ## 3. Operations
 
@@ -242,6 +242,37 @@ The spike changed the design in three places, and the implementation must keep t
 - The response shorthand is recognized by TypeBox's `~kind` marker, because TypeBox's `TSchema` is
   structurally empty.
 - The path-parameter diagnostic type should name the missing or extra parameters.
+
+## 10. Amendments made during implementation (M1)
+
+These changes were decided while implementing the contract component. They are part of the accepted
+API.
+
+- **A1. Contract-level default security.** `defineContract({ security })` sets a default requirement
+  for its operations. An operation's effective requirement is resolved in this order: its own
+  `security`, then the contract default, then the API root requirement, and otherwise none. Types
+  follow the first two, so `ctx.security` is precise unless the operation inherits the API root. An
+  inherited root requirement types every scheme as optional, because a contract cannot see the API
+  that lists it.
+- **A2. Parameter defaults.** The runtime fills in an absent query, header, or cookie parameter from
+  its schema `default`. Bodies are never modified. TypeBox does not carry options such as `default`
+  in its types. A default declared with `T.With(schema, { default })` therefore makes the parameter
+  required in the handler input. A default passed as a constructor option, such as
+  `T.Integer({ default: 20 })`, is still applied at runtime, but the parameter stays optional in
+  types.
+- **A3. Scopes are checked by diagnostics only.** TypeScript cannot infer OAuth 2 scopes from
+  `flows` while the identity type is given explicitly. `checkContracts` reports scopes that no flow
+  declares (`undeclared-scope`), and requirement values are typed as `readonly string[]`.
+- **A4. `checkContracts` takes the API.** Its signature is `checkContracts(api)`, which returns
+  `{ ok: true, model, diagnostics }` or `{ ok: false, diagnostics }`. The model is present only when
+  there are no errors. Warnings, such as `unnamed-schema`, never fail the check.
+- **A5. `Problem` follows RFC 9457 exactly.** Every member is optional, and extension members are
+  allowed. `problem()` (M2) may still require a `title`.
+- **A6. Applications import TypeBox directly.** HyAPI does not re-export `T`. Applications depend on
+  `typebox` at the same 1.x minor version as `@hyapi/core`.
+- **A7. Delivery order.** `Handler`, `implement`, and `notImplemented` are delivered with the
+  contract component in M1 so that the type contract can be tested in full. `createApp` and
+  `Verifier` remain in M2 and M4.
 
 ## Alternatives rejected
 

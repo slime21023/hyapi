@@ -86,7 +86,8 @@ export function importSpecifiers(source: string): string[] {
     .filter((line) => !line.trimStart().startsWith("//"))
     .join("\n");
   const specifiers: string[] = [];
-  const statement = /\b(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s+)?["']([^"']+)["']/g;
+  // Statements start a line; this keeps words such as "must import " inside strings out.
+  const statement = /^\s*(?:import|export)\s+(?:type\s+)?(?:[^'";]*?\s+from\s*)?["']([^"']+)["']/gm;
   const dynamic = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
   for (const match of code.matchAll(statement)) specifiers.push(match[1]!);
   for (const match of code.matchAll(dynamic)) specifiers.push(match[1]!);
