@@ -16,6 +16,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Removed
 
+- The superseded `1.0.0-rc.5` implementation: `@hyapi/core`, `@hyapi/cli`, the five plugin packages,
+  the example application, tests, benchmarks, the starter verification script, the VitePress
+  documentation site, and the CI and publish workflows. They remain in git history at commit
+  `c52c0be`.
 - The `_design/` records (RFCs 0001–0008, the earlier ADR 0001, migration notes, roadmap,
   performance baseline, and quality rule). They remain in git history at commit `c52c0be`;
   historical links below refer to that history.

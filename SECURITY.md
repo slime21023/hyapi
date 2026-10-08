@@ -2,11 +2,8 @@
 
 ## Supported versions
 
-| Version                          | Supported |
-| -------------------------------- | --------- |
-| Latest `1.0.0-rc.x`              | Yes       |
-| Latest 1.x (after 1.0.0 release) | Yes       |
-| Older releases                   | No        |
+HyAPI is being redesigned and has no published release. The superseded `1.0.0-rc.x` candidates are
+not supported. This table will list supported versions once the first version is published.
 
 ## Reporting a vulnerability
 
@@ -19,26 +16,9 @@ and disclosure date with the reporter.
 
 ## Security baseline
 
-HyAPI applies the following controls by default:
-
-- **JWT (`jwtBearer` from `@hyapi/plugin-jwt`):** only HS256 tokens are accepted. The secret must be
-  cryptographically random and contain at least 32 bytes (measured as UTF-8). `exp` is required, and
-  `nbf`, `iss`, and `aud` are verified when present or configured, within the configured
-  `clockSkewSeconds`. Compact encoding is strict Base64URL/UTF-8, and all invalid tokens receive the
-  same 401 response.
-- **Request body limit:** bodies are limited to 10 MiB by default. Configure the limit with
-  `bodyLimitBytes`; oversized bodies are rejected with 413 `PAYLOAD_TOO_LARGE`. The limit is
-  enforced on the streamed bytes, not only on `Content-Length`.
-- **Request timeout:** every request has a 5-minute budget by default. Configure it with
-  `requestTimeoutMs`; when it expires, HyAPI aborts `ctx.signal` and responds with 503
-  `REQUEST_TIMEOUT`.
-- **Request IDs:** an incoming request ID is reused only when it matches `^[A-Za-z0-9._:-]{1,128}$`;
-  otherwise HyAPI generates a new UUID.
-- **Deadlines:** `x-hyapi-deadline` accepts only 1-15 digit epoch-millisecond values; malformed
-  values are ignored. A request whose upstream deadline has already passed is rejected with 504
-  `DEADLINE_EXCEEDED` before the handler runs.
-- **Error disclosure:** problem details for 5xx responses hide internal error messages.
-- **Response filtering:** response bodies are cleaned against the declared response schema, so
-  undeclared fields (for example, a `passwordHash`) are never serialized.
-- **No framework internals:** Hono is an implementation detail and is not part of the public API;
-  handlers, hooks, and plugins cannot reach the underlying router.
+The security defaults of the new design are specified in
+[ADR 0001](_adr/0001-contract-first-api-library.md) and in the component specifications under
+[`_adr/components/`](_adr/components/README.md): security requirements declared in contracts and
+enforced by Core, mandatory request validation, stripping of undeclared response fields, request
+size limits and timeouts, and hidden internal error details outside development mode. This section
+will document the concrete defaults once they are implemented.

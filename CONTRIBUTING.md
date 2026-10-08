@@ -8,10 +8,9 @@ Use Deno 2.9 or later. Before opening a pull request, run:
 deno task verify
 ```
 
-The command checks formatting, linting, TypeScript types (core, CLI, example, benchmarks, and
-scripts), the complete test suite, the example `doctor` report, and a generated starter project's
-verification, listener response, and graceful shutdown. Text files use LF line endings through
-`.gitattributes`, including on Windows checkouts.
+During the redesign the command checks formatting and linting only. It grows with the new packages:
+type checking, public contract tests, and contract checks are added as components are implemented.
+Text files use LF line endings through `.gitattributes`, including on Windows checkouts.
 
 ## Changes and issues
 
@@ -24,42 +23,20 @@ and the exact verification command result in the issue before closing it. An iss
 only when its behavior is present on `main`, its documentation is current, and `deno task verify`
 passes.
 
-For a public API change, include documentation, example updates, and migration notes in the same
-pull request. Do not expose Hono implementation details through a new HyAPI public API.
+For a public API change, update the affected component specification in `_adr/components/`, and
+include documentation and example updates in the same pull request.
 
 ## Versioning and releases
 
-HyAPI 1.x follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API
-consists of:
+HyAPI follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API consists of
+the public entry points defined in [ADR 0002](_adr/0002-architecture-and-component-boundaries.md),
+the CLI commands, flags, and output formats, and the wire behavior of problem responses. Before
+1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the old API,
+and a design-changing decision is recorded in `_adr/`.
 
-- every export of `packages/core/mod.ts` (`@hyapi/core`) and `packages/cli/mod.ts` (`@hyapi/cli`);
-- CLI commands and flags;
-- wire behavior: problem+json fields, the `x-request-id`, `x-hyapi-deadline`, and `x-hyapi-service`
-  headers, native HTTP responses, and the values of `ResilienceError.reason`.
-
-Breaking changes to the public API ship only in a major release. Minor releases add compatible
-features; patch releases contain compatible fixes, documentation, and quality improvements.
-
-After 1.0.0 is published, an API is removed only through deprecation: mark it with a `@deprecated`
-JSDoc tag, record the deprecation in `CHANGELOG.md`, and keep it for at least one minor release
-before removal in the next major.
-
-Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
-old API, with no alias or transition period, and a design-changing decision is recorded in `_adr/`.
-
-Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
-
-Before a release, the maintainer verifies the release gate recorded in `_adr/`, updates
-`CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout, and tags
-the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which rejects a tag
-that differs from either package version before repeating `deno task verify` and publishing both
-packages to JSR.
-
-The `v1.0.0-rc.3`, `v1.0.0-rc.4`, and `v1.0.0-rc.5` candidates were superseded before publication.
-`v1.0.0-rc.5` is replaced by the contract-first redesign in
-[ADR 0001](_adr/0001-contract-first-api-library.md) and will not be tagged. A benchmark regression
-of more than 20% on the same hardware must be explained in the pull request once the new design
-establishes its performance baseline in `_adr/`.
+The `v1.0.0-rc` candidates of the previous design were superseded before publication and will not be
+tagged. Versioning restarts with the new design; release automation is re-established when the first
+package is ready to publish.
 
 Architecture decisions, the roadmap, and release gates are maintained in [`_adr/`](_adr/). Report
 security issues privately as described in [SECURITY.md](SECURITY.md).

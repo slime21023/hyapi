@@ -3,10 +3,10 @@
 ## Current status
 
 HyAPI is being redesigned as a contract-first API library. The accepted direction is
-[ADR 0001](_adr/0001-contract-first-api-library.md). The code under `packages/`, `apps/`, `tests/`,
-`bench/`, and `scripts/`, and the user documentation under `docs/`, still implement and describe the
-superseded `v1.0.0-rc.5` design. They will be replaced by later changes. Do not extend the
-superseded API; follow the ADR for new work.
+[ADR 0001](_adr/0001-contract-first-api-library.md). The superseded `v1.0.0-rc.5` implementation,
+tests, example, benchmarks, documentation site, and CI workflows have been removed; they remain in
+git history. Build new code from the ADRs and the component specifications in `_adr/components/`; do
+not restore or port the superseded API.
 
 ## Product boundary
 
@@ -25,7 +25,8 @@ The contract is the only source of truth, and handler types are inferred from it
 JSON documents as input, code generation of types or handlers, schema libraries other than TypeBox,
 contract constructs that cannot be represented in JSON Schema, handler resolution from strings or
 module paths, or routes the contracts do not declare except through explicit opt-in options.
-Contract tooling such as `emit` and `diff` belongs in `@hyapi/cli`.
+Contract tooling such as `emit` and `doctor` belongs in `@hyapi/cli`; OpenAPI change classification
+belongs in `@hyapi/openapi-diff`, which depends on no HyAPI package.
 
 Do not add an ORM, database, cache, message queue, service discovery, default retry policy, global
 rate limiter, or other infrastructure product to Core. These are application, host, or ecosystem
@@ -67,7 +68,7 @@ support. An official plugin takes one of two shapes:
 
 An optional plugin must:
 
-- depend on `@hyapi/core` only through its public `mod.ts` API;
+- depend on `@hyapi/core` only through its public entry points;
 - expose a small explicit factory and typed options, with no global singleton;
 - own its dependencies, tests, documentation, release cadence, and compatibility policy; and
 - remain removable: Core and applications that do not select it must have no dependency on it.
@@ -76,9 +77,16 @@ Data stores, caches, queues, and business integrations remain application depend
 
 ## Repository rules
 
-- `packages/core/mod.ts` is the public Core boundary. Treat `packages/core/src/` as private.
+- The public Core boundary is the four entry points defined in
+  [ADR 0002](_adr/0002-architecture-and-component-boundaries.md): `@hyapi/core/contract`,
+  `@hyapi/core/openapi`, `@hyapi/core`, and `@hyapi/core/deno`. Treat `packages/core/src/` as
+  private.
+- Contracts are interpreted only once, in the contract component's `ContractModel`. The runtime and
+  the OpenAPI emitter consume that model, never raw declarations, and never import each other. The
+  contract component never imports runtime, OpenAPI, or Deno host code.
 - Place user-facing documentation in `docs/`. Keep ADRs, RFCs, migrations, baselines, and roadmap
-  material in `_adr/`, numbered sequentially.
+  material in `_adr/`, numbered sequentially. Keep component specifications in `_adr/components/`
+  and update them in the same change as the code they describe.
 - Keep public contract tests under `tests/core/public/` and `tests/cli/public/`; they must import
   package facades, not private source files. Internal behavior tests belong under `internal/`.
 - Keep benchmarks in `bench/` and examples in `apps/example/`; neither defines the public API.
