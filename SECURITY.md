@@ -2,11 +2,13 @@
 
 ## Supported versions
 
-| Version                          | Supported |
-| -------------------------------- | --------- |
-| Latest `1.0.0-rc.x`              | Yes       |
-| Latest 1.x (after 1.0.0 release) | Yes       |
-| Older releases                   | No        |
+| Version                  | Supported |
+| ------------------------ | --------- |
+| Latest `0.x` release     | Yes       |
+| Older `0.x` releases     | No        |
+| `1.0.0-rc.x` (withdrawn) | No        |
+
+Before 1.0.0, fixes are released only for the latest `0.x` version.
 
 ## Reporting a vulnerability
 
@@ -17,28 +19,49 @@ vulnerability**. Do not open a public issue for a suspected vulnerability.
 The maintainer replies within 7 days, confirms whether the report is accepted, and coordinates a fix
 and disclosure date with the reporter.
 
-## Security baseline
+## Security defaults
 
-HyAPI applies the following controls by default:
+HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes every option.
 
-- **JWT (`jwtBearer` from `@hyapi/plugin-jwt`):** only HS256 tokens are accepted. The secret must be
-  cryptographically random and contain at least 32 bytes (measured as UTF-8). `exp` is required, and
-  `nbf`, `iss`, and `aud` are verified when present or configured, within the configured
-  `clockSkewSeconds`. Compact encoding is strict Base64URL/UTF-8, and all invalid tokens receive the
-  same 401 response.
-- **Request body limit:** bodies are limited to 10 MiB by default. Configure the limit with
-  `bodyLimitBytes`; oversized bodies are rejected with 413 `PAYLOAD_TOO_LARGE`. The limit is
-  enforced on the streamed bytes, not only on `Content-Length`.
-- **Request timeout:** every request has a 5-minute budget by default. Configure it with
-  `requestTimeoutMs`; when it expires, HyAPI aborts `ctx.signal` and responds with 503
-  `REQUEST_TIMEOUT`.
-- **Request IDs:** an incoming request ID is reused only when it matches `^[A-Za-z0-9._:-]{1,128}$`;
-  otherwise HyAPI generates a new UUID.
-- **Deadlines:** `x-hyapi-deadline` accepts only 1-15 digit epoch-millisecond values; malformed
-  values are ignored. A request whose upstream deadline has already passed is rejected with 504
-  `DEADLINE_EXCEEDED` before the handler runs.
-- **Error disclosure:** problem details for 5xx responses hide internal error messages.
-- **Response filtering:** response bodies are cleaned against the declared response schema, so
-  undeclared fields (for example, a `passwordHash`) are never serialized.
-- **No framework internals:** Hono is an implementation detail and is not part of the public API;
-  handlers, hooks, and plugins cannot reach the underlying router.
+**Contracts and requests**
+
+- Security requirements are declared in the contract and enforced by the runtime, before any input
+  is validated. Every declared scheme needs a verifier, or the application does not start.
+- A verifier that throws (for example, because a key server is unreachable) produces a 500 response,
+  never an unauthenticated or authorized one.
+- Every request is validated against its contract. Request bodies are limited to 1 MiB
+  (`bodyLimitBytes`), checked against `Content-Length` and the bytes actually read. Requests time
+  out after 30 seconds (`requestTimeoutMs`).
+- Paths match exactly, and only declared operations are routed. Unknown `format` values and schema
+  constructs that JSON Schema cannot represent stop the application from starting.
+
+**Responses**
+
+- Undeclared response fields are always stripped, so returning a database record cannot leak extra
+  properties.
+- Outside development mode, error responses never include internal error messages or stack traces.
+- Every framework error is an RFC 9457 problem with a stable `code`.
+
+**Plugins**
+
+- `@hyapi/plugin-jwt` accepts exactly one configured algorithm, requires `exp`, rejects HS256
+  secrets shorter than 32 bytes, and fails at startup on unusable keys.
+- `@hyapi/plugin-oidc` accepts asymmetric algorithms only, requires an audience, checks that the
+  discovered issuer matches exactly, and treats key-server failures as errors, not invalid tokens.
+- `@hyapi/plugin-cors` has no permissive default: origins are listed explicitly, and `*` cannot be
+  combined with credentials.
+- `@hyapi/plugin-csrf` signs its tokens with HMAC-SHA-256 and uses a `__Host-` cookie with `Secure`
+  by default.
+- `@hyapi/plugin-rate-limit` counts per process only; use the edge for limits across instances.
+
+**Implementation**
+
+- HyAPI's own code never generates code at runtime. Validation uses TypeBox, which compiles
+  validators where dynamic evaluation is allowed and falls back to interpretation otherwise.
+- TLS, compression, security headers, and global rate limiting belong at the reverse proxy or edge.
+
+**Hosting**
+
+- Run with `--unstable-no-legacy-abort`, so that request signals report real client disconnects.
+- `serve()` drains in-flight requests on SIGINT and SIGTERM, then closes connections that remain
+  open after its shutdown budget.

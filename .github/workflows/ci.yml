@@ -5,25 +5,22 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   verify:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # hyapi diff compares the example's contracts with the document on main.
+          fetch-depth: 0
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.x
       - run: deno task verify
-
-  release-checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.9.x
-      - run: git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
       - run: deno task publish:check
+      - name: Check the example's API changes against main
+        run: deno task diff
+        working-directory: apps/example

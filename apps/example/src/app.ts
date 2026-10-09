@@ -1,63 +1,76 @@
-import {
-  type AppConfig,
-  createApplication,
-  defineStateKey,
-  type HyApplication,
-  type Plugin,
-  providePort,
-} from "@hyapi/core";
+import { type App, type AppEvent, createApp, createHealth, implement } from "@hyapi/core";
+import { withCors } from "@hyapi/plugin-cors";
 import { jwtBearer } from "@hyapi/plugin-jwt";
-import { authPort } from "./contracts/auth.ts";
-import { createHealthModule } from "./modules/health/module.ts";
-import { ordersModule } from "./modules/orders/module.ts";
-import { usersModule } from "./modules/users/module.ts";
+import { withRateLimit } from "@hyapi/plugin-rate-limit";
+import { api } from "../contracts/api.ts";
+import { system } from "../contracts/system.ts";
+import { booksImplementation } from "./books.ts";
+import { BookRepository } from "./repository.ts";
 
-const requestStartedAt = defineStateKey<number>("request-logging.startedAt");
-
-export interface ExampleAppOptions {
-  readonly enableRequestLogging?: boolean;
+export interface ExampleConfig {
+  /** The HS256 secret that librarian tokens are signed with; at least 32 bytes. */
+  readonly jwtSecret: string;
+  readonly development: boolean;
+  /** Browser origins allowed to call the API. */
+  readonly corsOrigins: readonly string[];
+  /** Writes one JSON line per event; tests pass a collector instead. */
+  readonly log?: (event: AppEvent) => void;
 }
 
-export async function buildExampleApp(
-  config: AppConfig,
-  jwtSecret: string,
-  options: ExampleAppOptions = {},
-): Promise<HyApplication> {
-  const authenticate = jwtBearer({
-    secret: jwtSecret,
-    ...(Deno.env.get("JWT_ISSUER") ? { issuer: Deno.env.get("JWT_ISSUER")! } : {}),
-    ...(Deno.env.get("JWT_AUDIENCE") ? { audience: Deno.env.get("JWT_AUDIENCE")! } : {}),
-  });
-  const plugins: Plugin[] = [];
+/** Logs request outcomes and problems as JSON lines. */
+function jsonLog(event: AppEvent): void {
+  if (event.type === "operation.start") return;
+  console.log(JSON.stringify({ time: new Date().toISOString(), ...event }));
+}
 
-  if (options.enableRequestLogging !== false) {
-    plugins.push({
-      name: "request-logging",
-      setup(platform) {
-        platform.addHook("onRequest", ({ state }) => {
-          state.set(requestStartedAt, performance.now());
-        });
-        platform.addHook("onResponse", ({ request, requestId, response, state }) => {
-          const startedAt = state.get(requestStartedAt) ?? performance.now();
-          const elapsed = performance.now() - startedAt;
-          console.log(JSON.stringify({
-            level: "info",
-            event: "request.complete",
-            requestId,
-            method: request.method,
-            path: new URL(request.url).pathname,
-            status: response?.status ?? 500,
-            durationMs: Math.round(elapsed * 100) / 100,
-          }));
-        });
-      },
-    });
-  }
+/**
+ * Assembles the example: the app itself, and the handler to serve, which adds rate limiting and
+ * CORS around `app.fetch`.
+ */
+export async function buildExample(config: ExampleConfig): Promise<{
+  app: App;
+  fetch: (request: Request) => Promise<Response>;
+}> {
+  const repository = new BookRepository();
+  const health = createHealth({ catalog: () => repository.ping() });
 
-  return await createApplication({
-    config,
-    modules: [createHealthModule(config.name), usersModule, ordersModule],
-    providers: [providePort(authPort, authenticate)],
-    plugins,
+  const app = await createApp({
+    api,
+    implementations: [
+      booksImplementation(repository),
+      implement(system, {
+        health: async () => {
+          const report = await health.check();
+          return report.status === "unhealthy"
+            ? { status: 503, body: report }
+            : { status: 200, body: report };
+        },
+      }),
+    ],
+    verifiers: {
+      bearer: await jwtBearer({
+        algorithm: "HS256",
+        key: config.jwtSecret,
+        identity: (claims) => (claims.sub ? { subject: claims.sub } : null),
+      }),
+    },
+    lifecycle: [{
+      name: "catalog",
+      start: () => repository.start(),
+      stop: () => repository.stop(),
+    }],
+    health,
+    development: config.development,
+    onEvent: config.log ?? jsonLog,
+    timeouts: { exportBooks: 60_000 },
   });
+
+  const limited = withRateLimit(app.fetch, {
+    limit: 600,
+    windowMs: 60_000,
+    // Behind a trusted proxy, limit by the forwarded client address.
+    key: (request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+  });
+  const fetch = withCors(limited, { origins: config.corsOrigins, maxAgeSeconds: 600 });
+  return { app, fetch: async (request) => await fetch(request) };
 }

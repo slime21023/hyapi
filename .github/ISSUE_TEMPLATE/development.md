@@ -1,6 +1,6 @@
 ---
 name: Development task
-about: Deliver a verified HyAPI roadmap task
+about: Deliver a verified HyAPI development task
 title: "<area>: <short description>"
 labels: []
 assignees: []

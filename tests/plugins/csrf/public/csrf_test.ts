@@ -1,84 +1,78 @@
-import { assertEquals, assertMatch, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { withCsrf } from "@hyapi/plugin-csrf";
 
-const options = {
-  origins: ["https://app.example.com"],
-  secret: "this-example-secret-has-at-least-thirty-two-bytes",
-  cookie: { name: "hyapi-csrf", secure: false },
-} as const;
+const secret = "a-csrf-secret-that-is-32-bytes-long!";
+const inner = () => new Response("ok");
 
-Deno.test("the public CSRF wrapper issues and accepts signed double-submit tokens", async () => {
-  const handler = withCsrf(
-    () => new Response("ok", { status: 201, headers: { "x-handler": "called" } }),
-    options,
+async function tokenFrom(handler: (r: Request) => Promise<Response> | Response): Promise<string> {
+  const response = await handler(new Request("http://app/"));
+  await response.body?.cancel();
+  const cookie = response.headers.get("set-cookie")!;
+  return cookie.split(";")[0]!.split("=").slice(1).join("=");
+}
+
+const post = (headers: Record<string, string>) =>
+  new Request("http://app/items", { method: "POST", headers });
+
+Deno.test("safe requests receive a signed token cookie once", async () => {
+  const handler = withCsrf(inner, { secret });
+  const response = await handler(new Request("http://app/"));
+  const cookie = response.headers.get("set-cookie")!;
+  assert(cookie.startsWith("__Host-csrf="));
+  assert(cookie.includes("Path=/") && cookie.includes("SameSite=Lax") && cookie.includes("Secure"));
+  assert(!cookie.includes("HttpOnly"), "the browser's script must read it");
+  await response.body?.cancel();
+  const token = cookie.split(";")[0]!.split("=")[1]!;
+  const again = await handler(
+    new Request("http://app/", { headers: { cookie: `__Host-csrf=${token}` } }),
   );
-
-  const initial = await handler(new Request("http://api.example.com/profile"));
-  assertEquals(initial.status, 201);
-  assertEquals(initial.headers.get("x-handler"), "called");
-  const token = readCsrfToken(initial.headers);
-  assertMatch(token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-
-  const accepted = await handler(
-    new Request("http://api.example.com/profile", {
-      method: "POST",
-      headers: {
-        origin: "https://app.example.com",
-        cookie: `hyapi-csrf=${token}`,
-        "x-csrf-token": token,
-      },
-    }),
-  );
-  assertEquals(accepted.status, 201);
-  assertEquals(accepted.headers.get("x-handler"), "called");
+  assertEquals(again.headers.get("set-cookie"), null, "a valid token is not reissued");
+  await again.body?.cancel();
 });
 
-Deno.test("the public CSRF wrapper rejects missing, forged, and untrusted unsafe requests", async () => {
-  const handler = withCsrf(() => new Response("unreachable"), options);
-  const requests = [
-    new Request("http://api.example.com/profile", { method: "POST" }),
-    new Request("http://api.example.com/profile", {
-      method: "POST",
-      headers: { origin: "https://untrusted.example.com" },
-    }),
-    new Request("http://api.example.com/profile", {
-      method: "POST",
-      headers: {
-        origin: "https://app.example.com",
-        cookie: "hyapi-csrf=forged.signature",
-        "x-csrf-token": "forged.signature",
-      },
-    }),
-  ];
-
-  for (const request of requests) {
-    const response = await handler(request);
-    assertEquals(response.status, 403);
-    assertEquals(await response.json(), {
-      type: "about:blank",
-      title: "Forbidden",
-      status: 403,
-      code: "CSRF_REJECTED",
-      detail: "CSRF validation failed.",
-    });
+Deno.test("unsafe requests need the cookie's token echoed in the header", async () => {
+  const handler = withCsrf(inner, { secret });
+  const token = await tokenFrom(handler);
+  const ok = await handler(post({ cookie: `__Host-csrf=${token}`, "x-csrf-token": token }));
+  assertEquals([ok.status, await ok.text()], [200, "ok"]);
+  for (
+    const headers of [
+      {},
+      { cookie: `__Host-csrf=${token}` },
+      { "x-csrf-token": token },
+      { cookie: `__Host-csrf=${token}`, "x-csrf-token": "other" },
+    ]
+  ) {
+    const response = await handler(post(headers));
+    assertEquals(response.status, 403, JSON.stringify(headers));
+    assertEquals((await response.json()).code, "CSRF_FAILED");
   }
 });
 
-Deno.test("the public CSRF wrapper keeps secure cookie defaults explicit", () => {
-  assertThrows(
-    () => withCsrf(() => new Response(), { ...options, cookie: { secure: false } }),
-    TypeError,
+Deno.test("forged and foreign tokens are rejected", async () => {
+  const handler = withCsrf(inner, { secret });
+  const foreign = await tokenFrom(
+    withCsrf(inner, { secret: "another-secret-that-is-32-bytes-long" }),
   );
-  assertThrows(
-    () => withCsrf(() => new Response(), { ...options, origins: ["*"] }),
-    TypeError,
-  );
+  const forged = "AAAA.BBBB";
+  for (const token of [foreign, forged, "no-dot", "a.b.c"]) {
+    const response = await handler(post({ cookie: `__Host-csrf=${token}`, "x-csrf-token": token }));
+    assertEquals(response.status, 403, token);
+    await response.body?.cancel();
+  }
 });
 
-function readCsrfToken(headers: Headers): string {
-  const cookie = headers.getSetCookie().find((value) => value.startsWith("hyapi-csrf="));
-  if (cookie === undefined) throw new Error("Expected CSRF token cookie.");
-  const token = /^hyapi-csrf=([^;]+)/.exec(cookie)?.[1];
-  if (token === undefined) throw new Error("Expected CSRF token value.");
-  return token;
-}
+Deno.test("skip bypasses the check, and options are validated", async () => {
+  const handler = withCsrf(inner, {
+    secret,
+    cookieName: "csrf",
+    secure: false,
+    skip: (r) => r.headers.get("authorization")?.startsWith("Bearer ") ?? false,
+  });
+  assertEquals((await handler(post({ authorization: "Bearer t" }))).status, 200);
+  const token = await tokenFrom(handler);
+  const cookieless = await handler(post({ cookie: `csrf=${token}`, "x-csrf-token": token }));
+  assertEquals(cookieless.status, 200);
+  assertThrows(() => withCsrf(inner, { secret: "short" }), RangeError);
+  assertThrows(() => withCsrf(inner, { secret, secure: false }), TypeError);
+});

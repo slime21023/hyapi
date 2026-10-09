@@ -2,6 +2,7 @@
   "workspace": [
     "./packages/core",
     "./packages/cli",
+    "./packages/openapi-diff",
     "./packages/plugin-cors",
     "./packages/plugin-csrf",
     "./packages/plugin-jwt",
@@ -9,46 +10,28 @@
     "./packages/plugin-rate-limit",
     "./apps/example"
   ],
-  "imports": {
-    "@hyapi/core": "./packages/core/mod.ts",
-    "@hyapi/plugin-cors": "./packages/plugin-cors/mod.ts",
-    "@hyapi/plugin-csrf": "./packages/plugin-csrf/mod.ts",
-    "@hyapi/plugin-jwt": "./packages/plugin-jwt/mod.ts",
-    "@hyapi/plugin-oidc": "./packages/plugin-oidc/mod.ts",
-    "@hyapi/plugin-rate-limit": "./packages/plugin-rate-limit/mod.ts",
-    "@hono/hono": "jsr:@hono/hono@4",
-    "@std/assert": "jsr:@std/assert@1",
-    "typebox": "npm:typebox@1",
-    "typebox/compile": "npm:typebox@1/compile",
-    "typebox/format": "npm:typebox@1/format",
-    "typebox/value": "npm:typebox@1/value",
-    "vitepress": "npm:vitepress@1.6.4",
-    "vue": "npm:vue@3.5.43"
-  },
   "tasks": {
-    "dev": "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort apps/example/src/main.ts",
-    "start": "deno run --allow-net --allow-env --unstable-no-legacy-abort apps/example/src/main.ts",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check",
-    "lint": "deno run --allow-read --allow-env --allow-ffi npm:oxlint@1 .",
-    "check": "deno check packages/core/mod.ts packages/cli/mod.ts packages/plugin-cors/mod.ts packages/plugin-csrf/mod.ts packages/plugin-jwt/mod.ts packages/plugin-oidc/mod.ts packages/plugin-rate-limit/mod.ts apps/example/src/main.ts bench/core/app_bench.ts scripts/verify-starter.ts",
-    "test": "deno test --allow-env --allow-read --allow-write --allow-run --allow-net=127.0.0.1 tests/",
-    "test:public": "deno test --allow-env --allow-read --allow-write --allow-run --allow-net=127.0.0.1 tests/core/public/ tests/core/integration/ tests/cli/public/ tests/plugins/cors/public/ tests/plugins/csrf/public/ tests/plugins/jwt/public/ tests/plugins/oidc/public/ tests/plugins/rate-limit/public/",
-    "doctor:example": "deno run --allow-read packages/cli/mod.ts doctor apps/example",
-    "verify:starter": "deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts",
-    "bench": "deno bench --allow-env bench/",
+    "lint": "deno run --allow-read --allow-env --allow-ffi npm:oxlint@1 --no-error-on-unmatched-pattern .",
+    "check": "deno check packages/ apps/ tests/ bench/ scripts/",
+    "test": "deno test --allow-read --allow-write --allow-run --allow-env --allow-net=127.0.0.1 --unstable-no-legacy-abort tests/",
+    "verify": "deno task fmt:check && deno task lint && deno task check && deno task test && deno task example:check && deno task docs:build",
+    "bench": "deno bench --allow-read bench/",
     "docs:dev": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress dev docs",
     "docs:build": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress build docs",
     "docs:preview": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress preview docs",
-    "publish:check": "deno publish --dry-run",
-    "verify": "deno fmt --check && deno task lint && deno task check && deno task test && deno task doctor:example && deno task verify:starter && deno task docs:build"
+    "example:check": "deno run -A packages/cli/mod.ts emit --check --api apps/example/contracts/api.ts#api --out apps/example/openapi.json",
+    "publish:check": "deno publish --dry-run --allow-dirty"
   },
   "fmt": {
     "lineWidth": 100,
     "useTabs": false,
     "semiColons": true,
     "singleQuote": false,
-    "exclude": [".agents/"]
+    "exclude": [
+      ".agents/"
+    ]
   },
   "compilerOptions": {
     "strict": true,
@@ -56,5 +39,12 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "verbatimModuleSyntax": true
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@^1",
+    "typebox": "npm:typebox@~1.3.34",
+    "@seriousme/openapi-schema-validator": "npm:@seriousme/openapi-schema-validator@^2",
+    "vitepress": "npm:vitepress@1.6.4",
+    "vue": "npm:vue@3.5.43"
   }
 }

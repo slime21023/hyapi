@@ -1,49 +1,18 @@
-import { type AppConfig, serve } from "@hyapi/core";
-import { buildExampleApp } from "./app.ts";
-
-const config = loadConfig();
-const app = await buildExampleApp(config, requiredEnv("JWT_SECRET"));
-
-const server = serve(app, {
-  hostname: config.host,
-  port: config.port,
-  shutdownSignals: ["SIGINT", "SIGTERM"],
-  onListen: ({ hostname, port }) => console.log(`HyAPI listening on http://${hostname}:${port}`),
-});
-await server.finished;
-
-function loadConfig(): AppConfig & { host: string; port: number } {
-  const environment = Deno.env.get("DENO_ENV") ?? "development";
-  if (environment !== "development" && environment !== "test" && environment !== "production") {
-    throw new Error("DENO_ENV must be development, test, or production.");
-  }
-  const port = Number(Deno.env.get("PORT") ?? "8000");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("PORT must be a valid TCP port.");
-  }
-  return {
-    name: "hyapi-example",
-    version: "1.0.0-rc.5",
-    environment,
-    requestIdHeader: "x-request-id",
-    openapi: {
-      enabled: true,
-      defaultDocument: "default",
-      documents: [{
-        id: "default",
-        title: "HyAPI Example API",
-        description: "A structured TypeScript API running on Deno.",
-        version: "1.0.0-rc.5",
-        path: "/openapi.json",
-      }],
-    },
-    host: Deno.env.get("HOST") ?? "127.0.0.1",
-    port,
-  };
-}
+import { serve } from "@hyapi/core/deno";
+import { buildExample } from "./app.ts";
 
 function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
-  if (!value) throw new Error(`${name} must be set.`);
+  if (!value) throw new Error(`${name} must be set`);
   return value;
 }
+
+const { app, fetch } = await buildExample({
+  jwtSecret: requiredEnv("JWT_SECRET"),
+  development: Deno.env.get("APP_ENV") !== "production",
+  corsOrigins: (Deno.env.get("CORS_ORIGINS") ?? "http://localhost:5173").split(","),
+});
+
+// Serves the wrapped handler and closes the app gracefully on SIGINT/SIGTERM.
+const server = serve(app, { port: Number(Deno.env.get("PORT") ?? 8000), fetch });
+await server.finished;

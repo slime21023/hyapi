@@ -2,30 +2,40 @@
 layout: home
 hero:
   name: HyAPI
-  text: Structured APIs for Deno
-  tagline: Compose type-safe HTTP APIs from modules, Ports, and explicit lifecycle boundaries.
+  text: Contract-first HTTP APIs for Deno
+  tagline: >-
+    Write the contract in TypeScript. Handlers get native types; consumers in any language get a
+    faithful, governed OpenAPI 3.1 document.
   actions:
     - theme: brand
-      text: Get Started
+      text: Get started
       link: /guide/getting-started
     - theme: alt
-      text: View on GitHub
-      link: https://github.com/slime21023/hyapi
+      text: Example application
+      link: https://github.com/slime21023/hyapi/tree/main/apps/example
 features:
-  - title: Typed contracts
-    details: Define routes with TypeBox schemas and use the same metadata for runtime validation and OpenAPI.
-  - title: Explicit composition
-    details: Keep modules independent through named Ports, scoped services, and small plugin capabilities.
-  - title: Native boundaries
-    details: Use Web-standard Request, Response, fetch, AbortSignal, and Deno without hiding transport details.
+  - title: The contract comes first
+    details: >-
+      Operations, schemas, responses, and security are declared in TypeScript with TypeBox and
+      reviewed before any handler exists.
+  - title: Native types, no generation
+    details: >-
+      Handler input, results, and security identities are inferred from the contract. Change the
+      contract and the editor points at the handlers to update.
+  - title: OpenAPI as the deliverable
+    details: >-
+      `hyapi emit` compiles the contract into a deterministic OpenAPI 3.1 document. Runtime and
+      document come from one interpretation of the contract, so they cannot disagree.
+  - title: Governed evolution
+    details: >-
+      `hyapi diff` classifies every change against main and fails on breaking changes unless they
+      are explicitly allowed.
+  - title: Enforced at runtime
+    details: >-
+      Requests are validated, security is evaluated, undeclared response fields are stripped, and
+      every error is an RFC 9457 problem.
+  - title: Web-standard and small
+    details: >-
+      An application is a `fetch(request)` handler with lifecycle, health, and events. No
+      middleware, no service container.
 ---
-
-# HyAPI documentation
-
-HyAPI is a structured, type-safe API framework for Deno. Start with the
-[guide](/guide/getting-started), then use the example application as a complete reference for health
-checks, guard-based authentication, modules, and Ports.
-
-This site documents how to use HyAPI. Architecture decisions, release history, benchmarks, and
-migration records live in the repository's
-[`_design/`](https://github.com/slime21023/hyapi/tree/main/_design) directory.

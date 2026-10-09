@@ -1,132 +1,106 @@
-/** A bounded in-process fixed-window rate limiter for native HTTP handlers. @module */
+/**
+ * Single-instance, in-memory rate limiting as an outer `fetch` wrapper for HyAPI applications.
+ *
+ * ```ts
+ * const handler = withRateLimit(app.fetch, {
+ *   limit: 100,
+ *   windowMs: 60_000,
+ *   key: (request) => request.headers.get("x-api-key") ?? undefined,
+ * });
+ * ```
+ *
+ * Counts live in this process only. With several instances, or for global limits, rate limit at
+ * the edge or with a shared store in application code.
+ *
+ * @module
+ */
+import { problemResponse } from "@hyapi/core";
 
-type HttpHandler = (request: Request) => Response | Promise<Response>;
+/** A Web-standard request handler, such as `app.fetch`. */
+export type FetchHandler = (request: Request) => Response | Promise<Response>;
 
-/** Rules used by the in-process fixed-window rate limiter. */
+/** Options for {@link withRateLimit}. */
 export interface RateLimitOptions {
-  /** Requests permitted for one key during one time window. */
+  /** Requests allowed per key and window. */
   readonly limit: number;
-  /** Shared fixed-window duration in milliseconds. */
+  /** The fixed window length in milliseconds. */
   readonly windowMs: number;
-  /** Returns the trusted bucket key for one request. */
-  readonly key: (request: Request) => string;
-  /** Maximum active keys retained in memory. Defaults to 10,000. */
+  /**
+   * Identifies the caller, for example an API key or a client address forwarded by a trusted
+   * proxy. Requests for which it returns `undefined` are not limited.
+   */
+  readonly key: (request: Request) => string | undefined;
+  /** Maximum number of keys tracked at once; the oldest windows are dropped. Defaults to 10 000. */
   readonly maxKeys?: number;
 }
 
-interface Bucket {
-  readonly windowStart: number;
-  used: number;
+interface Window {
+  count: number;
+  readonly resetAt: number;
 }
 
-interface NormalizedOptions {
-  readonly limit: number;
-  readonly windowMs: number;
-  readonly key: (request: Request) => string;
-  readonly maxKeys: number;
+function positiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive integer`);
+  }
 }
-
-const DEFAULT_MAX_KEYS = 10_000;
 
 /**
- * Adds a local fixed-window limit around a native HTTP handler.
- *
- * This wrapper is intentionally process-local. Use an edge service or a separate shared-store plugin
- * when limits must apply across multiple application instances.
+ * Wraps a handler with a fixed-window rate limit per key. Every limited response carries
+ * `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`; a rejected request gets 429 with
+ * `Retry-After`.
  */
-export function withRateLimit(next: HttpHandler, options: RateLimitOptions): HttpHandler {
-  const policy = normalizeOptions(options);
-  const buckets = new Map<string, Bucket>();
+export function withRateLimit(handler: FetchHandler, options: RateLimitOptions): FetchHandler {
+  positiveInteger(options.limit, "limit");
+  positiveInteger(options.windowMs, "windowMs");
+  const maxKeys = options.maxKeys ?? 10_000;
+  positiveInteger(maxKeys, "maxKeys");
+  const windows = new Map<string, Window>();
+
+  const windowFor = (key: string, now: number): Window => {
+    const existing = windows.get(key);
+    if (existing !== undefined && existing.resetAt > now) return existing;
+    windows.delete(key);
+    if (windows.size >= maxKeys) {
+      for (const [stored, window] of windows) if (window.resetAt <= now) windows.delete(stored);
+      // Still full: drop the oldest windows (Map keeps insertion order).
+      for (const stored of windows.keys()) {
+        if (windows.size < maxKeys) break;
+        windows.delete(stored);
+      }
+    }
+    const created = { count: 0, resetAt: now + options.windowMs };
+    windows.set(key, created);
+    return created;
+  };
 
   return async (request) => {
+    const key = options.key(request);
+    if (key === undefined) return await handler(request);
     const now = Date.now();
-    const windowStart = Math.floor(now / policy.windowMs) * policy.windowMs;
-    const resetAt = windowStart + policy.windowMs;
-    const key = policy.key(request);
-    if (key.length === 0) throw new TypeError("Rate-limit keys must not be empty.");
-
-    let bucket = buckets.get(key);
-    if (bucket?.windowStart !== windowStart) {
-      if (bucket === undefined && buckets.size >= policy.maxKeys) {
-        pruneExpired(buckets, windowStart);
-      }
-      if (bucket === undefined && buckets.size >= policy.maxKeys) {
-        return rateLimited(policy.limit, 0, resetAt, now);
-      }
-      bucket = { windowStart, used: 0 };
-      buckets.set(key, bucket);
+    const window = windowFor(key, now);
+    const resetSeconds = Math.max(0, Math.ceil((window.resetAt - now) / 1000));
+    const limitHeaders = (remaining: number) => ({
+      "ratelimit-limit": String(options.limit),
+      "ratelimit-remaining": String(remaining),
+      "ratelimit-reset": String(resetSeconds),
+    });
+    if (window.count >= options.limit) {
+      return problemResponse(429, "RATE_LIMITED", {
+        detail: `The limit of ${options.limit} requests per ${options.windowMs} ms is exhausted.`,
+        headers: { ...limitHeaders(0), "retry-after": String(resetSeconds) },
+      });
     }
-
-    if (bucket.used >= policy.limit) return rateLimited(policy.limit, 0, resetAt, now);
-
-    bucket.used += 1;
-    const response = await next(request);
-    return withRateLimitHeaders(response, policy.limit, policy.limit - bucket.used, resetAt, now);
+    window.count++;
+    const response = await handler(request);
+    const headers = new Headers(response.headers);
+    for (const [name, value] of Object.entries(limitHeaders(options.limit - window.count))) {
+      headers.set(name, value);
+    }
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   };
-}
-
-function normalizeOptions(options: RateLimitOptions): NormalizedOptions {
-  validatePositiveInteger(options.limit, "Rate-limit limit");
-  validatePositiveInteger(options.windowMs, "Rate-limit windowMs");
-  const maxKeys = options.maxKeys ?? DEFAULT_MAX_KEYS;
-  validatePositiveInteger(maxKeys, "Rate-limit maxKeys");
-  return { ...options, maxKeys };
-}
-
-function validatePositiveInteger(value: number, label: string): void {
-  if (!Number.isSafeInteger(value) || value < 1) {
-    throw new TypeError(`${label} must be a positive safe integer.`);
-  }
-}
-
-function pruneExpired(buckets: Map<string, Bucket>, windowStart: number): void {
-  // ponytail: this is local memory only; use a shared-store plugin for distributed enforcement.
-  for (const [key, bucket] of buckets) {
-    if (bucket.windowStart !== windowStart) buckets.delete(key);
-  }
-}
-
-function rateLimited(limit: number, remaining: number, resetAt: number, now: number): Response {
-  const headers = rateLimitHeaders(limit, remaining, resetAt, now);
-  headers.set("retry-after", String(secondsUntil(resetAt, now)));
-  headers.set("content-type", "application/problem+json");
-  return Response.json(
-    {
-      type: "about:blank",
-      title: "Too Many Requests",
-      status: 429,
-      code: "RATE_LIMITED",
-    },
-    { status: 429, headers },
-  );
-}
-
-function withRateLimitHeaders(
-  response: Response,
-  limit: number,
-  remaining: number,
-  resetAt: number,
-  now: number,
-): Response {
-  const headers = new Headers(response.headers);
-  for (const [name, value] of rateLimitHeaders(limit, remaining, resetAt, now)) {
-    headers.set(name, value);
-  }
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers,
-  });
-}
-
-function rateLimitHeaders(limit: number, remaining: number, resetAt: number, now: number): Headers {
-  return new Headers({
-    "rateLimit-limit": String(limit),
-    "rateLimit-remaining": String(remaining),
-    "rateLimit-reset": String(secondsUntil(resetAt, now)),
-  });
-}
-
-function secondsUntil(resetAt: number, now: number): number {
-  return Math.max(1, Math.ceil((resetAt - now) / 1_000));
 }

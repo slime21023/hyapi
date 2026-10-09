@@ -1,113 +1,163 @@
-import { assertEquals } from "@std/assert";
-import { createApplication, requireScopes } from "@hyapi/core";
+import { assertEquals, assertRejects } from "@std/assert";
+import { exportJWK, generateKeyPair, type JWTPayload, SignJWT } from "jsr:@panva/jose@^6";
+import Type from "typebox";
+import { createApp, implement } from "@hyapi/core";
+import { defineApi, defineContract, defineSecurity, openIdConnect } from "@hyapi/core/contract";
 import { oidcBearer } from "@hyapi/plugin-oidc";
-import { exportJWK, generateKeyPair, SignJWT } from "npm:jose@6";
 
-const ISSUER = "https://issuer.example.com/";
-const AUDIENCE = "orders-api";
-const JWKS_URL = "https://issuer.example.com/.well-known/jwks.json";
+const ctx = {
+  signal: new AbortController().signal,
+  request: new Request("http://test"),
+  operationId: "op",
+};
 
-Deno.test("the public OIDC plugin verifies remote JWKS bearer tokens", async () => {
-  const { privateKey, publicKey } = await generateKeyPair("RS256");
-  const jwk = { ...await exportJWK(publicKey), kid: "active", alg: "RS256", use: "sig" };
-  const originalFetch = globalThis.fetch;
-  let jwksRequests = 0;
-  globalThis.fetch = (input, init) => {
-    const url = input instanceof Request ? input.url : String(input);
-    if (url === JWKS_URL) {
-      jwksRequests += 1;
-      return Promise.resolve(Response.json({ keys: [jwk] }));
+/** A local issuer serving discovery and JWKS; `jwksStatus` can simulate an outage. */
+async function startIssuer() {
+  const { publicKey, privateKey } = await generateKeyPair("ES256", { extractable: true });
+  const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "ES256", use: "sig" };
+  const state = { jwksStatus: 200, discoveryIssuer: "" };
+  let issuer = "";
+  const server: Deno.HttpServer<Deno.NetAddr> = Deno.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    onListen() {},
+  }, (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === "/.well-known/openid-configuration") {
+      return Response.json({ issuer: state.discoveryIssuer || issuer, jwks_uri: `${issuer}/jwks` });
     }
-    return originalFetch(input, init);
-  };
+    if (path === "/jwks") {
+      return state.jwksStatus === 200
+        ? Response.json({ keys: [jwk] })
+        : new Response("down", { status: state.jwksStatus });
+    }
+    return new Response("not found", { status: 404 });
+  });
+  issuer = `http://127.0.0.1:${server.addr.port}`;
+  const sign = (
+    claims: JWTPayload,
+    options: { audience?: string; issuer?: string; expires?: string } = {},
+  ) =>
+    new SignJWT(claims).setProtectedHeader({ alg: "ES256", kid: "k1" })
+      .setIssuer(options.issuer ?? issuer).setAudience(options.audience ?? "orders")
+      .setExpirationTime(options.expires ?? "1h").sign(privateKey);
+  return { issuer, sign, state, close: () => server.shutdown() };
+}
 
-  let app: Awaited<ReturnType<typeof createApplication>> | undefined;
+Deno.test("discovers the JWKS and verifies tokens", async () => {
+  const idp = await startIssuer();
   try {
-    app = await createApplication({
-      config: { name: "oidc-plugin" },
-      modules: [{
-        name: "private",
-        setup(module) {
-          module.route({
-            method: "get",
-            path: "/private",
-            guards: [
-              oidcBearer({
-                issuer: ISSUER,
-                audience: AUDIENCE,
-                jwksUrl: JWKS_URL,
-                algorithms: ["RS256"],
-              }),
-              requireScopes("orders:read"),
-            ],
-            handler: ({ identity, ok }) => ok({ subject: identity?.subject }),
-          });
-        },
-      }],
-    });
-
-    const anonymous = await app.request("http://test/private");
-    assertEquals(anonymous.status, 401);
-    assertEquals(anonymous.headers.get("www-authenticate"), "Bearer");
-
-    const valid = await app.request("http://test/private", {
-      headers: { authorization: `Bearer ${await accessToken(privateKey)}` },
-    });
-    assertEquals(valid.status, 200);
-    assertEquals(await valid.json(), { subject: "ada" });
-    assertEquals(jwksRequests, 1);
-
-    const rejected = await Promise.all([
-      app.request("http://test/private", {
-        headers: {
-          authorization: `Bearer ${await accessToken(privateKey, {
-            issuer: "https://other.example.com/",
-          })}`,
-        },
-      }),
-      app.request("http://test/private", {
-        headers: {
-          authorization: `Bearer ${await accessToken(privateKey, { audience: "other-api" })}`,
-        },
-      }),
-      app.request("http://test/private", {
-        headers: {
-          authorization: `Bearer ${await accessToken(privateKey, {
-            expiration: Math.floor(Date.now() / 1000) - 1,
-          })}`,
-        },
-      }),
-      app.request("http://test/private", { headers: { authorization: "Token malformed" } }),
-    ]);
-    for (const response of rejected) assertEquals(response.status, 401);
-    const firstRejected = rejected[0];
-    if (firstRejected === undefined) throw new Error("Expected an invalid OIDC response.");
-    assertEquals((await firstRejected.json()).detail, "Authentication is required.");
-
-    const { privateKey: untrustedKey } = await generateKeyPair("RS256");
-    const invalidSignature = await app.request("http://test/private", {
-      headers: { authorization: `Bearer ${await accessToken(untrustedKey)}` },
-    });
-    assertEquals(invalidSignature.status, 401);
+    const verify = await oidcBearer({ issuer: idp.issuer, audience: "orders" });
+    const result = await verify(await idp.sign({ sub: "u1", scope: "orders:read" }), ctx);
+    assertEquals([result?.identity.sub, result?.scopes], ["u1", ["orders:read"]]);
   } finally {
-    await app?.close();
-    globalThis.fetch = originalFetch;
+    await idp.close();
   }
 });
 
-interface AccessTokenOptions {
-  readonly issuer?: string;
-  readonly audience?: string;
-  readonly expiration?: string | number;
-}
+Deno.test("rejects tokens for another audience or issuer, expired tokens, and garbage", async () => {
+  const idp = await startIssuer();
+  try {
+    const verify = await oidcBearer({ issuer: idp.issuer, audience: ["orders", "billing"] });
+    assertEquals(
+      (await verify(await idp.sign({ sub: "u" }, { audience: "billing" }), ctx))?.identity.sub,
+      "u",
+    );
+    assertEquals(await verify(await idp.sign({ sub: "u" }, { audience: "other" }), ctx), null);
+    assertEquals(
+      await verify(await idp.sign({ sub: "u" }, { issuer: "https://evil.test" }), ctx),
+      null,
+    );
+    assertEquals(await verify(await idp.sign({ sub: "u" }, { expires: "-1m" }), ctx), null);
+    assertEquals(await verify("not.a.token", ctx), null);
+  } finally {
+    await idp.close();
+  }
+});
 
-function accessToken(privateKey: CryptoKey, options: AccessTokenOptions = {}): Promise<string> {
-  return new SignJWT({ scope: "orders:read" })
-    .setProtectedHeader({ alg: "RS256", kid: "active" })
-    .setIssuer(options.issuer ?? ISSUER)
-    .setAudience(options.audience ?? AUDIENCE)
-    .setSubject("ada")
-    .setIssuedAt()
-    .setExpirationTime(options.expiration ?? "1h")
-    .sign(privateKey);
-}
+Deno.test("an unreachable key server is an internal error, not an invalid token", async () => {
+  const idp = await startIssuer();
+  try {
+    const verify = await oidcBearer({ issuer: idp.issuer, audience: "orders" });
+    const token = await idp.sign({ sub: "u" });
+    idp.state.jwksStatus = 503;
+    await assertRejects(() => verify(token, ctx));
+  } finally {
+    await idp.close();
+  }
+});
+
+Deno.test("discovery problems fail when the verifier is created", async () => {
+  const idp = await startIssuer();
+  try {
+    idp.state.discoveryIssuer = "https://other.test";
+    await assertRejects(
+      () => oidcBearer({ issuer: idp.issuer, audience: "orders" }),
+      Error,
+      "does not match",
+    );
+    await assertRejects(() => oidcBearer({ issuer: "not-a-url", audience: "orders" }), TypeError);
+    await assertRejects(
+      () => oidcBearer({ issuer: idp.issuer, audience: "orders", algorithms: ["HS256" as never] }),
+      TypeError,
+    );
+  } finally {
+    await idp.close();
+  }
+});
+
+Deno.test("works as an openIdConnect verifier in createApp", async () => {
+  const idp = await startIssuer();
+  try {
+    const security = defineSecurity({
+      oidc: openIdConnect<{ subject: string }>({
+        url: `${idp.issuer}/.well-known/openid-configuration`,
+      }),
+    });
+    const contract = defineContract({
+      securitySchemes: security,
+      operations: {
+        me: {
+          method: "GET",
+          path: "/me",
+          security: [{ oidc: [] }],
+          responses: { 200: Type.Object({ subject: Type.String() }) },
+        },
+      },
+    });
+    const app = await createApp({
+      api: defineApi({
+        info: { title: "OIDC", version: "1" },
+        securitySchemes: security,
+        contracts: [contract],
+      }),
+      implementations: [
+        implement(contract, {
+          me: (_input, { security: identities }) => ({
+            status: 200,
+            body: { subject: identities.oidc.subject },
+          }),
+        }),
+      ],
+      verifiers: {
+        oidc: await oidcBearer({
+          issuer: idp.issuer,
+          audience: "orders",
+          identity: (claims) => (claims.sub ? { subject: claims.sub } : null),
+        }),
+      },
+    });
+    const response = await app.fetch(
+      new Request("http://test/me", {
+        headers: { authorization: `Bearer ${await idp.sign({ sub: "ada" })}` },
+      }),
+    );
+    assertEquals([response.status, await response.json()], [200, { subject: "ada" }]);
+    const anonymous = await app.fetch(new Request("http://test/me"));
+    assertEquals(anonymous.status, 401);
+    await anonymous.body?.cancel();
+    await app.close();
+  } finally {
+    await idp.close();
+  }
+});

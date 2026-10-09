@@ -5,7 +5,107 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-rc.5] - Unreleased
+## [0.1.0] - Unreleased
+
+The first release of the contract-first redesign.
+
+### Added
+
+- Engineering foundation (roadmap M0):
+  - a workspace with the `@hyapi/core` skeleton and its four entry points;
+  - TypeBox pinned to `~1.3.34`;
+  - the public and internal test layout;
+  - an architecture test that enforces the ADR 0002 dependency rules; and
+  - a CI workflow that runs `deno task verify`.
+
+- Contract component (roadmap M1), in `@hyapi/core/contract`:
+  - `defineApi`, `defineContract`, `defineSchema`, `defineResponse`, `defineSecurity`, and the
+    scheme constructors;
+  - the `Problem` schema and input, result, and security inference types;
+  - normalization into `ContractModel`; and
+  - `checkContracts`, with 31 diagnostic rules.
+
+  `@hyapi/core` adds `Handler`, `implement`, and `notImplemented`.
+
+- Runtime request path (roadmap M2), in `@hyapi/core`:
+  - `createApp` with startup diagnostics (`StartupError`);
+  - exact routing with 404, 405 with `Allow`, and `HEAD`;
+  - parameter decoding for the v1 style subset, with defaults and coercion;
+  - bounded JSON and text bodies (413, 415, 400);
+  - TypeBox validation, with `int32` ranges and unknown formats rejected;
+  - response stripping and the `responseValidation` policy;
+  - RFC 9457 problem responses with stable codes, `problem()`, and `HttpError`; and
+  - request timeouts (503).
+- Contract diagnostic `unknown-format`.
+- Security (roadmap M4):
+  - `createApp({ verifiers })`, typed per scheme, with credential extraction for every v1 scheme
+    type;
+  - ordered OR/AND evaluation with per-request caching;
+  - scope checks, 401/403 classification with `WWW-Authenticate` challenges, and typed
+    `ctx.security`; and
+  - `@hyapi/plugin-jwt` with `jwtBearer` (HS256, RS256, ES256, and EdDSA, through jose).
+- Lifecycle, hosting, and events (roadmap M5):
+  - named `lifecycle` resources with ordered start, reverse stop, and rollback;
+  - `app.close()`, which refuses new requests, drains, aborts the rest, and stops resources within a
+    budget;
+  - `createHealth`, which reports draining during shutdown, and the `HealthReport` schema;
+  - read-only `onEvent` events;
+  - per-operation `timeouts`;
+  - the opt-in `document` endpoint; and
+  - `serve()` in `@hyapi/core/deno`, with graceful, signal-driven shutdown.
+- The starter uses `serve()`, and its tasks grant `--allow-env` and pass
+  `--unstable-no-legacy-abort`.
+- Evolution governance (roadmap M6):
+  - `@hyapi/openapi-diff`, with `diffOpenApi` and `formatDiff`, which classify changes between two
+    OpenAPI 3.1 documents with 32 direction-aware rules;
+  - `hyapi diff`, which compares the current contracts with the document on `main` and fails on
+    breaking changes unless `--allow-breaking` is given, with text, markdown, or JSON output; and
+  - a starter `diff` task and a CI workflow.
+- The remaining plugins (roadmap M7a):
+  - `@hyapi/plugin-oidc` (`oidcBearer`), with discovery, JWKS rotation, and key-server failures
+    reported as errors rather than invalid tokens;
+  - `@hyapi/plugin-cors` (`withCors`), with explicit origins;
+  - `@hyapi/plugin-csrf` (`withCsrf`), a signed double-submit check; and
+  - `@hyapi/plugin-rate-limit` (`withRateLimit`), a fixed window per key, in memory.
+- `problemResponse` is public in `@hyapi/core`.
+- Documentation and the example (roadmap M7b):
+  - the VitePress user guide (`deno task docs:dev`) and recipes for testing, typed clients, mocking,
+    and observability; and
+  - `apps/example`, a library API that uses every v1 feature.
+
+  `serve()` gains a `fetch` option for wrapped handlers.
+- Release readiness (roadmap M7c):
+  - every package is at `0.1.0`, with explicit types for JSR;
+  - `scripts/check_release.ts` and `tests/release/` check that versions and the changelog agree;
+  - a tag-triggered publish workflow uses JSR OIDC, and CI runs `deno task publish:check`; and
+  - `SECURITY.md` lists the concrete security defaults.
+- An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
+  promise rejection.
+- OpenAPI emission and the contract CLI (roadmap M3):
+  - `emitOpenApi` and `serializeOpenApi` in `@hyapi/core/openapi`, which emit deterministic,
+    formatter-stable OpenAPI 3.1 with named components;
+  - `@hyapi/cli` with `emit` (`--check`, JSON or YAML) and `doctor`; and
+  - `new`, which creates a starter that passes its own verification.
+- Request-path benchmarks (`deno task bench`).
+
+### Changed
+
+- HyAPI is redesigned as a contract-first API library: contracts are written in TypeScript with
+  TypeBox, handler types are inferred from them, and they compile into a committed, governed OpenAPI
+  3.1 document for external consumers. See [ADR 0001](_adr/0001-contract-first-api-library.md).
+  `1.0.0-rc.5` is superseded and will not be published.
+
+### Removed
+
+- The superseded `1.0.0-rc.5` implementation: `@hyapi/core`, `@hyapi/cli`, the five plugin packages,
+  the example application, tests, benchmarks, the starter verification script, the VitePress
+  documentation site, and the CI and publish workflows. They remain in git history at commit
+  `c52c0be`.
+- The `_design/` records (RFCs 0001–0008, the earlier ADR 0001, migration notes, roadmap,
+  performance baseline, and quality rule). They remain in git history at commit `c52c0be`;
+  historical links below refer to that history.
+
+## [1.0.0-rc.5] - Superseded
 
 ### Added
 

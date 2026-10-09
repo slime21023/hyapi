@@ -1,186 +1,146 @@
-/** HS256 bearer-token guard for HyAPI routes. @module */
-
-import {
-  ConfigurationError,
-  defineGuard,
-  type Guard,
-  type Identity,
-  UnauthorizedError,
-} from "@hyapi/core";
-
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder("utf-8", { fatal: true });
-
-/** Explicit HS256 verification settings. */
-export interface JwtBearerOptions {
-  /** HMAC secret with at least 32 UTF-8 bytes. Keep it outside source control. */
-  readonly secret: string;
-  /** Exact `iss` claim required when set. */
-  readonly issuer?: string;
-  /** `aud` value that must be present when set. */
-  readonly audience?: string;
-  /** Tolerance for `exp` and `nbf`, in seconds. Defaults to 5. */
-  readonly clockSkewSeconds?: number;
-  /** Admit requests without an Authorization header, leaving the identity empty. */
-  readonly optional?: boolean;
-  /** OpenAPI security scheme name. Defaults to `bearerAuth`. */
-  readonly schemeName?: string;
-}
-
-interface ParsedJwt {
-  readonly header: Record<string, unknown>;
-  readonly claims: Record<string, unknown>;
-  readonly signature: Uint8Array;
-  readonly signingInput: Uint8Array;
-}
-
 /**
- * Creates a guard that verifies HS256 Bearer tokens and establishes their identity.
+ * A HyAPI security verifier for JWT bearer tokens, built on
+ * [jose](https://jsr.io/@panva/jose).
  *
- * Missing credentials are rejected with 401 unless `optional` is set; invalid credentials are
- * always rejected with 401 and a `Bearer error="invalid_token"` challenge.
+ * ```ts
+ * const app = await createApp({
+ *   api,
+ *   implementations,
+ *   verifiers: {
+ *     bearer: await jwtBearer({
+ *       algorithm: "ES256",
+ *       key: Deno.env.get("JWT_PUBLIC_KEY")!,
+ *       issuer: "https://auth.example.com",
+ *       audience: "orders-api",
+ *       identity: (claims) => (claims.sub ? { subject: claims.sub } : null),
+ *     }),
+ *   },
+ * });
+ * ```
+ *
+ * @module
  */
-export function jwtBearer(options: JwtBearerOptions): Guard {
-  const secret = textEncoder.encode(options.secret);
-  if (secret.length < 32) {
-    throw new ConfigurationError("JWT secret must contain at least 32 bytes.");
-  }
-  if (
-    options.clockSkewSeconds !== undefined &&
-    !(Number.isFinite(options.clockSkewSeconds) && options.clockSkewSeconds >= 0)
-  ) {
-    throw new ConfigurationError("JWT clockSkewSeconds must be a non-negative number.");
-  }
-  const schemeName = options.schemeName ?? "bearerAuth";
-  let key: Promise<CryptoKey> | undefined;
+import {
+  errors,
+  importJWK,
+  importSPKI,
+  type JWK,
+  type JWTPayload,
+  jwtVerify,
+} from "jsr:@panva/jose@^6";
+import type { Verified, VerifierContext } from "@hyapi/core";
 
-  return defineGuard({
-    name: "jwtBearer",
-    security: {
-      schemes: { [schemeName]: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
-      ...(options.optional ? { optional: true } : {}),
-    },
-    async check({ request }) {
-      const token = readBearerToken(request.headers.get("authorization"));
-      if (token === null) {
-        if (options.optional) return;
-        throw new UnauthorizedError(undefined, { challenge: "Bearer" });
-      }
-      key ??= crypto.subtle.importKey(
-        "raw",
-        secret,
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["verify"],
-      );
-      const jwt = parseJwt(token);
-      validateHeader(jwt.header);
-      await verifySignature(jwt, await key);
-      return identityFromClaims(jwt.claims, options);
-    },
-  });
+export type { JWTPayload } from "jsr:@panva/jose@^6";
+
+/** Algorithms accepted by {@link jwtBearer}. Exactly one is accepted per verifier. */
+export type JwtAlgorithm = "HS256" | "RS256" | "ES256" | "EdDSA";
+
+/** Options for {@link jwtBearer}. */
+export interface JwtBearerOptions<Identity> {
+  /** The only algorithm accepted; tokens signed with any other algorithm are rejected. */
+  readonly algorithm: JwtAlgorithm;
+  /**
+   * For `HS256`, a secret of at least 32 bytes. For the other algorithms, the public key as a
+   * `CryptoKey`, a JWK, or an SPKI PEM string.
+   */
+  readonly key: string | Uint8Array | CryptoKey | JWK;
+  /** Accepted `iss` values. */
+  readonly issuer?: string | readonly string[];
+  /** Accepted `aud` values. */
+  readonly audience?: string | readonly string[];
+  /** Allowed clock skew for `exp`, `nbf`, and `iat`. Defaults to 0 seconds. */
+  readonly clockToleranceSeconds?: number;
+  /** Claims that must be present. Defaults to `["exp"]`. */
+  readonly requiredClaims?: readonly string[];
+  /**
+   * Maps verified claims to the scheme's identity; return `null` to reject the token. Defaults to
+   * the claims themselves.
+   */
+  readonly identity?: (claims: JWTPayload) => Identity | null;
+  /**
+   * Reads granted scopes from the claims. Defaults to the space-separated `scope` claim, or the
+   * `scp` array claim.
+   */
+  readonly scopes?: (claims: JWTPayload) => readonly string[];
 }
 
-function invalidToken(): UnauthorizedError {
-  return new UnauthorizedError(undefined, { challenge: 'Bearer error="invalid_token"' });
-}
+/** A verifier for an `httpBearer`, `oauth2`, or `openIdConnect` scheme. */
+export type JwtVerifier<Identity> = (
+  token: string,
+  ctx: VerifierContext,
+) => Promise<Verified<Identity> | null>;
 
-function readBearerToken(header: string | null): string | null {
-  if (header === null) return null;
-  const match = /^Bearer +(\S+)$/i.exec(header);
-  if (!match?.[1]) throw invalidToken();
-  return match[1];
-}
+const ALGORITHMS: readonly JwtAlgorithm[] = ["HS256", "RS256", "ES256", "EdDSA"];
+const MIN_SECRET_BYTES = 32;
 
-function parseJwt(token: string): ParsedJwt {
-  const parts = token.split(".");
-  if (parts.length !== 3) throw invalidToken();
-  const [encodedHeader, encodedClaims, encodedSignature] = parts;
-  if (!encodedHeader || !encodedClaims || !encodedSignature) throw invalidToken();
-
-  try {
-    return {
-      header: decodeJsonObject(encodedHeader),
-      claims: decodeJsonObject(encodedClaims),
-      signature: decodeBase64Url(encodedSignature),
-      signingInput: textEncoder.encode(`${encodedHeader}.${encodedClaims}`),
-    };
-  } catch {
-    throw invalidToken();
-  }
-}
-
-function validateHeader(header: Record<string, unknown>): void {
-  if (header.alg !== "HS256" || header.crit !== undefined) throw invalidToken();
-}
-
-async function verifySignature(jwt: ParsedJwt, key: CryptoKey): Promise<void> {
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    jwt.signature as unknown as BufferSource,
-    jwt.signingInput as unknown as BufferSource,
-  );
-  if (!valid) throw invalidToken();
-}
-
-function identityFromClaims(claims: Record<string, unknown>, options: JwtBearerOptions): Identity {
-  const now = Math.floor(Date.now() / 1000);
-  const skew = options.clockSkewSeconds ?? 5;
-  const exp = claims.exp;
-  const nbf = claims.nbf;
-  const subject = claims.sub;
-
-  if (!isNumericDate(exp) || now >= exp + skew) throw invalidToken();
-  if (nbf !== undefined && (!isNumericDate(nbf) || nbf > now + skew)) throw invalidToken();
-  if (options.issuer !== undefined && claims.iss !== options.issuer) throw invalidToken();
-  if (options.audience !== undefined && !audienceIncludes(claims.aud, options.audience)) {
-    throw invalidToken();
-  }
-  if (typeof subject !== "string" || subject.length === 0) throw invalidToken();
-
-  return { subject, scopes: scopesFromClaims(claims), claims: Object.freeze(claims) };
-}
-
-function audienceIncludes(audience: unknown, expected: string): boolean {
-  if (typeof audience === "string") return audience === expected;
-  return (
-    Array.isArray(audience) &&
-    audience.every((value): value is string => typeof value === "string") &&
-    audience.includes(expected)
-  );
-}
-
-function isNumericDate(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function scopesFromClaims(claims: Record<string, unknown>): readonly string[] {
-  if (typeof claims.scope === "string") return claims.scope.split(/\s+/).filter(Boolean);
-  if (Array.isArray(claims.scopes) && claims.scopes.every((value) => typeof value === "string")) {
-    return claims.scopes as string[];
+function defaultScopes(claims: JWTPayload): readonly string[] {
+  if (typeof claims.scope === "string") return claims.scope.split(" ").filter(Boolean);
+  if (Array.isArray(claims.scp)) {
+    return claims.scp.filter((s): s is string => typeof s === "string");
   }
   return [];
 }
 
-function decodeJsonObject(value: string): Record<string, unknown> {
-  const parsed: unknown = JSON.parse(textDecoder.decode(decodeBase64Url(value)));
-  if (!isRecord(parsed)) {
-    throw new TypeError("JWT values must be JSON objects.");
+async function importKey(
+  algorithm: JwtAlgorithm,
+  key: JwtBearerOptions<unknown>["key"],
+): Promise<CryptoKey | Uint8Array> {
+  if (algorithm === "HS256") {
+    const secret = typeof key === "string" ? new TextEncoder().encode(key) : key;
+    if (!(secret instanceof Uint8Array)) {
+      throw new TypeError("HS256 needs a secret as a string or Uint8Array");
+    }
+    if (secret.byteLength < MIN_SECRET_BYTES) {
+      throw new RangeError(`the HS256 secret must be at least ${MIN_SECRET_BYTES} bytes`);
+    }
+    return secret;
   }
-  return parsed;
+  if (typeof key === "string") return await importSPKI(key, algorithm);
+  if (key instanceof Uint8Array) {
+    throw new TypeError(`${algorithm} needs a public key, not a secret`);
+  }
+  if (key instanceof CryptoKey) return key;
+  const imported = await importJWK(key, algorithm);
+  if (imported instanceof Uint8Array) throw new TypeError(`${algorithm} needs a public key`);
+  return imported;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+/**
+ * Creates a verifier for JWT bearer tokens. The key is imported and the options are checked
+ * immediately, so configuration errors surface at startup.
+ *
+ * An invalid, expired, or mis-signed token yields `null` (401). Unexpected failures throw (500).
+ */
+export async function jwtBearer<Identity = JWTPayload>(
+  options: JwtBearerOptions<Identity>,
+): Promise<JwtVerifier<Identity>> {
+  if (!ALGORITHMS.includes(options.algorithm)) {
+    throw new TypeError(`algorithm must be one of ${ALGORITHMS.join(", ")}`);
+  }
+  const tolerance = options.clockToleranceSeconds ?? 0;
+  if (!Number.isFinite(tolerance) || tolerance < 0) {
+    throw new RangeError("clockToleranceSeconds must be a non-negative number");
+  }
+  const key = await importKey(options.algorithm, options.key);
+  const identityOf = options.identity ?? ((claims: JWTPayload) => claims as Identity);
+  const scopesOf = options.scopes ?? defaultScopes;
+  const verifyOptions = {
+    algorithms: [options.algorithm],
+    clockTolerance: tolerance,
+    requiredClaims: [...(options.requiredClaims ?? ["exp"])],
+    ...(options.issuer === undefined ? {} : { issuer: options.issuer as string | string[] }),
+    ...(options.audience === undefined ? {} : { audience: options.audience as string | string[] }),
+  };
 
-function decodeBase64Url(value: string): Uint8Array {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new TypeError("JWT values must be base64url.");
-  const base64 = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(
-    Math.ceil(value.length / 4) * 4,
-    "=",
-  );
-  const binary = atob(base64);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return async (token) => {
+    let claims: JWTPayload;
+    try {
+      ({ payload: claims } = await jwtVerify(token, key, verifyOptions));
+    } catch (error) {
+      if (error instanceof errors.JOSEError) return null;
+      throw error;
+    }
+    const identity = identityOf(claims);
+    return identity === null ? null : { identity, scopes: scopesOf(claims) };
+  };
 }

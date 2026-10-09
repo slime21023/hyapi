@@ -8,10 +8,11 @@ Use Deno 2.9 or later. Before opening a pull request, run:
 deno task verify
 ```
 
-The command checks formatting, linting, TypeScript types (core, CLI, example, benchmarks, and
-scripts), the complete test suite, the example `doctor` report, and a generated starter project's
-verification, listener response, and graceful shutdown. Text files use LF line endings through
-`.gitattributes`, including on Windows checkouts.
+The command checks formatting, linting, and types, and runs every test under `tests/`. The tests
+include the architecture test (`tests/architecture/`), which enforces the dependency rules of
+[ADR 0002](_adr/0002-architecture-and-component-boundaries.md). CI runs the same command on every
+push to `main` and on every pull request. Text files use LF line endings through `.gitattributes`,
+including on Windows checkouts.
 
 ## Changes and issues
 
@@ -20,47 +21,39 @@ record a goal, measurable key results, a `rule.yml` verification outline, and fi
 Keep an issue focused on one independently reviewable behavior.
 
 When work is complete, record the implementing commit, the relevant source or documentation path,
-and the exact verification command result in the issue before closing it. A roadmap issue may be
-closed only when its behavior is present on `main`, its documentation is current, and
-`deno task verify` passes.
+and the exact verification command result in the issue before closing it. An issue may be closed
+only when its behavior is present on `main`, its documentation is current, and `deno task verify`
+passes.
 
-For a public API change, include documentation, example updates, and migration notes in the same
-pull request. Do not expose Hono implementation details through a new HyAPI public API.
+For a public API change, update the affected component specification in `_adr/components/`, and
+include documentation and example updates in the same pull request.
 
 ## Versioning and releases
 
-HyAPI 1.x follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API
-consists of:
+HyAPI follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API consists of
+the public entry points defined in [ADR 0002](_adr/0002-architecture-and-component-boundaries.md),
+the CLI commands, flags, and output formats, and the wire behavior of problem responses. Before
+1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the old API,
+and a design-changing decision is recorded in `_adr/`.
 
-- every export of `packages/core/mod.ts` (`@hyapi/core`) and `packages/cli/mod.ts` (`@hyapi/cli`);
-- CLI commands and flags;
-- wire behavior: problem+json fields, the `x-request-id`, `x-hyapi-deadline`, and `x-hyapi-service`
-  headers, native HTTP responses, and the values of `ResilienceError.reason`.
+The `v1.0.0-rc` candidates of the previous design were withdrawn before publication. The new design
+starts at `0.1.0`. Before 1.0.0, minor versions may change the public API; the changelog lists every
+change.
 
-Breaking changes to the public API ship only in a major release. Minor releases add compatible
-features; patch releases contain compatible fixes, documentation, and quality improvements.
+### Releasing
 
-After 1.0.0 is published, an API is removed only through deprecation: mark it with a `@deprecated`
-JSDoc tag, record the deprecation in `CHANGELOG.md`, and keep it for at least one minor release
-before removal in the next major.
+All published packages share one version.
 
-Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
-old API, with no alias or transition period, and the change ships a migration note in
-`_design/migrations/`.
+1. Set the same `version` in every published package's `deno.json`, and add a
+   `## [<version>] - <date>` section to `CHANGELOG.md`.
+2. Run `deno task verify` and `deno task publish:check` on a clean checkout. The test
+   `tests/release/` also checks that the versions and the changelog agree.
+3. Tag the commit `v<version>` and push the tag. `.github/workflows/publish.yml` runs
+   `scripts/check_release.ts` against the tag, repeats `deno task verify`, and publishes every
+   package to JSR. JSR authenticates the workflow through OIDC, so no token is stored.
 
-Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
+A request-path benchmark regression of more than 20% on the same hardware must be explained in the
+pull request; see [`_adr/baselines/request-path.md`](_adr/baselines/request-path.md).
 
-Before a release, the maintainer verifies the release gate in the relevant roadmap milestone,
-updates `CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout,
-and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which
-rejects a tag that differs from either package version before repeating `deno task verify` and
-publishing both packages to JSR.
-
-The `v1.0.0-rc.3` and `v1.0.0-rc.4` candidates were superseded before publication. `v1.0.0-rc.5` is
-the next candidate, not a published release; its verification gate must pass before tagging. After
-that gate, runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression
-of more than 20% on the same hardware must be explained in the pull request; see
-[`_design/baselines/performance.md`](_design/baselines/performance.md).
-
-The roadmap and release gates are maintained in [`_design/roadmap.md`](_design/roadmap.md). Report
+Architecture decisions, the roadmap, and release gates are maintained in [`_adr/`](_adr/). Report
 security issues privately as described in [SECURITY.md](SECURITY.md).

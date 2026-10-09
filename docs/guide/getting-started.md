@@ -1,63 +1,77 @@
-# Getting Started
+# Getting started
 
-## Requirements
+HyAPI turns a contract written in TypeScript into two things: a running HTTP application whose
+handlers are type-checked against the contract, and an OpenAPI 3.1 document for every consumer of
+the API. This page creates a project and walks through one change.
 
-- Deno 2.9 or later
-- TypeBox 1.x schemas
+## Create a project
 
-## Candidate status
+HyAPI needs Deno 2.9 or later.
 
-HyAPI `v1.0.0-rc.5` is a pre-release candidate. `@hyapi/core` and `@hyapi/cli` are not yet published
-to JSR, so this guide does not provide an installation command.
-
-## Evaluate the example
-
-Run the checked-out example from the repository root:
-
-```text
+```sh
+deno run -A jsr:@hyapi/cli new my-api
+cd my-api
 deno task dev
 ```
 
-The example listens on `127.0.0.1:8000` by default. Set `HOST` and `PORT` when you need different
-listener settings.
-
-The example requires a JWT secret. Generate at least 32 random bytes and expose the value through
-`JWT_SECRET`; do not use a human-chosen password as an HS256 key.
-
-## A minimal application
-
-```ts
-import { createApplication, serve } from "@hyapi/core";
-
-const app = await createApplication({
-  config: { name: "hello-api" },
-  modules: [{
-    name: "hello",
-    setup(module) {
-      module.route({ method: "get", path: "/hello", handler: ({ ok }) => ok({ hello: "world" }) });
-    },
-  }],
-});
-
-const server = serve(app, { port: 8000, shutdownSignals: ["SIGINT", "SIGTERM"] });
-await server.finished;
-```
-
-Run it with `deno run --allow-net --unstable-no-legacy-abort main.ts`. Set `config.environment` to
-`"development"` while developing to see internal error details.
-
-## Verify a checkout
-
-When working on HyAPI itself, use one command to format, lint, type-check, test, inspect the
-example, verify a generated starter, and build this documentation site:
+The project looks like this:
 
 ```text
-deno task verify
+contracts/         the API contract: what the API promises
+  api.ts           defineApi: info, security schemes, and the list of contracts
+  greetings.ts     defineContract: the operations of one resource
+src/               the implementation
+  greetings.ts     implement(contract, handlers)
+  app.ts           createApp
+  main.ts          serve
+tests/             tests that call app.fetch
+openapi.json       the committed OpenAPI document, emitted from contracts/
+deno.json          tasks and the hyapi configuration
 ```
+
+| Task               | What it does                                                                  |
+| ------------------ | ----------------------------------------------------------------------------- |
+| `deno task dev`    | Runs the server and reloads on changes                                        |
+| `deno task emit`   | Writes `openapi.json` from the contracts                                      |
+| `deno task verify` | Formats, lints, type-checks, tests, and checks that `openapi.json` is current |
+| `deno task diff`   | Compares the contracts with `openapi.json` on `main`; breaking changes fail   |
+| `deno task doctor` | Checks the contracts and the committed document without starting a server     |
+
+## The workflow of a change
+
+1. **Change the contract.** Add or change an operation in `contracts/`. The contract is plain data
+   that reviewers can read before any handler exists.
+2. **Follow the type errors.** The editor flags every handler that no longer matches. An operation
+   without a handler yet can use `notImplemented`, which answers 501.
+3. **Emit the document.** `deno task emit` rewrites `openapi.json`. Commit it with the change, so
+   the pull request shows what consumers will receive.
+4. **Verify.** `deno task verify` fails if `openapi.json` is stale, and `deno task diff` fails if
+   the change breaks consumers. Use `--allow-breaking` only when the break is intended.
+
+For example, add an operation:
+
+```ts
+// contracts/greetings.ts
+export const greetings = defineContract({
+  operations: {
+    getGreeting: {/* ... */},
+    listGreetings: {
+      method: "GET",
+      path: "/greetings",
+      query: T.Object({ limit: T.Optional(T.With(T.Integer({ maximum: 50 }), { default: 10 })) }),
+      responses: { 200: T.Array(Greeting) },
+    },
+  },
+});
+```
+
+`implement(greetings, { ... })` now fails to type-check until `listGreetings` has a handler, in
+which `query.limit` is a `number`, because it has a default.
 
 ## Next steps
 
-- Define [routes and responses](/guide/routes).
-- Compose modules through [Ports and services](/guide/composition).
-- Configure [OpenAPI documents](/guide/configuration).
-- Add [optional HTTP plugins](/guide/plugins) around the native handler boundary.
+- [Contracts](./contracts) explains every part of a contract.
+- [Handlers](./handlers) covers input, results, and errors.
+- [OpenAPI and the CLI](./openapi-and-cli) covers the committed document and its governance.
+- The [example application](https://github.com/slime21023/hyapi/tree/main/apps/example) uses every
+  feature.

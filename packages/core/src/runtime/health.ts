@@ -1,74 +1,94 @@
-import { ConfigurationError } from "../errors.ts";
-import type { HealthCheck, HealthCheckReport, HealthCheckResult, HealthReport } from "../health.ts";
+import type { Static } from "typebox";
+import type { HealthReport } from "../contract/schema.ts";
+import { withDeadline } from "./deadline.ts";
 
-const HEALTH_CHECK_TIMEOUT_MS = 5_000;
+type Awaitable<T> = T | Promise<T>;
 
-function isHealthCheckResult(value: unknown): value is HealthCheckResult {
-  if (typeof value !== "object" || value === null || !("status" in value)) return false;
-  const detail = "detail" in value ? value.detail : undefined;
-  return (value.status === "healthy" || value.status === "degraded" ||
-    value.status === "unhealthy") && (detail === undefined || typeof detail === "string");
+/** The status of one check, or of the whole report. */
+export type HealthStatus = "healthy" | "degraded" | "unhealthy";
+
+/**
+ * One health check. Resolving (with nothing) means healthy; returning `{ status: "degraded" }`
+ * reports degradation; throwing or rejecting means unhealthy. Checks receive a signal that aborts
+ * at the check timeout.
+ */
+export type HealthCheck = (
+  signal: AbortSignal,
+) => Awaitable<void | { readonly status: "healthy" | "degraded"; readonly detail?: string }>;
+
+/** A health report; its schema is `HealthReport` in `@hyapi/core/contract`. */
+export type HealthReportValue = Static<typeof HealthReport>;
+
+/** Health checks aggregated into one report. */
+export interface Health {
+  /** Runs every check concurrently and aggregates the results. */
+  check(): Promise<HealthReportValue>;
 }
 
-/** Runs application health checks without exposing their implementation details in public reports. */
-export class HealthRegistry {
-  readonly #checks = new Map<string, HealthCheck>();
+const draining = new WeakSet<Health>();
 
-  register(checks: readonly HealthCheck[]): void {
-    for (const check of checks) {
-      if (typeof check.name !== "string" || check.name.trim() === "") {
-        throw new ConfigurationError("Health check names must be non-empty strings.");
-      }
-      if (this.#checks.has(check.name)) {
-        throw new ConfigurationError(`Health check '${check.name}' is already registered.`);
-      }
-      this.#checks.set(check.name, check);
+/** Marks a health aggregator as draining: reports become unhealthy so traffic moves away. */
+export function markDraining(health: Health): void {
+  draining.add(health);
+}
+
+/**
+ * Creates a health aggregator. The overall status is the worst check status. While the
+ * application that owns it is shutting down, the status is `unhealthy` and `draining` is true.
+ *
+ * @example
+ * ```ts
+ * const health = createHealth({ database: (signal) => pool.ping({ signal }) });
+ * // In the handler of a declared health operation:
+ * const report = await health.check();
+ * return { status: report.status === "unhealthy" ? 503 : 200, body: report };
+ * ```
+ */
+export function createHealth(
+  checks: Readonly<Record<string, HealthCheck>>,
+  options: { readonly timeoutMs?: number } = {},
+): Health {
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError("timeoutMs must be a positive integer");
+  }
+  for (const [name, check] of Object.entries(checks)) {
+    if (typeof check !== "function") {
+      throw new TypeError(`health check '${name}' must be a function`);
     }
   }
-
-  async check(): Promise<HealthReport> {
-    const checks = await Promise.all([...this.#checks.values()].map((check) => this.#run(check)));
-    const status = checks.some((check) => check.status === "unhealthy")
-      ? "unhealthy"
-      : checks.some((check) => check.status === "degraded")
-      ? "degraded"
-      : "healthy";
-    return { status, checks };
-  }
-
-  async #run(check: HealthCheck): Promise<HealthCheckReport> {
-    const { promise: timedOut, resolve } = Promise.withResolvers<HealthCheckReport>();
-    const timer = setTimeout(() =>
-      resolve({
-        status: "unhealthy",
-        name: check.name,
-        detail: `Health check timed out after ${HEALTH_CHECK_TIMEOUT_MS} ms.`,
-      }), HEALTH_CHECK_TIMEOUT_MS);
-    try {
-      const result: unknown = await Promise.race([
-        Promise.resolve().then(() => check.check()),
-        timedOut,
-      ]);
-      if (!isHealthCheckResult(result)) {
-        return {
-          status: "unhealthy",
-          name: check.name,
-          detail: "Health check returned an invalid result.",
-        };
-      }
-      return {
-        status: result.status,
-        name: check.name,
-        ...(result.detail === undefined ? {} : { detail: result.detail }),
-      };
-    } catch (error) {
-      return {
-        status: "unhealthy",
-        name: check.name,
-        detail: error instanceof Error ? error.message : "Health check failed.",
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+  const health: Health = {
+    async check() {
+      const results = await Promise.all(
+        Object.entries(checks).map(async ([name, check]) => {
+          const started = performance.now();
+          let status: HealthStatus;
+          let detail: string | undefined;
+          try {
+            const result = await withDeadline(check, timeoutMs);
+            status = result?.status ?? "healthy";
+            detail = result?.detail;
+          } catch (error) {
+            status = "unhealthy";
+            detail = error instanceof Error ? error.message : String(error);
+          }
+          const durationMs = Math.round((performance.now() - started) * 100) / 100;
+          return [name, {
+            status,
+            durationMs,
+            ...(detail === undefined ? {} : { detail }),
+          }] as const;
+        }),
+      );
+      const statuses = results.map(([, result]) => result.status);
+      const isDraining = draining.has(health);
+      const status: HealthStatus = isDraining || statuses.includes("unhealthy")
+        ? "unhealthy"
+        : statuses.includes("degraded")
+        ? "degraded"
+        : "healthy";
+      return { status, draining: isDraining, checks: Object.fromEntries(results) };
+    },
+  };
+  return Object.freeze(health);
 }

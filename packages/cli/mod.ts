@@ -1,11 +1,14 @@
-import { run } from "./src/main.ts";
+/**
+ * The HyAPI command-line tool: `new`, `emit`, and `doctor`.
+ *
+ * ```text
+ * deno run -A jsr:@hyapi/cli emit [--api <module#export>] [--out <file>] [--check]
+ * ```
+ *
+ * @module
+ */
+import { run } from "./src/run.ts";
 
-if (import.meta.main) {
-  try {
-    await run(Deno.args);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`error: ${message}`);
-    Deno.exit(1);
-  }
-}
+export { run, type RunOptions } from "./src/run.ts";
+
+if (import.meta.main) Deno.exit(await run(Deno.args));
