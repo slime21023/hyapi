@@ -64,7 +64,8 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   expressions. Avoid `any`; when unavoidable, add `deno-lint-ignore` next to it.
 - **At most two levels of nesting.** When blocks (`if`, loops, `try`, `switch`) or closures nest
   three levels deep or more, simplify: return early, invert conditions, or extract a named function
-  that takes what it needs as parameters instead of capturing it.
+  that takes what it needs as parameters instead of capturing it. An arrow function whose body is a
+  single expression does not count, and `else if` stays at its chain's level.
 - **Stable identifiers.** Diagnostic codes are `kebab-case`; problem codes are
   `SCREAMING_SNAKE_CASE`. Messages start lowercase and say how to fix the problem.
 - **Tests read as specifications.** Name tests as sentences about behavior. Public tests in
@@ -80,4 +81,4 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   documentation goes in `docs/`.
 - Benchmarks live in `bench/` and the example in `apps/example/`; neither defines the public API.
 - Run the smallest relevant check while working, and `deno task verify` before calling a change
-  done. The architecture tests enforce the component and layer rules.
+  done. The architecture tests enforce the component, layer, and nesting rules.

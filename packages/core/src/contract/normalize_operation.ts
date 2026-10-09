@@ -74,117 +74,152 @@ export function parsePath(path: unknown): { params: string[] } | { error: string
   return { params };
 }
 
+type Location = (typeof LOCATIONS)[number];
+
+/** Where a parameter is declared, and what it is checked against. */
+interface ParameterSite {
+  readonly location: Location;
+  readonly operationId: string;
+  /** The parameter's own location in the declaration, such as `getUser/query/limit`. */
+  readonly at: string;
+  readonly report: Reporter;
+}
+
+/** Reports styles that HyAPI does not support for the location or the schema. */
+function checkStyle(
+  style: ParameterModel["style"],
+  explode: boolean,
+  schema: TSchema,
+  site: ParameterSite,
+): void {
+  const { location, report, operationId, at } = site;
+  const unsupported = (message: string) =>
+    report.error("unsupported-parameter-style", message, operationId, at);
+  if (!(location.styles as readonly string[]).includes(style)) {
+    unsupported(
+      `style '${style}' is not supported for ${location.in} parameters; supported: ${
+        location.styles.join(", ")
+      }`,
+    );
+  }
+  if (style !== "deepObject") return;
+  if (!objectSchema(schema)) unsupported("deepObject requires an object schema");
+  if (!explode) unsupported("deepObject requires explode: true");
+}
+
+/** Reports header names that OpenAPI ignores, or that repeat case-insensitively. */
+function checkHeaderName(name: string, seen: Set<string>, site: ParameterSite): void {
+  const lower = name.toLowerCase();
+  if (RESERVED_HEADERS.has(lower)) {
+    site.report.error(
+      "reserved-header",
+      `OpenAPI ignores a header parameter named '${name}'; declare media types in body and responses, and credentials in securitySchemes`,
+      site.operationId,
+      site.at,
+    );
+  }
+  if (seen.has(lower)) {
+    site.report.error(
+      "duplicate-header",
+      `header '${name}' is declared twice (header names are case-insensitive)`,
+      site.operationId,
+      site.at,
+    );
+  }
+  seen.add(lower);
+}
+
+/** Normalizes one parameter of a location object. */
+function normalizeParameter(
+  name: string,
+  schema: TSchema,
+  required: boolean,
+  override: Dict,
+  seenHeaders: Set<string>,
+  site: ParameterSite,
+): ParameterModel {
+  const { location } = site;
+  const style = (override.style ?? location.style) as ParameterModel["style"];
+  const explode = typeof override.explode === "boolean" ? override.explode : location.explode;
+  checkStyle(style, explode, schema, site);
+  if (location.in === "header") checkHeaderName(name, seenHeaders, site);
+  if (location.in === "path" && !required) {
+    site.report.error(
+      "optional-path-parameter",
+      `path parameter '${name}' must be required; remove T.Optional`,
+      site.operationId,
+      site.at,
+    );
+  }
+  return {
+    name,
+    in: location.in as ParameterLocation,
+    required,
+    schema,
+    style,
+    explode,
+    hasDefault: isRecord(schema) && "default" in schema,
+  };
+}
+
+/** Normalizes the parameters of one location (`params`, `query`, `headers`, or `cookies`). */
+function normalizeLocation(
+  location: Location,
+  op: OperationSpec,
+  operationId: string,
+  ctx: OperationContext,
+): ParameterModel[] {
+  const { report, inspector } = ctx;
+  const declared = op[location.field];
+  const styles = isRecord(op.styles) ? op.styles : {};
+  const overrides = isRecord(styles[location.field]) ? styles[location.field] as Dict : {};
+  const at = `${operationId}/${location.field}`;
+  const unknownTarget = (name: string) =>
+    report.error(
+      "unknown-style-target",
+      `'${name}' is not a declared ${location.in} parameter`,
+      operationId,
+      `${operationId}/styles/${location.field}/${name}`,
+    );
+  if (declared === undefined) {
+    Object.keys(overrides).forEach(unknownTarget);
+    return [];
+  }
+  const object = objectSchema(declared);
+  if (object === undefined) {
+    report.error(
+      "invalid-parameter-schema",
+      `${location.field} must be a T.Object schema`,
+      operationId,
+      at,
+    );
+    return [];
+  }
+  inspector.inspect(declared, operationId, at);
+  Object.keys(overrides).filter((name) => !(name in object.properties)).forEach(unknownTarget);
+  const seenHeaders = new Set<string>();
+  return Object.entries(object.properties).map(([name, schema]) =>
+    normalizeParameter(
+      name,
+      schema,
+      object.required.has(name),
+      isRecord(overrides[name]) ? overrides[name] as Dict : {},
+      seenHeaders,
+      { location, operationId, at: `${at}/${name}`, report },
+    )
+  );
+}
+
 function normalizeParameters(
   operationId: string,
   op: OperationSpec,
   pathParameters: readonly string[],
   ctx: OperationContext,
 ): ParameterModel[] {
-  const { report, inspector } = ctx;
-  const parameters: ParameterModel[] = [];
-  const styles = isRecord(op.styles) ? op.styles : {};
-  for (const location of LOCATIONS) {
-    const declared = op[location.field];
-    const overrides = isRecord(styles[location.field]) ? styles[location.field] as Dict : {};
-    const at = `${operationId}/${location.field}`;
-    const unknownTarget = (name: string) =>
-      report.error(
-        "unknown-style-target",
-        `'${name}' is not a declared ${location.in} parameter`,
-        operationId,
-        `${operationId}/styles/${location.field}/${name}`,
-      );
-    if (declared === undefined) {
-      Object.keys(overrides).forEach(unknownTarget);
-      continue;
-    }
-    const object = objectSchema(declared);
-    if (object === undefined) {
-      report.error(
-        "invalid-parameter-schema",
-        `${location.field} must be a T.Object schema`,
-        operationId,
-        at,
-      );
-      continue;
-    }
-    inspector.inspect(declared, operationId, at);
-    Object.keys(overrides).filter((name) => !(name in object.properties)).forEach(unknownTarget);
-    const seenHeaders = new Set<string>();
-    for (const [name, schema] of Object.entries(object.properties)) {
-      const paramAt = `${at}/${name}`;
-      const override = isRecord(overrides[name]) ? overrides[name] as Dict : {};
-      const style = (override.style ?? location.style) as ParameterModel["style"];
-      const explode = typeof override.explode === "boolean" ? override.explode : location.explode;
-      if (!(location.styles as readonly string[]).includes(style)) {
-        report.error(
-          "unsupported-parameter-style",
-          `style '${style}' is not supported for ${location.in} parameters; supported: ${
-            location.styles.join(", ")
-          }`,
-          operationId,
-          paramAt,
-        );
-      }
-      if (style === "deepObject") {
-        if (!objectSchema(schema)) {
-          report.error(
-            "unsupported-parameter-style",
-            "deepObject requires an object schema",
-            operationId,
-            paramAt,
-          );
-        }
-        if (!explode) {
-          report.error(
-            "unsupported-parameter-style",
-            "deepObject requires explode: true",
-            operationId,
-            paramAt,
-          );
-        }
-      }
-      if (location.in === "header") {
-        const lower = name.toLowerCase();
-        if (RESERVED_HEADERS.has(lower)) {
-          report.error(
-            "reserved-header",
-            `OpenAPI ignores a header parameter named '${name}'; declare media types in body and responses, and credentials in securitySchemes`,
-            operationId,
-            paramAt,
-          );
-        }
-        if (seenHeaders.has(lower)) {
-          report.error(
-            "duplicate-header",
-            `header '${name}' is declared twice (header names are case-insensitive)`,
-            operationId,
-            paramAt,
-          );
-        }
-        seenHeaders.add(lower);
-      }
-      const required = object.required.has(name);
-      if (location.in === "path" && !required) {
-        report.error(
-          "optional-path-parameter",
-          `path parameter '${name}' must be required; remove T.Optional`,
-          operationId,
-          paramAt,
-        );
-      }
-      parameters.push({
-        name,
-        in: location.in as ParameterLocation,
-        required,
-        schema,
-        style,
-        explode,
-        hasDefault: isRecord(schema) && "default" in schema,
-      });
-    }
-  }
-
+  const { report } = ctx;
+  const parameters = LOCATIONS.flatMap((location) =>
+    normalizeLocation(location, op, operationId, ctx)
+  );
   const pathNames = parameters.filter((p) => p.in === "path").map((p) => p.name);
   const missing = pathParameters.filter((name) => !pathNames.includes(name));
   const extra = pathNames.filter((name) => !pathParameters.includes(name));
@@ -260,6 +295,74 @@ function normalizeBody(
   };
 }
 
+/** Normalizes the body of a response declaration. */
+function normalizeResponseBody(
+  spec: ResponseSpec,
+  operationId: string,
+  at: string,
+  ctx: OperationContext,
+): ResponseModel["body"] {
+  if (spec.body === undefined) return undefined;
+  const { report, inspector } = ctx;
+  if (!isSchema(spec.body)) {
+    report.error("invalid-response", "a response body must be a schema", operationId, `${at}/body`);
+    return undefined;
+  }
+  // Matched by component name, not identity, so a second copy of HyAPI (for example the CLI's)
+  // still recognizes the built-in Problem schema.
+  const mediaType = spec.mediaType ??
+    (schemaName(spec.body) === "Problem" ? PROBLEM_TYPE : JSON_TYPE);
+  if (!MEDIA_TYPE.test(mediaType)) {
+    report.error(
+      "invalid-media-type",
+      `'${mediaType}' is not a media type`,
+      operationId,
+      `${at}/mediaType`,
+    );
+  }
+  inspector.inspect(spec.body, operationId, `${at}/body`);
+  inspector.warnIfUnnamed(spec.body, operationId, `${at}/body`);
+  return { schema: spec.body, mediaType };
+}
+
+/** Normalizes the headers of a response declaration. */
+function normalizeResponseHeaders(
+  spec: ResponseSpec,
+  operationId: string,
+  at: string,
+  ctx: OperationContext,
+): HeaderModel[] {
+  if (spec.headers === undefined) return [];
+  const { report, inspector } = ctx;
+  const object = objectSchema(spec.headers);
+  if (object === undefined) {
+    report.error(
+      "invalid-response",
+      "response headers must be a T.Object schema",
+      operationId,
+      `${at}/headers`,
+    );
+    return [];
+  }
+  inspector.inspect(spec.headers, operationId, `${at}/headers`);
+  const seen = new Set<string>();
+  const headers: HeaderModel[] = [];
+  for (const [name, schema] of Object.entries(object.properties)) {
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) {
+      report.error(
+        "duplicate-header",
+        `response header '${name}' is declared twice (header names are case-insensitive)`,
+        operationId,
+        `${at}/headers/${name}`,
+      );
+    }
+    seen.add(lower);
+    headers.push({ name, required: object.required.has(name), schema });
+  }
+  return headers;
+}
+
 /** Normalizes one response declaration (schema or full form). */
 function normalizeResponse(
   spec: ResponseSpec,
@@ -267,66 +370,11 @@ function normalizeResponse(
   at: string,
   ctx: OperationContext,
 ): Omit<ResponseModel, "status" | "name"> {
-  const { report, inspector } = ctx;
-  let body: ResponseModel["body"];
-  if (spec.body !== undefined) {
-    if (!isSchema(spec.body)) {
-      report.error(
-        "invalid-response",
-        "a response body must be a schema",
-        operationId,
-        `${at}/body`,
-      );
-    } else {
-      // Matched by component name, not identity, so a second copy of HyAPI (for example the
-      // CLI's) still recognizes the built-in Problem schema.
-      const mediaType = spec.mediaType ??
-        (schemaName(spec.body) === "Problem" ? PROBLEM_TYPE : JSON_TYPE);
-      if (!MEDIA_TYPE.test(mediaType)) {
-        report.error(
-          "invalid-media-type",
-          `'${mediaType}' is not a media type`,
-          operationId,
-          `${at}/mediaType`,
-        );
-      }
-      inspector.inspect(spec.body, operationId, `${at}/body`);
-      inspector.warnIfUnnamed(spec.body, operationId, `${at}/body`);
-      body = { schema: spec.body, mediaType };
-    }
-  }
-  const headers: HeaderModel[] = [];
-  if (spec.headers !== undefined) {
-    const object = objectSchema(spec.headers);
-    if (object === undefined) {
-      report.error(
-        "invalid-response",
-        "response headers must be a T.Object schema",
-        operationId,
-        `${at}/headers`,
-      );
-    } else {
-      inspector.inspect(spec.headers, operationId, `${at}/headers`);
-      const seen = new Set<string>();
-      for (const [name, schema] of Object.entries(object.properties)) {
-        const lower = name.toLowerCase();
-        if (seen.has(lower)) {
-          report.error(
-            "duplicate-header",
-            `response header '${name}' is declared twice (header names are case-insensitive)`,
-            operationId,
-            `${at}/headers/${name}`,
-          );
-        }
-        seen.add(lower);
-        headers.push({ name, required: object.required.has(name), schema });
-      }
-    }
-  }
+  const body = normalizeResponseBody(spec, operationId, at, ctx);
   return {
     description: spec.description,
     ...(body === undefined ? {} : { body }),
-    headers,
+    headers: normalizeResponseHeaders(spec, operationId, at, ctx),
   };
 }
 

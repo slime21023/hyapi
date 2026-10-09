@@ -45,6 +45,7 @@
     "typebox": "npm:typebox@~1.3.34",
     "@seriousme/openapi-schema-validator": "npm:@seriousme/openapi-schema-validator@^2",
     "vitepress": "npm:vitepress@1.6.4",
-    "vue": "npm:vue@3.5.43"
+    "vue": "npm:vue@3.5.43",
+    "typescript": "npm:typescript@~5.9.3"
   }
 }

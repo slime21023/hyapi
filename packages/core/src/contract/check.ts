@@ -77,85 +77,121 @@ function normalizeFormats(formats: unknown, report: Reporter): FormatModel[] {
   return models;
 }
 
+/** Operations collected across contracts, with the owners and routes seen so far. */
+interface Collected {
+  readonly operations: OperationModel[];
+  /** The contract index that declared each `operationId`. */
+  readonly owners: Map<string, number>;
+  /** The operation that holds each method and path template. */
+  readonly routes: Map<string, string>;
+}
+
+/** Checks that a listed contract is usable; false when its operations must be skipped. */
+function acceptContract(
+  api: Api,
+  contract: unknown,
+  at: string,
+  seen: Set<unknown>,
+  report: Reporter,
+): contract is AnyContract {
+  if (!isRecord(contract) || contract.kind !== "hyapi.contract") {
+    report.error(
+      "invalid-api",
+      "every contract must be created with defineContract",
+      undefined,
+      at,
+    );
+    return false;
+  }
+  if (seen.has(contract)) {
+    report.error("duplicate-contract", "the same contract is listed twice", undefined, at);
+    return false;
+  }
+  seen.add(contract);
+  if (contract.securitySchemes !== undefined && contract.securitySchemes !== api.securitySchemes) {
+    report.error(
+      "security-schemes-mismatch",
+      "the contract uses a different defineSecurity module than defineApi; both must import " +
+        "the same value",
+      undefined,
+      `${at}/securitySchemes`,
+    );
+  }
+  return true;
+}
+
+/** Reports an operation whose method and path match the same requests as an earlier one. */
+function checkRoute(operation: OperationModel, routes: Map<string, string>, report: Reporter) {
+  const route = `${operation.method} ${operation.path.replace(/\{[^{}]*\}/g, "{}")}`;
+  const clash = routes.get(route);
+  if (clash === undefined) {
+    routes.set(route, operation.operationId);
+    return;
+  }
+  report.error(
+    "duplicate-route",
+    `'${operation.method} ${operation.path}' matches the same requests as operation '${clash}'`,
+    operation.operationId,
+    `${operation.operationId}/path`,
+  );
+}
+
+/** Normalizes the operations of one contract into `collected`. */
+function normalizeContract(
+  contract: AnyContract,
+  index: number,
+  collected: Collected,
+  report: Reporter,
+  ctx: OperationContext,
+): void {
+  const contractSecurity = contract.security === undefined ? undefined : normalizeRequirements(
+    contract.security,
+    ctx.schemes,
+    report,
+    undefined,
+    `contracts/${index}/security`,
+  );
+  for (const [operationId, declared] of Object.entries(contract.operations ?? {})) {
+    const owner = collected.owners.get(operationId);
+    if (owner !== undefined) {
+      report.error(
+        "duplicate-operation-id",
+        `operationId '${operationId}' is declared by contracts ${owner} and ${index}`,
+        operationId,
+      );
+      continue;
+    }
+    collected.owners.set(operationId, index);
+    const operation = normalizeOperation(
+      operationId,
+      declared as OperationSpec,
+      index,
+      contract,
+      contractSecurity,
+      ctx,
+    );
+    if (operation === undefined) continue;
+    checkRoute(operation, collected.routes, report);
+    collected.operations.push(operation);
+  }
+}
+
 function normalizeContracts(
   api: Api,
   report: Reporter,
   ctx: OperationContext,
 ): OperationModel[] {
-  const contracts = Array.isArray(api.contracts) ? api.contracts as readonly AnyContract[] : [];
   if (!Array.isArray(api.contracts)) {
     report.error("invalid-api", "contracts must be a list", undefined, "contracts");
+    return [];
   }
-  const operations: OperationModel[] = [];
-  const owners = new Map<string, number>();
-  const routes = new Map<string, string>();
+  const collected: Collected = { operations: [], owners: new Map(), routes: new Map() };
   const seen = new Set<unknown>();
-
-  contracts.forEach((contract, index) => {
-    const at = `contracts/${index}`;
-    if (!isRecord(contract) || contract.kind !== "hyapi.contract") {
-      report.error(
-        "invalid-api",
-        "every contract must be created with defineContract",
-        undefined,
-        at,
-      );
-      return;
-    }
-    if (seen.has(contract)) {
-      report.error("duplicate-contract", "the same contract is listed twice", undefined, at);
-      return;
-    }
-    seen.add(contract);
-    if (
-      contract.securitySchemes !== undefined && contract.securitySchemes !== api.securitySchemes
-    ) {
-      report.error(
-        "security-schemes-mismatch",
-        "the contract uses a different defineSecurity module than defineApi; both must import " +
-          "the same value",
-        undefined,
-        `${at}/securitySchemes`,
-      );
-    }
-    const contractSecurity = contract.security === undefined
-      ? undefined
-      : normalizeRequirements(contract.security, ctx.schemes, report, undefined, `${at}/security`);
-
-    for (const [operationId, declared] of Object.entries(contract.operations ?? {})) {
-      const owner = owners.get(operationId);
-      if (owner !== undefined) {
-        report.error(
-          "duplicate-operation-id",
-          `operationId '${operationId}' is declared by contracts ${owner} and ${index}`,
-          operationId,
-        );
-        continue;
-      }
-      owners.set(operationId, index);
-      const operation = normalizeOperation(
-        operationId,
-        declared as OperationSpec,
-        index,
-        contract,
-        contractSecurity,
-        ctx,
-      );
-      if (operation === undefined) continue;
-      const route = `${operation.method} ${operation.path.replace(/\{[^{}]*\}/g, "{}")}`;
-      const clash = routes.get(route);
-      if (clash !== undefined) {
-        report.error(
-          "duplicate-route",
-          `'${operation.method} ${operation.path}' matches the same requests as operation '${clash}'`,
-          operationId,
-          `${operationId}/path`,
-        );
-      } else routes.set(route, operationId);
-      operations.push(operation);
-    }
-  });
-  return operations;
+  for (const [index, contract] of (api.contracts as readonly unknown[]).entries()) {
+    if (!acceptContract(api, contract, `contracts/${index}`, seen, report)) continue;
+    normalizeContract(contract, index, collected, report, ctx);
+  }
+  return collected.operations;
 }
 
 /**

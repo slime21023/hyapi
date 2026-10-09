@@ -97,130 +97,145 @@ export interface Inspector {
   readonly schemas: ReadonlyMap<string, TSchema>;
 }
 
+/** What one walk over a schema tree reports to and collects into. */
+interface Walk {
+  readonly report: Reporter;
+  readonly schemas: Map<string, TSchema>;
+  readonly knownFormat: (format: string) => boolean;
+  readonly operationId: string | undefined;
+  /** Nodes on the current path, so that cyclic references end the walk. */
+  readonly path: Set<object>;
+}
+
+/** Registers a named schema, reporting invalid, reserved, and conflicting names. */
+function registerSchema(schema: TSchema, at: string, walk: Walk): void {
+  const name = schemaName(schema);
+  if (name === undefined) return;
+  const { report, schemas, operationId } = walk;
+  if (!COMPONENT_NAME.test(name)) {
+    report.error(
+      "invalid-component-name",
+      `schema name '${name}' may contain only letters, digits, '.', '-', and '_'`,
+      operationId,
+      at,
+    );
+    return;
+  }
+  // The name selects application/problem+json, so only the built-in schema may carry it.
+  if (name === "Problem" && JSON.stringify(schema) !== JSON.stringify(Problem)) {
+    report.error(
+      "reserved-schema-name",
+      "'Problem' is reserved for the built-in Problem schema; give this schema another name",
+      operationId,
+      at,
+    );
+    return;
+  }
+  const existing = schemas.get(name);
+  if (existing === undefined) schemas.set(name, schema);
+  else if (existing !== schema && JSON.stringify(existing) !== JSON.stringify(schema)) {
+    report.error(
+      "duplicate-schema-name",
+      `two different schemas are named '${name}'; give each schema a unique name`,
+      operationId,
+      at,
+    );
+  }
+}
+
+/** Reports what one schema node, without its children, cannot express in JSON Schema. */
+function checkSchemaNode(schema: Dict, at: string, scope: ReadonlySet<string>, walk: Walk): void {
+  const error = (
+    code: "unsupported-schema" | "unknown-format" | "unresolved-reference",
+    message: string,
+  ) => walk.report.error(code, message, walk.operationId, at);
+  if ("~codec" in schema) {
+    error(
+      "unsupported-schema",
+      "codecs transform values in code and cannot be represented in JSON Schema",
+    );
+  }
+  if ("~refine" in schema) {
+    error(
+      "unsupported-schema",
+      "refinements check values in code and cannot be represented in JSON Schema",
+    );
+  }
+  if (typeof schema.format === "string" && !walk.knownFormat(schema.format)) {
+    error(
+      "unknown-format",
+      `format '${schema.format}' is neither a standard format nor declared in ` +
+        "defineApi({ formats }); declare it there or remove it, so that documentation and " +
+        "validation agree",
+    );
+  }
+  if (typeof schema.type === "string" && NON_JSON_TYPES.has(schema.type)) {
+    error("unsupported-schema", `the '${schema.type}' type cannot be represented in JSON Schema`);
+  }
+  const ref = schema.$ref;
+  if (typeof ref === "string" && !ref.startsWith("#") && !scope.has(ref)) {
+    error(
+      "unresolved-reference",
+      `'$ref: ${ref}' does not refer to a definition in an enclosing T.Cyclic`,
+    );
+  }
+}
+
+/** The child schemas of a node, each with its location. */
+function childrenOf(schema: Dict, at: string): (readonly [unknown, string])[] {
+  const children: (readonly [unknown, string])[] = [];
+  for (const keyword of MAP_KEYWORDS) {
+    const map = schema[keyword];
+    if (!isRecord(map)) continue;
+    children.push(
+      ...Object.entries(map).map(([key, value]) => [value, `${at}/${keyword}/${key}`] as const),
+    );
+  }
+  for (const keyword of SCHEMA_KEYWORDS) children.push([schema[keyword], `${at}/${keyword}`]);
+  for (const keyword of ARRAY_KEYWORDS) {
+    const list = schema[keyword];
+    if (!Array.isArray(list)) continue;
+    children.push(...list.map((value, i) => [value, `${at}/${keyword}/${i}`] as const));
+  }
+  return children;
+}
+
+/** Visits a schema tree depth first. `scope` holds the `$defs` names that `$ref` may use. */
+function visitSchema(node: unknown, at: string, scope: ReadonlySet<string>, walk: Walk): void {
+  if (typeof node !== "object" || node === null || walk.path.has(node)) return;
+  walk.path.add(node);
+  const schema = node as Dict;
+  registerSchema(node as TSchema, at, walk);
+  const inner = isRecord(schema.$defs) ? new Set([...scope, ...Object.keys(schema.$defs)]) : scope;
+  checkSchemaNode(schema, at, inner, walk);
+  for (const [child, location] of childrenOf(schema, at)) visitSchema(child, location, inner, walk);
+  walk.path.delete(node);
+}
+
 /** Creates an inspector that accepts the standard formats and the API's declared `formats`. */
 export function createInspector(report: Reporter, declaredFormats: ReadonlySet<string>): Inspector {
   const schemas = new Map<string, TSchema>();
-
-  const register = (schema: TSchema, operationId: string | undefined, at: string) => {
-    const name = schemaName(schema);
-    if (name === undefined) return;
-    if (!COMPONENT_NAME.test(name)) {
-      report.error(
-        "invalid-component-name",
-        `schema name '${name}' may contain only letters, digits, '.', '-', and '_'`,
-        operationId,
-        at,
-      );
-      return;
-    }
-    // The name selects application/problem+json, so only the built-in schema may carry it.
-    if (name === "Problem" && JSON.stringify(schema) !== JSON.stringify(Problem)) {
-      report.error(
-        "reserved-schema-name",
-        "'Problem' is reserved for the built-in Problem schema; give this schema another name",
-        operationId,
-        at,
-      );
-      return;
-    }
-    const existing = schemas.get(name);
-    if (existing === undefined) schemas.set(name, schema);
-    else if (existing !== schema && JSON.stringify(existing) !== JSON.stringify(schema)) {
-      report.error(
-        "duplicate-schema-name",
-        `two different schemas are named '${name}'; give each schema a unique name`,
-        operationId,
-        at,
-      );
-    }
-  };
-
   const knownFormat = (format: string) =>
     STANDARD_FORMATS.has(format) || ANNOTATION_FORMATS.has(format) || declaredFormats.has(format);
 
-  const inspect = (root: unknown, operationId: string | undefined, location: string) => {
-    const stack = new Set<object>();
-    const visit = (node: unknown, at: string, scope: ReadonlySet<string>) => {
-      if (typeof node !== "object" || node === null || stack.has(node)) return;
-      stack.add(node);
-      const schema = node as Dict;
-      register(node as TSchema, operationId, at);
-      if ("~codec" in schema) {
-        report.error(
-          "unsupported-schema",
-          "codecs transform values in code and cannot be represented in JSON Schema",
-          operationId,
-          at,
-        );
-      }
-      if ("~refine" in schema) {
-        report.error(
-          "unsupported-schema",
-          "refinements check values in code and cannot be represented in JSON Schema",
-          operationId,
-          at,
-        );
-      }
-      if (typeof schema.format === "string" && !knownFormat(schema.format)) {
-        report.error(
-          "unknown-format",
-          `format '${schema.format}' is neither a standard format nor declared in ` +
-            "defineApi({ formats }); declare it there or remove it, so that documentation and " +
-            "validation agree",
-          operationId,
-          at,
-        );
-      }
-      if (typeof schema.type === "string" && NON_JSON_TYPES.has(schema.type)) {
-        report.error(
-          "unsupported-schema",
-          `the '${schema.type}' type cannot be represented in JSON Schema`,
-          operationId,
-          at,
-        );
-      }
-      let inner = scope;
-      if (isRecord(schema.$defs)) inner = new Set([...scope, ...Object.keys(schema.$defs)]);
-      if (
-        typeof schema.$ref === "string" && !schema.$ref.startsWith("#") && !inner.has(schema.$ref)
-      ) {
-        report.error(
-          "unresolved-reference",
-          `'$ref: ${schema.$ref}' does not refer to a definition in an enclosing T.Cyclic`,
-          operationId,
-          at,
-        );
-      }
-      for (const keyword of MAP_KEYWORDS) {
-        const map = schema[keyword];
-        if (isRecord(map)) {
-          for (const [key, value] of Object.entries(map)) {
-            visit(value, `${at}/${keyword}/${key}`, inner);
-          }
-        }
-      }
-      for (const keyword of SCHEMA_KEYWORDS) visit(schema[keyword], `${at}/${keyword}`, inner);
-      for (const keyword of ARRAY_KEYWORDS) {
-        const list = schema[keyword];
-        if (Array.isArray(list)) {
-          list.forEach((value, i) => visit(value, `${at}/${keyword}/${i}`, inner));
-        }
-      }
-      stack.delete(node);
-    };
-    visit(root, location, new Set());
-  };
+  const inspect = (root: unknown, operationId: string | undefined, location: string) =>
+    visitSchema(root, location, new Set(), {
+      report,
+      schemas,
+      knownFormat,
+      operationId,
+      path: new Set(),
+    });
 
   const warnIfUnnamed = (schema: TSchema, operationId: string, at: string) => {
-    if (objectSchema(schema) && schemaName(schema) === undefined) {
-      report.warn(
-        "unnamed-schema",
-        "this object schema is emitted inline; name it with defineSchema so that consumers' code " +
-          "generators produce a meaningful type name",
-        operationId,
-        at,
-      );
-    }
+    if (!objectSchema(schema) || schemaName(schema) !== undefined) return;
+    report.warn(
+      "unnamed-schema",
+      "this object schema is emitted inline; name it with defineSchema so that consumers' code " +
+        "generators produce a meaningful type name",
+      operationId,
+      at,
+    );
   };
 
   return { inspect, warnIfUnnamed, schemas };
