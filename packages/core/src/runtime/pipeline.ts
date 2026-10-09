@@ -44,8 +44,9 @@ export interface Outcome {
   readonly streaming?: boolean;
 }
 
+/** A bound handler, with its contract types erased once it is checked against the model. */
 // deno-lint-ignore no-explicit-any
-type AnyHandler = (input: any, ctx: any) => unknown;
+export type AnyHandler = (input: any, ctx: any) => unknown;
 
 /** The input keys of a handler per parameter location, as in RFC 0001. */
 const INPUT_KEYS: Readonly<Record<ParameterLocation, "params" | "query" | "headers" | "cookies">> =

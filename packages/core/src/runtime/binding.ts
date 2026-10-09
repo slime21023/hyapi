@@ -3,6 +3,7 @@ import type { AnyContract } from "../contract/define.ts";
 import type { ContractModel, OperationModel } from "../contract/model.ts";
 import type { Implementation } from "./handler.ts";
 import type { LifecycleResource } from "./lifecycle.ts";
+import type { AnyHandler } from "./pipeline.ts";
 
 /** Stable identifiers for diagnostics that only `createApp` can report. */
 export type StartupDiagnosticCode =
@@ -34,9 +35,6 @@ export type StartupReport = (
   message: string,
   operationId?: string,
 ) => void;
-
-// deno-lint-ignore no-explicit-any
-type AnyHandler = (input: any, ctx: any) => unknown;
 
 /** An operation bound to its handler, or to none when it is `notImplemented`. */
 export interface Binding {
