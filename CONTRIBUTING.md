@@ -40,9 +40,10 @@ the CLI commands, flags, and output formats, and the wire behavior of problem re
 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the old API,
 and a design-changing decision is recorded in `_adr/`.
 
-The `v1.0.0-rc` candidates of the previous design were withdrawn before publication. The new design
-starts at `0.1.0`. Before 1.0.0, minor versions may change the public API; the changelog lists every
-change.
+The previous design reached `1.0.0-rc.4`, which was published to JSR, and was then superseded. The
+new design restarts at `0.x`: `0.1.0` was not published, and `0.2.0` is its first release. Because
+`1.0.0-rc.4` is a pre-release, JSR resolves an unversioned `@hyapi/*` import to the newest `0.x`
+release. Before 1.0.0, minor versions may change the public API; the changelog lists every change.
 
 ### Releasing
 
