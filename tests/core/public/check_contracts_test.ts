@@ -13,6 +13,7 @@ import {
   type DiagnosticCode,
   httpBearer,
   oauth2,
+  Problem,
 } from "@hyapi/core/contract";
 
 const T = Type;
@@ -393,6 +394,46 @@ Deno.test("invalid-format", () => {
   expectError(withFormats({ int32: () => true }), "invalid-format");
   expectError(withFormats({ isbn: "not a function" }), "invalid-format");
   assert(withFormats({ isbn: () => true }).ok);
+});
+
+Deno.test("implicit-public", () => {
+  const security = defineSecurity({ bearer: httpBearer<{ subject: string }>() });
+  expectError(checkContracts(apiOf({ a: op() }, { securitySchemes: security })), "implicit-public");
+  assert(checkContracts(apiOf({ a: op({ security: [] }) }, { securitySchemes: security })).ok);
+  assert(
+    checkContracts(apiOf({ a: op() }, { securitySchemes: security, security: [{ bearer: [] }] }))
+      .ok,
+  );
+  assert(
+    checkContracts(apiOf({ a: op() }, {
+      securitySchemes: security,
+      contract: { securitySchemes: security, security: [{ bearer: [] }] },
+    })).ok,
+  );
+  assert(
+    checkContracts(apiOf({ a: op() })).ok,
+    "an API without schemes has only public operations",
+  );
+});
+
+Deno.test("unsupported-body-schema", () => {
+  const withBody = (schema: unknown, mediaType: string) =>
+    checkContracts(apiOf({ a: op({ method: "PUT", body: { schema, mediaType } }) }));
+  expectError(withBody(Ok, "application/octet-stream"), "unsupported-body-schema");
+  expectError(withBody(Ok, "application/x-www-form-urlencoded"), "unsupported-body-schema");
+  expectError(withBody(T.String(), "multipart/form-data"), "unsupported-body-schema");
+  assert(withBody(T.String({ format: "binary" }), "application/octet-stream").ok);
+  assert(withBody(T.String(), "text/plain").ok);
+  assert(withBody(Ok, "application/merge-patch+json").ok);
+});
+
+Deno.test("reserved-schema-name", () => {
+  const fake = defineSchema("Problem", T.Object({ message: T.String() }));
+  expectError(
+    checkContracts(apiOf({ a: op({ responses: { 400: fake } }) })),
+    "reserved-schema-name",
+  );
+  assert(checkContracts(apiOf({ a: op({ responses: { 400: Problem } }) })).ok);
 });
 
 Deno.test("checkContracts returns diagnostics only", () => {

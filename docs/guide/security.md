@@ -22,6 +22,23 @@ security: []; // public
 
 Scheme names are type-checked. Scopes are checked against OAuth 2 flows by `checkContracts`.
 
+Security fails closed. Once the API declares a scheme, every operation needs a requirement from
+itself, its contract, or the API; an operation with none fails startup (`implicit-public`). Write
+`security: []` to make an operation public on purpose.
+
+### Credentials set by a proxy
+
+An `apiKey` header scheme can carry an identity that a proxy established, such as a client
+certificate checked by mTLS:
+
+```ts
+mtls: apiKey<{ subject: string }>({ in: "header", name: "x-client-subject" }),
+```
+
+The verifier trusts whatever value arrives, so this is safe only when every request passes the
+proxy, and the proxy removes the header from client requests before setting it. Otherwise a client
+can send the header itself.
+
 ## Verifiers
 
 ```ts
@@ -85,6 +102,6 @@ const oidc = await oidcBearer({
 });
 ```
 
-Both accept exactly the configured algorithms, require `exp`, read scopes from `scope` or `scp`, and
-fail at startup on bad keys or an unreachable issuer. When the identity provider's key server fails
-at runtime, `oidcBearer` throws, which answers 500, not 401.
+Both accept exactly the configured algorithms, require an `audience` and the `exp` claim, read
+scopes from `scope` or `scp`, and fail at startup on bad keys or an unreachable issuer. When the
+identity provider's key server fails at runtime, `oidcBearer` throws, which answers 500, not 401.

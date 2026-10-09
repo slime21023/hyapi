@@ -1,3 +1,4 @@
+import { isJsonMediaType, isTextMediaType } from "../contract/media.ts";
 import type { BodyModel } from "../contract/model.ts";
 
 /** The media type without parameters, lowercased. */
@@ -5,10 +6,6 @@ export function mediaTypeOf(contentType: string | null): string | undefined {
   if (contentType === null) return undefined;
   const type = contentType.split(";")[0]!.trim().toLowerCase();
   return type === "" ? undefined : type;
-}
-
-export function isJsonMediaType(mediaType: string): boolean {
-  return mediaType === "application/json" || mediaType.endsWith("+json");
 }
 
 function acceptsMediaType(declared: string, actual: string): boolean {
@@ -101,7 +98,7 @@ export async function readBody(
       };
     }
   }
-  if (mediaType.startsWith("text/")) {
+  if (isTextMediaType(mediaType)) {
     try {
       return { kind: "ok", value: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
     } catch {

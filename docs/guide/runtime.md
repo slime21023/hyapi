@@ -54,8 +54,34 @@ so `/books/mine` is matched before `/books/{id}`.
 ## Bodies
 
 JSON bodies (`application/json` and `+json`) are parsed and validated. `text/*` bodies are decoded
-and validated. Other declared media types reach the handler as bytes. Request bodies are never
-coerced.
+and validated. Request bodies are never coerced.
+
+Any other media type reaches the handler as a `Uint8Array`, and its schema must say so:
+
+```ts
+body: { schema: T.String({ format: "binary" }), mediaType: "application/octet-stream" },
+// handler: ({ body }) => body.byteLength
+```
+
+Another schema for such a body fails startup (`unsupported-body-schema`). Form and multipart bodies
+are not supported yet.
+
+## Responses
+
+Undeclared fields are always stripped. `responseValidation` decides what happens when the stripped
+result still does not match its declared status, body schema, or header schemas: `enforce` answers
+500 `RESPONSE_CONTRACT_VIOLATION`, `log` sends the response and emits `response.violation`, and
+`off` runs no check at all.
+
+To stream, return a raw `Response`, or a result whose body is a `ReadableStream`:
+
+```ts
+events: () =>
+  new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+```
+
+Streamed bodies are not validated. They count as in flight until they end, so shutdown waits for
+them, and aborts them through `ctx.signal` when the shutdown budget runs out.
 
 ## Errors
 

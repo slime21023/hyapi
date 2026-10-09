@@ -1,6 +1,6 @@
 import type { TSchema } from "typebox";
 import type { Reporter } from "./diagnostics.ts";
-import { isSchema, schemaName } from "./schema.ts";
+import { isSchema, Problem, schemaName } from "./schema.ts";
 
 export type Dict = Readonly<Record<string, unknown>>;
 
@@ -108,6 +108,16 @@ export function createInspector(report: Reporter, declaredFormats: ReadonlySet<s
       report.error(
         "invalid-component-name",
         `schema name '${name}' may contain only letters, digits, '.', '-', and '_'`,
+        operationId,
+        at,
+      );
+      return;
+    }
+    // The name selects application/problem+json, so only the built-in schema may carry it.
+    if (name === "Problem" && JSON.stringify(schema) !== JSON.stringify(Problem)) {
+      report.error(
+        "reserved-schema-name",
+        "'Problem' is reserved for the built-in Problem schema; give this schema another name",
         operationId,
         at,
       );

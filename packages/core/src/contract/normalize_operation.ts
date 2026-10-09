@@ -13,6 +13,7 @@ import type {
   ResponseModel,
 } from "./model.ts";
 import { normalizeRequirements } from "./normalize_security.ts";
+import { isJsonMediaType, isTextMediaType } from "./media.ts";
 import { reasonPhrase } from "./reason.ts";
 import { isNamedResponse, type NamedResponse, type ResponseSpec } from "./response.ts";
 import { isSchema, schemaName } from "./schema.ts";
@@ -228,6 +229,18 @@ function normalizeBody(
   const mediaType = typeof full?.mediaType === "string" ? full.mediaType : JSON_TYPE;
   if (!MEDIA_TYPE.test(mediaType)) {
     report.error("invalid-media-type", `'${mediaType}' is not a media type`, operationId, at);
+  }
+  // Other media types reach the handler as bytes, so only a binary string describes them.
+  const bytes = !isJsonMediaType(mediaType) && !isTextMediaType(mediaType);
+  const schemaFields = schema as unknown as Dict;
+  if (bytes && !(schemaFields.type === "string" && schemaFields.format === "binary")) {
+    report.error(
+      "unsupported-body-schema",
+      `${mediaType} bodies reach the handler as bytes; declare the schema as ` +
+        'T.String({ format: "binary" }) (form and multipart bodies are not supported yet)',
+      operationId,
+      at,
+    );
   }
   if (op.method === "GET" || op.method === "HEAD") {
     report.warn(
@@ -463,6 +476,16 @@ export function normalizeOperation(
   } else {
     security = [];
     securityOrigin = "none";
+    // Fail closed: once the API has security schemes, a public operation must say so.
+    if (ctx.schemes.size > 0) {
+      report.error(
+        "implicit-public",
+        "the operation has no security requirement although the API declares security schemes; " +
+          "declare one, or 'security: []' to make the operation public on purpose",
+        operationId,
+        `${operationId}/security`,
+      );
+    }
   }
 
   return {

@@ -51,6 +51,7 @@ export async function buildExample(config: ExampleConfig): Promise<{
       bearer: await jwtBearer({
         algorithm: "HS256",
         key: config.jwtSecret,
+        audience: "library-api",
         identity: (claims) => (claims.sub ? { subject: claims.sub } : null),
       }),
     },
@@ -67,9 +68,15 @@ export async function buildExample(config: ExampleConfig): Promise<{
   const limited = withRateLimit(app.fetch, {
     limit: 600,
     windowMs: 60_000,
-    // Behind a trusted proxy, limit by the forwarded client address.
-    key: (request) => request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
+    // Behind one trusted proxy, its client address is the last X-Forwarded-For entry. Earlier
+    // entries come from the client and can be forged, so they must never be the key.
+    key: (request) => request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim(),
   });
-  const fetch = withCors(limited, { origins: config.corsOrigins, maxAgeSeconds: 600 });
+  const fetch = withCors(limited, {
+    origins: config.corsOrigins,
+    // Browsers read only safelisted response headers unless they are exposed.
+    exposeHeaders: ["location", "retry-after", "ratelimit-limit", "ratelimit-remaining"],
+    maxAgeSeconds: 600,
+  });
   return { app, fetch: async (request) => await fetch(request) };
 }

@@ -184,6 +184,53 @@ function lifecycleEvent(failure: LifecycleFailure): AppEvent {
   };
 }
 
+/**
+ * Passes a streamed body through, calling `done` once when it ends, fails, or is cancelled. When
+ * `shutdown` aborts, the body is cancelled and the stream errors with the abort reason.
+ */
+function trackBody(
+  body: ReadableStream<Uint8Array>,
+  done: () => void,
+  shutdown: AbortSignal,
+): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let finished = false;
+  let abort: (() => void) | undefined;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (abort !== undefined) shutdown.removeEventListener("abort", abort);
+    done();
+  };
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      abort = () => {
+        void reader.cancel(shutdown.reason).catch(() => {});
+        controller.error(shutdown.reason);
+        finish();
+      };
+      if (shutdown.aborted) abort();
+      else shutdown.addEventListener("abort", abort, { once: true });
+    },
+    async pull(controller) {
+      try {
+        const { done: end, value } = await reader.read();
+        if (end) {
+          controller.close();
+          finish();
+        } else controller.enqueue(value);
+      } catch (error) {
+        controller.error(error);
+        finish();
+      }
+    },
+    cancel(reason) {
+      finish();
+      return reader.cancel(reason);
+    },
+  });
+}
+
 /** Counts in-flight requests and lets `close()` wait until they finish. */
 function createTracker() {
   let inFlight = 0;
@@ -312,31 +359,36 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
     }
   };
 
-  const handle = async (request: Request): Promise<Response> => {
+  const handle = async (request: Request): Promise<{ response: Response; streaming: boolean }> => {
     const url = new URL(request.url);
+    const buffered = (response: Response) => ({ response, streaming: false });
     if (document !== undefined && url.pathname === document.path) {
       if (request.method !== "GET" && request.method !== "HEAD") {
-        return problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } });
+        return buffered(
+          problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } }),
+        );
       }
-      return new Response(request.method === "HEAD" ? null : document.text, {
-        headers: { "content-type": document.type },
-      });
+      return buffered(
+        new Response(request.method === "HEAD" ? null : document.text, {
+          headers: { "content-type": document.type },
+        }),
+      );
     }
     const match = router.match(request.method, url.pathname);
     switch (match.kind) {
       case "not-found":
-        return problemResponse(404, "NOT_FOUND", {
+        return buffered(problemResponse(404, "NOT_FOUND", {
           detail: `No operation matches ${url.pathname}.`,
-        });
+        }));
       case "method-not-allowed":
-        return problemResponse(405, "METHOD_NOT_ALLOWED", {
+        return buffered(problemResponse(405, "METHOD_NOT_ALLOWED", {
           detail: `${request.method} is not declared for ${url.pathname}.`,
           headers: { allow: match.allow.join(", ") },
-        });
+        }));
       case "malformed-path":
-        return problemResponse(400, "MALFORMED_REQUEST", {
+        return buffered(problemResponse(400, "MALFORMED_REQUEST", {
           detail: "The path is not valid percent-encoding.",
-        });
+        }));
     }
     const { operation } = match;
     const base = {
@@ -368,9 +420,11 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
         error: (({ name, message }) => ({ name, message }))(describeError(outcome.error)),
       }),
     });
-    return match.head
-      ? new Response(null, { status: response.status, headers: response.headers })
-      : response;
+    if (match.head) {
+      void response.body?.cancel().catch(() => {});
+      return buffered(new Response(null, { status: response.status, headers: response.headers }));
+    }
+    return { response, streaming: outcome.streaming === true && response.body !== null };
   };
 
   const app: App = {
@@ -382,8 +436,18 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
         });
       }
       tracker.enter();
+      // A streamed body keeps the request in flight until it ends, so close() waits for it and
+      // lifecycle resources stop only after it.
+      let streaming = false;
       try {
-        return await handle(request);
+        const { response, streaming: streams } = await handle(request);
+        if (!streams) return response;
+        streaming = true;
+        return new Response(trackBody(response.body!, tracker.leave, shutdown.signal), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
       } catch (caught) {
         return problemResponse(
           500,
@@ -391,7 +455,7 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
           settings.development ? { debug: describeError(caught) } : {},
         );
       } finally {
-        tracker.leave();
+        if (!streaming) tracker.leave();
       }
     },
     close() {

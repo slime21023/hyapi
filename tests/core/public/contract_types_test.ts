@@ -114,6 +114,40 @@ export const typeChecks: [GetUserInput, GetUserResult, DeleteSecurity][] = [
   ],
 ];
 
+// Bodies that are neither JSON nor text arrive as bytes (RFC 0001 A24).
+const files = defineContract({
+  operations: {
+    upload: {
+      method: "PUT",
+      path: "/files/{name}",
+      params: T.Object({ name: T.String() }),
+      body: { schema: T.String({ format: "binary" }), mediaType: "application/octet-stream" },
+      responses: { 204: { description: "Stored" } },
+    },
+    note: {
+      method: "PUT",
+      path: "/notes",
+      body: { schema: T.String(), mediaType: "text/plain" },
+      responses: { 204: { description: "Stored" } },
+    },
+  },
+});
+implement(files, {
+  upload: ({ body }) => {
+    const bytes: Uint8Array = body;
+    void bytes;
+    return { status: 204 };
+  },
+  note: ({ body }) => {
+    const text: string = body;
+    void text;
+    return { status: 204 };
+  },
+});
+type UploadBody = InputOf<OperationOf<typeof files, "upload">>["body"];
+// @ts-expect-error a byte body is not a string
+export const notText: UploadBody = "text";
+
 // --- Errors that must be caught ----------------------------------------------------------------
 
 defineContract({

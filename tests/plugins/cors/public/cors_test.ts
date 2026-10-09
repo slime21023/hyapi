@@ -71,7 +71,7 @@ Deno.test("actual requests get CORS headers only for allowed origins", async () 
   assertEquals(other.headers.get("access-control-allow-origin"), null);
   await other.body?.cancel();
   const sameOrigin = await handler(new Request("http://api/items"));
-  assertEquals(sameOrigin.headers.get("vary"), null);
+  assertEquals(sameOrigin.headers.get("vary"), "origin", "the answer depends on Origin (F3.2)");
   await sameOrigin.body?.cancel();
 });
 
@@ -83,4 +83,22 @@ Deno.test("the wildcard origin answers * and never with credentials", async () =
   await response.body?.cancel();
   assertThrows(() => withCors(inner, { origins: ["*"], credentials: true }), TypeError);
   assertThrows(() => withCors(inner, { origins: [] }), TypeError);
+});
+
+Deno.test("responses vary by Origin even when no CORS headers are added", async () => {
+  const handler = withCors(inner, { origins: ["https://app.example.com"] });
+  for (const headers of [{}, { origin: "https://evil.example" }]) {
+    const response = await handler(new Request("http://api/items", { headers }));
+    assertEquals(response.headers.get("vary"), "origin");
+    assertEquals(response.headers.get("access-control-allow-origin"), null);
+    await response.body?.cancel();
+  }
+  const refused = await handler(preflight("https://evil.example"));
+  assertEquals([refused.status, refused.headers.get("vary")], [403, "origin"]);
+  await refused.body?.cancel();
+
+  const open = withCors(inner, { origins: ["*"] });
+  const any = await open(new Request("http://api/items"));
+  assertEquals(any.headers.get("vary"), null, "a wildcard answer is the same for every origin");
+  await any.body?.cancel();
 });

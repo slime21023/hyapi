@@ -7,16 +7,23 @@ HyAPI has no middleware. A plugin is one of two things:
 - an **outer `fetch` wrapper** of the form `(fetch, options) => fetch`, composed around `app.fetch`:
   `@hyapi/plugin-cors`, `@hyapi/plugin-csrf`, and `@hyapi/plugin-rate-limit`.
 
-Wrappers answer errors with the same problem shape as the runtime. Compose them and pass the result
-to `serve`:
+Wrappers answer errors with the same problem shape as the runtime. Compose them in this order, and
+pass the result to `serve`:
 
 ```ts
 const handler = withCors(
-  withRateLimit(app.fetch, { limit: 600, windowMs: 60_000, key: clientKey }),
-  { origins: ["https://app.example.com"] },
+  withCsrf(
+    withRateLimit(app.fetch, { limit: 600, windowMs: 60_000, key: clientKey }),
+    { secret: Deno.env.get("CSRF_SECRET")! },
+  ),
+  { origins: ["https://app.example.com"], credentials: true },
 );
 serve(app, { fetch: handler });
 ```
+
+CORS goes outermost: it answers preflight requests itself, and it adds CORS headers to every other
+answer, including the 403 of CSRF and the 429 of the rate limiter, which browsers could not read
+otherwise. CSRF goes before rate limiting, so forged requests do not use up a client's quota.
 
 ## CORS
 
@@ -34,7 +41,11 @@ withCors(app.fetch, {
 
 Origins are always explicit. Preflight from an allowed origin answers 204; preflight from another
 origin, or for undeclared methods or headers, answers 403. Other requests reach the app, and CORS
-headers are added only for allowed origins.
+headers are added only for allowed origins. Unless the origin is `*`, every response carries
+`Vary: Origin`, so a shared cache never serves one origin's answer to another.
+
+Browsers let scripts read only a few response headers. List the others in `exposeHeaders`, such as
+`location` for created resources, and `retry-after` and the `ratelimit-*` headers for rate limiting.
 
 ## CSRF
 
@@ -51,7 +62,8 @@ withCsrf(app.fetch, {
 
 Safe requests receive a `__Host-csrf` cookie holding a signed token. The browser's script echoes it
 in the `x-csrf-token` header on unsafe requests; a missing, mismatched, or forged token answers 403
-`CSRF_FAILED`. Bearer-token APIs do not need CSRF protection; use `skip` for them.
+`CSRF_FAILED`. CORS preflight requests pass through untouched. Bearer-token APIs do not need CSRF
+protection; use `skip` for them.
 
 ## Rate limiting
 
@@ -69,3 +81,13 @@ A fixed window per key, kept in this process. A `Request` does not reveal the cl
 `key` is required; requests without a key are not limited. Responses carry `RateLimit-Limit`,
 `RateLimit-Remaining`, and `RateLimit-Reset`, and rejected requests answer 429 `RATE_LIMITED` with
 `Retry-After`. For limits across several instances, rate limit at the edge.
+
+To limit by client address behind a proxy, read the address that your proxy added. A proxy appends
+the client's address to `X-Forwarded-For`, so with one trusted proxy it is the **last** entry;
+earlier entries come from the client and can be forged:
+
+```ts
+key: (request) => request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim(),
+```
+
+Without a proxy that sets the header, any value in it comes from the client.

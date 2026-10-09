@@ -27,6 +27,8 @@ HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes 
 
 - Security requirements are declared in the contract and enforced by the runtime, before any input
   is validated. Every declared scheme needs a verifier, or the application does not start.
+- Security fails closed: once the API declares a scheme, an operation without a requirement stops
+  the application from starting (`implicit-public`); public operations say `security: []`.
 - A verifier that throws (for example, because a key server is unreachable) produces a 500 response,
   never an unauthenticated or authorized one.
 - Every request is validated against its contract. Request bodies are limited to 1 MiB
@@ -44,8 +46,8 @@ HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes 
 
 **Plugins**
 
-- `@hyapi/plugin-jwt` accepts exactly one configured algorithm, requires `exp`, rejects HS256
-  secrets shorter than 32 bytes, and fails at startup on unusable keys.
+- `@hyapi/plugin-jwt` accepts exactly one configured algorithm, requires an audience and `exp`,
+  rejects HS256 secrets shorter than 32 bytes, and fails at startup on unusable keys.
 - `@hyapi/plugin-oidc` accepts asymmetric algorithms only, requires an audience, checks that the
   discovered issuer matches exactly, and treats key-server failures as errors, not invalid tokens.
 - `@hyapi/plugin-cors` has no permissive default: origins are listed explicitly, and `*` cannot be

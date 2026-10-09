@@ -47,16 +47,17 @@ route match (404, or 405 with Allow; HEAD served for GET)
   requirements are evaluated (alternatives are OR, schemes within one requirement are AND), and
   declared scopes are checked.
 - **Decoding:** supported parameter styles are deserialized and coerced to their schema types.
-  Header names match case-insensitively. JSON bodies are parsed within the size limit, and other
-  declared media types are delivered raw. Bodies are never coerced.
+  Header names match case-insensitively. JSON bodies are parsed within the size limit, `text/*`
+  bodies are decoded, and other media types are delivered as bytes. Bodies are never coerced.
 - **Validation:** TypeBox validators are prepared at startup. HyAPI follows TypeBox's environment
   detection: compiled checking where evaluation is allowed, dynamic checking where it is forbidden.
   Violations are reported with location and JSON Pointer.
 - **Responses:**
-  - undeclared statuses are rejected;
   - undeclared fields are stripped, with a warning event in development;
-  - responses are validated by policy (`off`, `log`, or `enforce`); and
-  - raw `Response` results pass through after the status check.
+  - the declared status, body schema, and header schemas are checked by policy: `enforce` answers
+    500, `log` sends the response and emits `response.violation`, and `off` runs no check;
+  - raw `Response` results pass through after the status check; and
+  - streamed bodies are not validated, and stay in flight until they end.
 - **Cancellation:** each request has one `AbortSignal` that combines client disconnect, the request
   timeout, and shutdown. A timeout produces a 503 or 504 response.
 - **Errors:** every framework failure becomes an RFC 9457 problem+json response with a stable `type`
@@ -134,7 +135,8 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
 - **Parameter defaults.** Absent query, header, and cookie parameters get their schema `default`
   (RFC 0001 amendment A2).
 - **Bodies.** JSON (`application/json` and `+json`) is parsed and validated. `text/*` is decoded and
-  validated. Other declared media types reach the handler as bytes, without validation.
+  validated. Other declared media types reach the handler as bytes, without validation (since M9,
+  their schema must be a binary string; see below).
 - **Reporting.** Superseded in M5 by read-only events (see below).
 
 ## Resolved in M4
@@ -206,6 +208,19 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   `not-implemented`.
 - **Events.** The application derives every event from pipeline outcomes and lifecycle failures; it
   no longer parses its own problem responses to find their `code`.
+
+## Resolved in M9
+
+- **Byte bodies.** Request bodies that are neither JSON nor text reach the handler as a
+  `Uint8Array`, which `InputOf` reflects; their schema must be `T.String({ format: "binary" })` (RFC
+  0001 A24).
+- **Response policy.** Header values are validated against their schemas. Every response check,
+  including the declared status, follows `responseValidation`; `off` reports nothing (A26).
+- **Streaming.** The pipeline marks raw `Response` bodies and stream bodies as streaming. The
+  application wraps them, keeps the request in flight until the body ends, fails, or is cancelled,
+  and cancels the body when the shutdown budget runs out. `close()` therefore stops lifecycle
+  resources only after every stream has ended. A raw `Response` replaced by a 500 under `enforce`,
+  and the body of a HEAD response, are cancelled.
 
 ## Open questions
 

@@ -45,8 +45,8 @@ ADR 0001 §15; ADR 0002 §3, §4; `AGENTS.md` "Optional integrations".
 ## Resolved in M4
 
 - **`@hyapi/plugin-jwt`.**
-  `await jwtBearer({ algorithm, key, issuer?, audience?, clockToleranceSeconds?, requiredClaims?, identity?, scopes? })`
-  returns a verifier for bearer-based schemes.
+  `await jwtBearer({ algorithm, key, issuer?, audience, clockToleranceSeconds?, requiredClaims?, identity?, scopes? })`
+  (`audience` is required since M9) returns a verifier for bearer-based schemes.
   - It is built on [jose](https://jsr.io/@panva/jose) and accepts exactly one of `HS256` (a secret
     of at least 32 bytes), `RS256`, `ES256`, or `EdDSA` (a `CryptoKey`, JWK, or SPKI PEM).
   - `exp` is required by default.
@@ -88,6 +88,20 @@ ADR 0001 §15; ADR 0002 §3, §4; `AGENTS.md` "Optional integrations".
   - Limited responses carry `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. A
     rejected request gets 429 `RATE_LIMITED` with `Retry-After`.
   - Tracked keys are bounded by `maxKeys`.
+
+## Resolved in M9
+
+- **Canonical order.** `withCors(withCsrf(withRateLimit(app.fetch)))`, tested in
+  `tests/plugins/composition/`. CORS is outermost, so every answer carries CORS headers and
+  preflight never reaches the other wrappers.
+- **CORS.** Unless the origin is `*`, every response carries `Vary: Origin`, including responses to
+  requests without an origin or from a disallowed one.
+- **CSRF.** Preflight requests pass through without a token check or a cookie.
+- **JWT.** `audience` is required; without it, a token for another service with the same key would
+  be accepted.
+- **Proxy trust.** The guide documents that header-based identities and `X-Forwarded-For` keys are
+  safe only behind a proxy that controls them, and that the last `X-Forwarded-For` entry is the one
+  a single trusted proxy added.
 
 ## Open questions
 
