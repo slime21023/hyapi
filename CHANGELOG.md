@@ -7,8 +7,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Observability and authorization (roadmap M10a), several documents (roadmap M10b), and operations
-(roadmap M10c). The memory-leak fix found during M10c was released first, in 0.2.1.
+## [0.2.5] - 2026-10-10
+
+Observability and authorization (roadmap M10a), several documents (roadmap M10b), operations
+(roadmap M10c), and fewer generics. The memory-leak fix found during M10c was released first, in
+0.2.1. Some public types are removed or changed; see "Fewer generics" and "Changed".
 
 ### Operations
 
