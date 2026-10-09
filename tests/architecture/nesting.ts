@@ -20,7 +20,6 @@ export const PENDING: ReadonlySet<string> = new Set([
   "packages/cli/src/config.ts",
   "packages/cli/src/doctor.ts",
   "packages/cli/src/run.ts",
-  "packages/openapi-diff/src/diff.ts",
   "packages/plugin-cors/mod.ts",
   "packages/plugin-csrf/mod.ts",
   "packages/plugin-jwt/mod.ts",
