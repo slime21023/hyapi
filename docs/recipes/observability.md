@@ -19,6 +19,29 @@ const app = await createApp({
 `operation.end` carries `operationId`, `method`, the declared `path` template, `status`,
 `durationMs`, the problem `code` of framework errors, and the error a handler threw for 500s.
 
+Turn on request IDs to join the events of one request, and to let clients quote the ID from the
+`x-request-id` response header:
+
+```ts
+const app = await createApp({ api, implementations, requestId: true, onEvent: log });
+```
+
+Requests that match no operation are `request.unmatched` events, so scanners and broken clients show
+up in logs too.
+
+## Error reporting
+
+The `error` of `operation.end` and `lifecycle.error` includes `stack` and up to three levels of
+`cause`, so it can go straight to an error tracker:
+
+```ts
+onEvent: (event) => {
+  if (event.type === "operation.end" && event.error !== undefined) {
+    errorTracker.capture(event.error, { operation: event.operationId, request: event.requestId });
+  }
+},
+```
+
 ## Metrics
 
 Use the `path` template or `operationId` as a label: unlike the actual URL, it has bounded

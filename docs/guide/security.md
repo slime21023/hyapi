@@ -52,7 +52,9 @@ const partner: Verifier<typeof security, "partner"> = async (key, ctx) => {
 const app = await createApp({ api, implementations, verifiers: { bearer, partner } });
 ```
 
-A verifier receives the credential and `{ signal, request, operationId }`:
+A verifier receives the credential and `{ signal, request, operationId, requirements, requestId }`.
+`requirements` is the operation's effective requirement in OpenAPI form, such as
+`[{ bearer: ["orders:read"] }, { partner: [] }]`:
 
 | Scheme                                  | Credential                                                    |
 | --------------------------------------- | ------------------------------------------------------------- |
@@ -62,7 +64,9 @@ A verifier receives the credential and `{ signal, request, operationId }`:
 
 It returns `{ identity, scopes? }` for a valid credential and `null` for an invalid one. Throwing
 means the verifier itself failed, for example because a key server is down, and answers 500 rather
-than pretending the caller is unauthenticated.
+than pretending the caller is unauthenticated. Throwing `HttpError` answers with its status instead,
+for example 403 for a suspended account, and ends security evaluation: later alternatives are not
+tried. See [Authorization](../recipes/authorization) for roles and resource rules.
 
 ## Evaluation
 
@@ -72,7 +76,10 @@ than pretending the caller is unauthenticated.
 - Each scheme is verified at most once per request, and verifiers share the request timeout.
 - A credential that verifies but lacks a required scope answers **403**
   (`WWW-Authenticate: Bearer error="insufficient_scope"` for bearer schemes). Anything else answers
-  **401** with `Bearer` and `Basic realm="<API title>"` challenges.
+  **401** with a challenge per accepted scheme: `Bearer`, `Basic realm="<API title>"`, or
+  `ApiKey in="header", name="x-api-key"`.
+- Every denial emits a `security.denied` event with its `reason` (`missing`, `invalid`, or
+  `insufficient-scope`), the accepted `schemes`, and the `requiredScopes` of a 403.
 
 ## JWT and OpenID Connect
 

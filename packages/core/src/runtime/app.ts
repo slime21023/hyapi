@@ -23,6 +23,7 @@ import {
 } from "./lifecycle.ts";
 import {
   execute,
+  type Incoming,
   type OperationPlan,
   type Outcome,
   planOperation,
@@ -85,6 +86,12 @@ interface BaseOptions<A extends Api> {
   readonly shutdownTimeoutMs?: number;
   /** Serves an emitted OpenAPI document at an explicit path. Off unless set. */
   readonly document?: { readonly path: string; readonly content: unknown };
+  /**
+   * Gives every request an ID for events, handlers, and verifiers, and returns it in a response
+   * header. Off unless set. `true` uses the `x-request-id` header and never trusts incoming IDs;
+   * with `trustIncoming`, a well-formed incoming ID is reused.
+   */
+  readonly requestId?: boolean | { readonly header?: string; readonly trustIncoming?: boolean };
 }
 
 /** A running HyAPI application. */
@@ -116,6 +123,27 @@ export class StartupError extends Error {
   }
 }
 
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/** Incoming IDs that are reused: short, and safe to log and to echo in a header. */
+const INCOMING_ID = /^[A-Za-z0-9._:-]{1,128}$/;
+
+interface RequestIdSettings {
+  readonly header: string;
+  readonly trustIncoming: boolean;
+}
+
+function readRequestId(
+  option: BaseOptions<Api>["requestId"],
+  error: StartupReport,
+): RequestIdSettings | undefined {
+  if (option === undefined || option === false) return undefined;
+  const { header = "x-request-id", trustIncoming = false } = option === true ? {} : option;
+  if (typeof header !== "string" || !HEADER_NAME.test(header)) {
+    error("invalid-option", "requestId.header must be an HTTP header name");
+  }
+  return { header: String(header).toLowerCase(), trustIncoming: trustIncoming === true };
+}
+
 function readSettings(options: BaseOptions<Api>, error: StartupReport) {
   const development = options.development ?? false;
   const settings = {
@@ -124,6 +152,7 @@ function readSettings(options: BaseOptions<Api>, error: StartupReport) {
     bodyLimitBytes: options.bodyLimitBytes ?? 1_048_576,
     requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
     shutdownTimeoutMs: options.shutdownTimeoutMs ?? 10_000,
+    requestId: readRequestId(options.requestId, error),
   } as const;
   if (!["off", "log", "enforce"].includes(settings.responseValidation)) {
     error("invalid-option", "responseValidation must be 'off', 'log', or 'enforce'");
@@ -182,14 +211,39 @@ function documentEndpoint(
 }
 
 function lifecycleEvent(failure: LifecycleFailure): AppEvent {
-  const { name, message } = describeError(failure.error);
   return {
     type: "lifecycle.error",
     name: failure.name,
     phase: failure.phase,
-    error: { name, message },
+    error: describeError(failure.error),
   };
 }
+
+/** The ID of one request: a trusted, well-formed incoming one, or a new UUID. */
+function requestIdOf(request: Request, settings: RequestIdSettings): string {
+  const incoming = settings.trustIncoming ? request.headers.get(settings.header) : null;
+  return incoming !== null && INCOMING_ID.test(incoming) ? incoming : crypto.randomUUID();
+}
+
+/** The `requestId` field of events: present only when request IDs are on. */
+const scoped = (requestId: string | undefined) => requestId === undefined ? {} : { requestId };
+
+/** A copy of a response with one more header; response headers can be immutable. */
+function withHeader(response: Response, name: string, value: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set(name, value);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+const UNMATCHED_CODES = {
+  "not-found": "NOT_FOUND",
+  "method-not-allowed": "METHOD_NOT_ALLOWED",
+  "malformed-path": "MALFORMED_REQUEST",
+} as const;
 
 /**
  * Passes a streamed body through, calling `done` once when it ends, fails, or is cancelled. When
@@ -299,6 +353,15 @@ interface Runtime {
   readonly document: DocumentEndpoint | undefined;
 }
 
+/** The fields shared by the events of one operation. */
+interface Base {
+  readonly operationId: string;
+  readonly method: string;
+  readonly path: string;
+  readonly deprecated: boolean;
+  readonly requestId?: string;
+}
+
 /** A response, and whether its body streams and so keeps the request in flight. */
 interface Handled {
   readonly response: Response;
@@ -356,13 +419,20 @@ class RunningApp {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const ids = this.#runtime.settings.requestId;
+    if (ids === undefined) return await this.#respond(request, undefined);
+    const requestId = requestIdOf(request, ids);
+    return withHeader(await this.#respond(request, requestId), ids.header, requestId);
+  }
+
+  async #respond(request: Request, requestId: string | undefined): Promise<Response> {
     if (this.#state !== "running") return shuttingDown();
     this.#inFlight.enter();
     // A streamed body keeps the request in flight until it ends, so close() waits for it and
     // lifecycle resources stop only after it.
     let streaming = false;
     try {
-      const handled = await this.#handle(request);
+      const handled = await this.#handle(request, requestId);
       streaming = handled.streaming;
       return streaming ? this.#track(handled.response) : handled.response;
     } catch (caught) {
@@ -415,37 +485,46 @@ class RunningApp {
     });
   }
 
-  async #handle(request: Request): Promise<Handled> {
-    const { router, document } = this.#runtime;
+  async #handle(request: Request, requestId: string | undefined): Promise<Handled> {
+    const { router, document, emit } = this.#runtime;
     const url = new URL(request.url);
     if (document !== undefined && url.pathname === document.path) {
       return buffered(serveDocument(document, request.method));
     }
     const match = router.match(request.method, url.pathname);
-    if (match.kind !== "found") return buffered(unmatched(match, request.method, url.pathname));
-    return await this.#runOperation(request, url, match);
+    if (match.kind === "found") {
+      return await this.#runOperation({ request, url, params: match.params, requestId }, match);
+    }
+    const response = unmatched(match, request.method, url.pathname);
+    emit({
+      type: "request.unmatched",
+      method: request.method,
+      path: url.pathname,
+      status: response.status,
+      code: UNMATCHED_CODES[match.kind],
+      ...scoped(requestId),
+    });
+    return buffered(response);
   }
 
   async #runOperation(
-    request: Request,
-    url: URL,
+    incoming: Incoming,
     match: Extract<RouteMatch, { kind: "found" }>,
   ): Promise<Handled> {
     const { emit, plans, settings, security } = this.#runtime;
     const { operation } = match;
-    const base = {
+    const base: Base = {
       operationId: operation.operationId,
-      method: request.method,
+      method: incoming.request.method,
       path: operation.path,
       deprecated: operation.deprecated,
+      ...scoped(incoming.requestId),
     };
     emit({ type: "operation.start", ...base });
     const started = performance.now();
     const outcome = await execute(
       plans.get(operation.operationId)!,
-      request,
-      url,
-      match.params,
+      incoming,
       settings,
       security,
       this.#shutdown.signal,
@@ -460,27 +539,37 @@ class RunningApp {
   }
 
   /** Turns the facts of an outcome into events (ADR 0003 §9). */
-  #report(
-    outcome: Outcome,
-    base: { operationId: string; method: string; path: string; deprecated: boolean },
-    started: number,
-  ): void {
+  #report(outcome: Outcome, base: Base, started: number): void {
     const { emit } = this.#runtime;
-    const { operationId } = base;
+    const { operationId, method, path, requestId } = base;
+    const id = scoped(requestId);
+    if (outcome.denial !== undefined) {
+      const { status, reason, schemes, requiredScopes } = outcome.denial;
+      emit({
+        type: "security.denied",
+        operationId,
+        method,
+        path,
+        status,
+        reason,
+        schemes,
+        ...(requiredScopes === undefined ? {} : { requiredScopes }),
+        ...id,
+      });
+    }
     if (outcome.stripped !== undefined) {
-      emit({ type: "response.stripped", operationId, ...outcome.stripped });
+      emit({ type: "response.stripped", operationId, ...outcome.stripped, ...id });
     }
     if (outcome.violation !== undefined) {
-      emit({ type: "response.violation", operationId, ...outcome.violation });
+      emit({ type: "response.violation", operationId, ...outcome.violation, ...id });
     }
-    const error = outcome.error === undefined ? undefined : describeError(outcome.error);
     emit({
       type: "operation.end",
       ...base,
       status: outcome.response.status,
       durationMs: Math.round((performance.now() - started) * 100) / 100,
       ...(outcome.code === undefined ? {} : { code: outcome.code }),
-      ...(error === undefined ? {} : { error: { name: error.name, message: error.message } }),
+      ...(outcome.error === undefined ? {} : { error: describeError(outcome.error) }),
     });
   }
 }

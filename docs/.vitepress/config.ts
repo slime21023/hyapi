@@ -33,6 +33,7 @@ export default defineConfig({
             { text: "Typed clients", link: "/recipes/typed-client" },
             { text: "Mocking with Prism", link: "/recipes/mocking" },
             { text: "Observability", link: "/recipes/observability" },
+            { text: "Authorization", link: "/recipes/authorization" },
           ],
         },
       ],

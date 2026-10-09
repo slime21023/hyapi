@@ -72,6 +72,8 @@ export interface OperationPlan {
   readonly locations: readonly LocationPlan[];
   readonly body: Validator | undefined;
   readonly responses: ReadonlyMap<number, ResponsePlan>;
+  /** The effective requirement in OpenAPI form, as verifiers receive it. */
+  readonly requirements: readonly Readonly<Record<string, readonly string[]>>[];
 }
 
 interface ResponsePlan {
@@ -125,6 +127,9 @@ export function planOperation(
     locations,
     body: operation.body ? validators(operation.body.schema) : undefined,
     responses,
+    requirements: operation.security.map((alternative) =>
+      Object.freeze(Object.fromEntries(alternative.map(({ scheme, scopes }) => [scheme, scopes])))
+    ),
   };
 }
 
@@ -160,12 +165,18 @@ function denied(denial: Denial): Outcome {
   return { ...outcome, denial };
 }
 
-/** One request in flight: what its steps read, and how they stay within its deadline. */
-interface RequestScope {
-  readonly plan: OperationPlan;
+/** A routed request: what the application knows before the operation runs. */
+export interface Incoming {
   readonly request: Request;
   readonly url: URL;
+  /** Decoded path parameters. */
   readonly params: Readonly<Record<string, string>>;
+  readonly requestId: string | undefined;
+}
+
+/** One request in flight: what its steps read, and how they stay within its deadline. */
+interface RequestScope extends Incoming {
+  readonly plan: OperationPlan;
   readonly settings: PipelineSettings;
   /** Aborts on client disconnect, the request timeout, and forced shutdown. */
   readonly signal: AbortSignal;
@@ -187,13 +198,12 @@ function rejectOnAbort(signal: AbortSignal): Promise<never> {
 /** Runs one matched request through the operation's contract. */
 export async function execute(
   plan: OperationPlan,
-  request: Request,
-  url: URL,
-  params: Readonly<Record<string, string>>,
+  incoming: Incoming,
   settings: PipelineSettings,
   security: SecurityEvaluator,
   shutdown: AbortSignal,
 ): Promise<Outcome> {
+  const { request } = incoming;
   // One signal for the whole request: client disconnect, the request timeout, and forced
   // shutdown. The timeout covers verifiers, body reading, and the handler.
   const timeout = new AbortController();
@@ -204,10 +214,8 @@ export async function execute(
   );
   const aborted = rejectOnAbort(signal);
   const scope: RequestScope = {
+    ...incoming,
     plan,
-    request,
-    url,
-    params,
     settings,
     signal,
     bounded: (work) => Promise.race([Promise.resolve(work), aborted]),
@@ -254,6 +262,8 @@ async function run(scope: RequestScope, security: SecurityEvaluator): Promise<Ou
         signal,
         request,
         operationId: operation.operationId,
+        requirements: plan.requirements,
+        requestId: scope.requestId,
       }),
     );
     if (result.kind === "denied") return denied(result.denial);
@@ -273,7 +283,13 @@ async function run(scope: RequestScope, security: SecurityEvaluator): Promise<Ou
       detail: `Operation '${operation.operationId}' is not implemented yet.`,
     });
   }
-  const ctx = { signal, request, operationId: operation.operationId, security: identities };
+  const ctx = {
+    signal,
+    request,
+    operationId: operation.operationId,
+    security: identities,
+    requestId: scope.requestId,
+  };
   return respond(plan, await scope.bounded(plan.handler(input, ctx)), scope.settings);
 }
 

@@ -28,6 +28,7 @@ export type { LifecycleResource } from "./lifecycle.ts";
 export type { ResponseValidation } from "./pipeline.ts";
 export type { Verified, Verifier, VerifierContext, VerifierFor, Verifiers } from "./security.ts";
 export {
+  type ErrorInfo,
   HttpError,
   problem,
   problemResponse,

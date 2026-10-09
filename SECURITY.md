@@ -43,6 +43,8 @@ HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes 
   properties.
 - Outside development mode, error responses never include internal error messages or stack traces.
 - Every framework error is an RFC 9457 problem with a stable `code`.
+- Events never contain credentials. Request IDs are off by default, and incoming IDs are reused only
+  with `trustIncoming`, and only when they are short and contain safe characters.
 
 **Plugins**
 

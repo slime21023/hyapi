@@ -13,6 +13,8 @@ export interface Context<Security = unknown> {
   readonly operationId: string;
   /** The identities from the security requirement that succeeded; `undefined` when public. */
   readonly security: Security;
+  /** The request ID, when `createApp({ requestId })` is on. */
+  readonly requestId: string | undefined;
 }
 
 /** The handler type of one operation. */

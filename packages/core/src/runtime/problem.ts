@@ -98,14 +98,25 @@ export function problemResponse(
   return new Response(text, { status, headers });
 }
 
-/** Describes an unknown thrown value for development diagnostics. */
-export function describeError(error: unknown): { name: string; message: string; stack?: string } {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      ...(error.stack === undefined ? {} : { stack: error.stack }),
-    };
-  }
-  return { name: typeof error, message: String(error) };
+/** A thrown value as plain data, for events and development diagnostics. */
+export interface ErrorInfo {
+  readonly name: string;
+  readonly message: string;
+  readonly stack?: string;
+  /** The error's `cause`, followed to a depth of three. */
+  readonly cause?: ErrorInfo;
+}
+
+/** Describes an unknown thrown value, with its stack and causes. */
+export function describeError(error: unknown, depth = 3): ErrorInfo {
+  if (!(error instanceof Error)) return { name: typeof error, message: String(error) };
+  const cause = error.cause !== undefined && depth > 1
+    ? describeError(error.cause, depth - 1)
+    : undefined;
+  return {
+    name: error.name,
+    message: error.message,
+    ...(error.stack === undefined ? {} : { stack: error.stack }),
+    ...(cause === undefined ? {} : { cause }),
+  };
 }

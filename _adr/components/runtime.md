@@ -222,6 +222,22 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   resources only after every stream has ended. A raw `Response` replaced by a 500 under `enforce`,
   and the body of a HEAD response, are cancelled.
 
+## Resolved in M10a
+
+- **Request IDs (RFC 0001 A27).** `createApp({ requestId })` is off by default. The application
+  layer assigns the ID before routing: a trusted, well-formed incoming value, or a random UUID. It
+  passes the ID to the pipeline as part of `Incoming`, adds it to events, and sets the response
+  header on every answer, including 404s and refusals during shutdown.
+- **Denials (A28).** The security evaluator's `Denial` carries the accepted schemes and the required
+  scopes; the application reports it as `security.denied`.
+- **Verifier context (A29).** The plan holds the operation's requirement in OpenAPI form once, and
+  every verifier call receives it as `requirements`.
+- **Errors (A30).** `describeError` returns an `ErrorInfo` with `stack` and up to three levels of
+  `cause`; events carry it whole.
+- **API key challenge (A31).** `ApiKey in="...", name="..."` joins the 401 challenges.
+- **Unmatched requests (A32).** The application emits `request.unmatched` for 404, 405, and
+  malformed paths, but not for the document endpoint or for refusals during shutdown.
+
 ## Open questions
 
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and
