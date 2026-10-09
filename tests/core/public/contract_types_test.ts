@@ -12,10 +12,8 @@ import {
   defineSecurity,
   httpBearer,
   type InputOf,
-  type OperationOf,
   Problem,
   type ResultOf,
-  type SecurityFor,
 } from "@hyapi/core/contract";
 
 const T = Type;
@@ -103,9 +101,9 @@ export const implementation = implement(users, {
   deleteUser: notImplemented,
 });
 
-type GetUserInput = InputOf<OperationOf<typeof users, "getUser">>;
-type GetUserResult = ResultOf<OperationOf<typeof users, "getUser">>;
-type DeleteSecurity = SecurityFor<typeof users, "deleteUser">;
+type GetUserInput = InputOf<typeof users.operations.getUser>;
+type GetUserResult = ResultOf<typeof users.operations.getUser>;
+type DeleteSecurity = Parameters<Handler<typeof users, "deleteUser">>[1]["security"];
 export const typeChecks: [GetUserInput, GetUserResult, DeleteSecurity][] = [
   [
     { params: { id: "1" } },
@@ -144,7 +142,7 @@ implement(files, {
     return { status: 204 };
   },
 });
-type UploadBody = InputOf<OperationOf<typeof files, "upload">>["body"];
+type UploadBody = InputOf<typeof files.operations.upload>["body"];
 // @ts-expect-error a byte body is not a string
 export const notText: UploadBody = "text";
 

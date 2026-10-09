@@ -307,7 +307,7 @@ API.
   (for example, a 404 problem or a file stream), which matters more.
 - **A13. Lifecycle, health, events, and hosting names.**
   - `@hyapi/core` adds `createHealth`, `Health`, `HealthCheck`, `HealthReportValue`, `HealthStatus`,
-    `LifecycleResource`, `AppEvent`, `EventListener`, and `OperationIdsOf`.
+    `LifecycleResource`, `AppEvent`, and `EventListener` (`OperationIdsOf` is internal since A36).
   - The `createApp` options `lifecycle`, `health`, `onEvent`, `timeouts`, `shutdownTimeoutMs`, and
     `document` are added, and `App.close()` is added.
   - `@hyapi/core/contract` adds the `HealthReport` schema.
@@ -424,6 +424,39 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   operation, keyed by `operationId` in types, like `timeouts`. An unknown operation, or one that
   declares no request body, is `unknown-body-limit-target`; a value that is not a positive integer
   is `invalid-option`.
+
+## 21. Amendments for fewer and named generics
+
+`AGENTS.md` now prefers unions to generics, and requires every type parameter to be named for what
+it holds. These public types change accordingly:
+
+- **A35. Unions instead of generic parameters.**
+  - `Scheme<Identity, Credential>` becomes `Scheme<Identity>`. `httpBasic` returns a
+    `BasicScheme<Identity>` whose `spec` is a `BasicSpec`, and `CredentialOf` derives the credential
+    from that: a `BasicCredential` for HTTP basic, a string otherwise.
+  - `Diagnostic<Code>` becomes `Diagnostic`, whose code is a `DiagnosticCode`.
+    `StartupError.diagnostics` is `(Diagnostic | StartupDiagnostic)[]`, where `StartupDiagnostic`
+    has a `StartupDiagnosticCode`. This supersedes A19.
+  - `Implementation<Contract>` becomes `Implementation`: nothing read its parameter.
+- **A36. Fewer exports.** These generic types are no longer exported, because a public form already
+  covers them:
+  - `HandlerFor` and `VerifierFor` (superseding part of A11): use `Handler<Resource, OperationId>`
+    and `Verifier<Module, SchemeName>`.
+  - `OperationOf<Resource, OperationId>` is removed: it was the indexed access
+    `typeof contract.operations.getUser`.
+  - `SecurityFor` is removed, and `SecurityOf` is internal: use
+    `Parameters<Handler<Resource, OperationId>>[1]["security"]`.
+  - `IdentityOf` and `CredentialOf` are internal: the application declares the identity type itself,
+    and `Verifier` types both.
+  - `OperationIdsOf` is internal: `AppOptions<typeof api>["timeouts"]` has the same keys.
+  - `PathParams` and `OperationMap` are internal.
+
+  `InputOf` and `ResultOf` stay public, for code that handles an operation's input or result outside
+  its handler.
+- **A37. Named type parameters.** Every public generic names and documents its parameters, for
+  example `Contract<SchemeSet, Operations, DefaultSecurity>`, `Handler<Resource, OperationId>`, and
+  `AppOptions<Definition>`. Arguments are passed by position, so code that uses these types is
+  unaffected.
 
 ## Alternatives rejected
 

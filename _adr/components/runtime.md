@@ -203,9 +203,9 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   different check (`format-conflict`). It registers them only after every startup check passes, and
   before it compiles validators: TypeBox resolves formats at compile time, so a format registered
   later would never be checked.
-- **Startup.** `StartupError.diagnostics` is `Diagnostic<DiagnosticCode | StartupDiagnosticCode>[]`.
-  In development, each `notImplemented` operation emits `startup.warning` with code
-  `not-implemented`.
+- **Startup.** `StartupError.diagnostics` is `(Diagnostic | StartupDiagnostic)[]` (since RFC 0001
+  A35; before, a generic `Diagnostic`). In development, each `notImplemented` operation emits
+  `startup.warning` with code `not-implemented`.
 - **Events.** The application derives every event from pipeline outcomes and lifecycle failures; it
   no longer parses its own problem responses to find their `code`.
 

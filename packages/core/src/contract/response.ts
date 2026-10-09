@@ -15,11 +15,15 @@ export interface ResponseSpec {
   readonly headers?: TObject;
 }
 
-/** A reusable response emitted under `#/components/responses`. */
-export interface NamedResponse<R extends ResponseSpec = ResponseSpec> {
+/**
+ * A reusable response emitted under `#/components/responses`.
+ *
+ * @typeParam Spec - The response declaration, kept literal so that results are typed from it.
+ */
+export interface NamedResponse<Spec extends ResponseSpec = ResponseSpec> {
   readonly kind: "hyapi.response";
   readonly name: string;
-  readonly spec: R;
+  readonly spec: Spec;
 }
 
 /**
@@ -33,10 +37,10 @@ export interface NamedResponse<R extends ResponseSpec = ResponseSpec> {
  * });
  * ```
  */
-export function defineResponse<const R extends ResponseSpec>(
+export function defineResponse<const Spec extends ResponseSpec>(
   name: string,
-  spec: R,
-): NamedResponse<R> {
+  spec: Spec,
+): NamedResponse<Spec> {
   return Object.freeze({ kind: "hyapi.response", name, spec });
 }
 

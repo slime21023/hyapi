@@ -1,14 +1,12 @@
-type Awaitable<T> = T | Promise<T>;
-
 /**
  * Runs `work` with a signal that aborts after `timeoutMs`, and rejects with that abort reason if
  * the work has not settled by then. The timer is cleared as soon as the work settles, and no
  * promise is left pending to reject later.
  */
-export async function withDeadline<T>(
-  work: (signal: AbortSignal) => Awaitable<T>,
+export async function withDeadline<Result>(
+  work: (signal: AbortSignal) => Result | Promise<Result>,
   timeoutMs: number,
-): Promise<T> {
+): Promise<Result> {
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new DOMException(`timed out after ${timeoutMs} ms`, "TimeoutError")),

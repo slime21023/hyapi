@@ -10,25 +10,23 @@ export {
   defineContract,
   type FormatChecks,
   type HttpMethod,
-  type OperationMap,
   type OperationSpec,
-  type PathParams,
   type ResponseValue,
   type ServerSpec,
   type StyleOverrides,
   type TagSpec,
 } from "./define.ts";
-export type { InputOf, OperationOf, ResultOf, SecurityFor, SecurityOf } from "./infer.ts";
+export type { InputOf, ResultOf } from "./infer.ts";
 export { defineResponse, type NamedResponse, type ResponseSpec } from "./response.ts";
 export { defineSchema, HealthReport, Problem } from "./schema.ts";
 export {
   apiKey,
   type BasicCredential,
-  type CredentialOf,
+  type BasicScheme,
+  type BasicSpec,
   defineSecurity,
   httpBasic,
   httpBearer,
-  type IdentityOf,
   oauth2,
   type OAuthFlow,
   type OAuthFlows,

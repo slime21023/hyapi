@@ -1,94 +1,118 @@
+// Types that HyAPI infers from contracts, so that handlers are checked against them. These are the
+// generics that carry a contract's literal declarations to its handlers; everything else in Core
+// should not need generics.
 import type { Static, TObject, TSchema } from "typebox";
-import type { AnyContract, Contract } from "./define.ts";
 import type { NamedResponse } from "./response.ts";
 import type { IdentityOf, Schemes } from "./security.ts";
 
 type SchemaLike = { readonly "~kind": unknown };
-type StaticOf<X> = X extends TSchema ? Static<X> : never;
+type StaticOf<Schema> = Schema extends TSchema ? Static<Schema> : never;
 
 // Parameters with a `default` (declared with `T.With(schema, { default })`) are filled in by the
 // runtime when absent, so they are required in handler input.
-type DefaultKeys<Props> = {
-  [K in keyof Props]: Props[K] extends { readonly default: unknown } ? K : never;
-}[keyof Props];
-type RequireKeys<V, K extends PropertyKey> = [K] extends [never] ? V
-  : Omit<V, K> & { readonly [P in K & keyof V]-?: Exclude<V[P], undefined> };
-type ParameterInput<X> = X extends TObject<infer Props> ? RequireKeys<Static<X>, DefaultKeys<Props>>
-  : StaticOf<X>;
+type DefaultKeys<Properties> = {
+  [Name in keyof Properties]: Properties[Name] extends { readonly default: unknown } ? Name : never;
+}[keyof Properties];
+// `[Keys] extends [never]` asks "are there no keys?" without distributing over the union of keys.
+type RequireKeys<Value, Keys extends PropertyKey> = [Keys] extends [never] ? Value
+  :
+    & Omit<Value, Keys>
+    & { readonly [Name in Keys & keyof Value]-?: Exclude<Value[Name], undefined> };
+type ParameterInput<Schema> = Schema extends TObject<infer Properties>
+  ? RequireKeys<Static<Schema>, DefaultKeys<Properties>>
+  : StaticOf<Schema>;
 
-type BodySchemaOf<B> = B extends SchemaLike ? B
-  : B extends { readonly schema: infer S } ? S
+/** The body schema of a declaration: a schema, or the `schema` of `{ schema, mediaType, ... }`. */
+type BodySchemaOf<Declaration> = Declaration extends SchemaLike ? Declaration
+  : Declaration extends { readonly schema: infer Schema } ? Schema
   : never;
 // Bodies that are neither JSON nor text reach the handler as bytes (RFC 0001 A24).
-type IsBytes<M> = string extends M ? false
-  : M extends "application/json" | `${string}+json` | `text/${string}` ? false
+// `string extends MediaType` is true when the media type is not a literal, so it is unknown.
+type IsBytes<MediaType> = string extends MediaType ? false
+  : MediaType extends "application/json" | `${string}+json` | `text/${string}` ? false
   : true;
-type BodyValue<B> = B extends { readonly mediaType: infer M } ? IsBytes<M> extends true ? Uint8Array
-  : StaticOf<BodySchemaOf<B>>
-  : StaticOf<BodySchemaOf<B>>;
-type BodyInput<B> = B extends { readonly required: false } ? { readonly body?: BodyValue<B> }
-  : { readonly body: BodyValue<B> };
+type BodyValue<Declaration> = Declaration extends { readonly mediaType: infer MediaType }
+  ? IsBytes<MediaType> extends true ? Uint8Array : StaticOf<BodySchemaOf<Declaration>>
+  : StaticOf<BodySchemaOf<Declaration>>;
+type BodyInput<Declaration> = Declaration extends { readonly required: false }
+  ? { readonly body?: BodyValue<Declaration> }
+  : { readonly body: BodyValue<Declaration> };
 
 // An operation without inputs gets an empty object, so `({}, ctx) => ...` type-checks.
 // deno-lint-ignore ban-types
 type NoInput = {};
 
-/** The validated input a handler receives for an operation. Only declared locations appear. */
-export type InputOf<Op> =
+/**
+ * The validated input a handler receives for an operation. Only declared locations appear.
+ *
+ * @typeParam Operation - One operation declaration of a contract.
+ */
+export type InputOf<Operation> =
   & NoInput
-  & (Op extends { readonly params: infer P } ? { readonly params: StaticOf<P> } : unknown)
-  & (Op extends { readonly query: infer Q } ? { readonly query: ParameterInput<Q> } : unknown)
-  & (Op extends { readonly headers: infer H } ? { readonly headers: ParameterInput<H> } : unknown)
-  & (Op extends { readonly cookies: infer C } ? { readonly cookies: ParameterInput<C> } : unknown)
-  & (Op extends { readonly body: infer B } ? BodyInput<B> : unknown);
+  & (Operation extends { readonly params: infer Params } ? { readonly params: StaticOf<Params> }
+    : unknown)
+  & (Operation extends { readonly query: infer Query } ? { readonly query: ParameterInput<Query> }
+    : unknown)
+  & (Operation extends { readonly headers: infer Headers }
+    ? { readonly headers: ParameterInput<Headers> }
+    : unknown)
+  & (Operation extends { readonly cookies: infer Cookies }
+    ? { readonly cookies: ParameterInput<Cookies> }
+    : unknown)
+  & (Operation extends { readonly body: infer Body } ? BodyInput<Body> : unknown);
 
 type SpecResult<Status, Spec> =
   & { readonly status: Status }
-  & (Spec extends { readonly body: infer B } ? { readonly body: StaticOf<B> }
+  & (Spec extends { readonly body: infer Body } ? { readonly body: StaticOf<Body> }
     : { readonly body?: undefined })
-  & (Spec extends { readonly headers: infer H } ? { readonly headers: StaticOf<H> }
+  & (Spec extends { readonly headers: infer Headers } ? { readonly headers: StaticOf<Headers> }
     : { readonly headers?: Readonly<Record<string, string>> });
 
-type ResultFor<Status, R> = R extends NamedResponse<infer Spec> ? SpecResult<Status, Spec>
-  : R extends SchemaLike ? {
+/** The result for one declared status: a named response, a bare schema, or the full form. */
+type ResultFor<Status, Declared> = Declared extends NamedResponse<infer Spec>
+  ? SpecResult<Status, Spec>
+  : Declared extends SchemaLike ? {
       readonly status: Status;
-      readonly body: StaticOf<R>;
+      readonly body: StaticOf<Declared>;
       readonly headers?: Readonly<Record<string, string>>;
     }
-  : SpecResult<Status, R>;
+  : SpecResult<Status, Declared>;
 
-type ResponsesOf<Op> = Op extends { readonly responses: infer R } ? R : never;
+type ResponsesOf<Operation> = Operation extends { readonly responses: infer Responses } ? Responses
+  : never;
 
-/** The union of results a handler may return for an operation, one member per declared status. */
-export type ResultOf<Op> = {
-  [Status in keyof ResponsesOf<Op>]: ResultFor<Status, ResponsesOf<Op>[Status]>;
-}[keyof ResponsesOf<Op>];
+/**
+ * The union of results a handler may return for an operation, one member per declared status.
+ *
+ * @typeParam Operation - One operation declaration of a contract.
+ */
+export type ResultOf<Operation> = {
+  [Status in keyof ResponsesOf<Operation>]: ResultFor<Status, ResponsesOf<Operation>[Status]>;
+}[keyof ResponsesOf<Operation>];
 
-type RequirementIdentity<Alt, S extends Schemes> = {
-  readonly [K in keyof Alt & keyof S]: IdentityOf<S[K]>;
+type AlternativeIdentity<Alternative, SchemeSet extends Schemes> = {
+  readonly [Name in keyof Alternative & keyof SchemeSet]: IdentityOf<SchemeSet[Name]>;
 };
-type FromRequirements<R, S extends Schemes> = R extends readonly (infer Alt)[]
-  ? [Alt] extends [never] ? undefined
-  : Alt extends unknown ? RequirementIdentity<Alt, S>
+// One union member per alternative; `[Alternative] extends [never]` is the empty list, `[]`.
+type FromRequirements<Requirements, SchemeSet extends Schemes> = Requirements extends
+  readonly (infer Alternative)[] ? [Alternative] extends [never] ? undefined
+  : Alternative extends unknown ? AlternativeIdentity<Alternative, SchemeSet>
   : never
   : never;
-type Inherited<S extends Schemes> = [keyof S] extends [never] ? undefined
-  : { readonly [K in keyof S]?: IdentityOf<S[K]> } | undefined;
+type Inherited<SchemeSet extends Schemes> = [keyof SchemeSet] extends [never] ? undefined
+  : { readonly [Name in keyof SchemeSet]?: IdentityOf<SchemeSet[Name]> } | undefined;
 
 /**
  * The security result for an operation: a union with one member per alternative, each holding
  * the identity of every scheme in it. `undefined` for public operations. An operation that
  * inherits the API root requirement gets every scheme as optional.
+ *
+ * @typeParam Operation - One operation declaration of a contract.
+ * @typeParam SchemeSet - The contract's security schemes by name.
+ * @typeParam DefaultSecurity - The contract's default requirement, or `undefined`.
  */
-export type SecurityOf<Op, S extends Schemes, Sec = undefined> = Op extends
-  { readonly security: infer R } ? FromRequirements<R, S>
-  : Sec extends readonly unknown[] ? FromRequirements<Sec, S>
-  : Inherited<S>;
-
-/** The operation declaration of `operationId` `K` in contract `C`. */
-export type OperationOf<C extends AnyContract, K extends keyof C["operations"]> =
-  C["operations"][K];
-
-/** The security result type for `operationId` `K` in contract `C`. */
-export type SecurityFor<C extends AnyContract, K extends keyof C["operations"]> = C extends
-  Contract<infer S, infer Ops, infer Sec> ? SecurityOf<Ops[K & keyof Ops], S, Sec> : never;
+export type SecurityOf<Operation, SchemeSet extends Schemes, DefaultSecurity = undefined> =
+  Operation extends { readonly security: infer Requirements }
+    ? FromRequirements<Requirements, SchemeSet>
+    : DefaultSecurity extends readonly unknown[] ? FromRequirements<DefaultSecurity, SchemeSet>
+    : Inherited<SchemeSet>;

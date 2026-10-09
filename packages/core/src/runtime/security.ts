@@ -8,8 +8,6 @@ import type {
 } from "../contract/security.ts";
 import { parseCookies } from "./params.ts";
 
-type Awaitable<T> = T | Promise<T>;
-
 /** What a verifier receives besides the credential. */
 export interface VerifierContext {
   /** Aborts on client disconnect, request timeout, or shutdown. */
@@ -37,18 +35,36 @@ export interface Verified<Identity> {
  * valid and `null` when it is not (401). A thrown error is an internal failure (500), for
  * example an unreachable key server.
  */
-export type VerifierFor<S> = (
-  credential: CredentialOf<S>,
+type VerifierFor<SchemeType> = (
+  credential: CredentialOf<SchemeType>,
   ctx: VerifierContext,
-) => Awaitable<Verified<IdentityOf<S>> | null>;
+) =>
+  | Verified<IdentityOf<SchemeType>>
+  | null
+  | Promise<Verified<IdentityOf<SchemeType>> | null>;
 
-/** The verifier type for scheme `K` of a `defineSecurity` module. */
-export type Verifier<Sec extends Security, K extends keyof Sec["schemes"]> = VerifierFor<
-  Sec["schemes"][K]
->;
+/**
+ * The verifier of one scheme of a `defineSecurity` module.
+ *
+ * @typeParam Module - The security module, as `typeof security`.
+ * @typeParam SchemeName - The scheme's name in that module.
+ *
+ * @example
+ * ```ts
+ * const partner: Verifier<typeof security, "partner"> = async (key, ctx) => { ... };
+ * ```
+ */
+export type Verifier<Module extends Security, SchemeName extends keyof Module["schemes"]> =
+  VerifierFor<Module["schemes"][SchemeName]>;
 
-/** One verifier per scheme, as required by `createApp`. */
-export type Verifiers<S extends Schemes> = { readonly [K in keyof S]: VerifierFor<S[K]> };
+/**
+ * One verifier per scheme, as required by `createApp`.
+ *
+ * @typeParam SchemeSet - The API's security schemes, by name.
+ */
+export type Verifiers<SchemeSet extends Schemes> = {
+  readonly [Name in keyof SchemeSet]: VerifierFor<SchemeSet[Name]>;
+};
 
 // deno-lint-ignore no-explicit-any
 type AnyVerifier = (credential: any, ctx: VerifierContext) => unknown;
