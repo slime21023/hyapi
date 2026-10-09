@@ -65,31 +65,38 @@ function removedPointers(before: unknown, after: unknown, pointer = ""): string[
   return removed;
 }
 
+type Compiled = ReturnType<typeof Compile>;
+
+/** At most {@link MAX_VIOLATIONS} violations of a value, or none when it is valid. */
+function violationsOf(compiled: Compiled, value: unknown, location: string): Violation[] {
+  if (compiled.Check(value)) return [];
+  const violations: Violation[] = [];
+  for (const error of compiled.Errors(value)) {
+    violations.push({ location, pointer: error.instancePath, message: error.message });
+    if (violations.length === MAX_VIOLATIONS) break;
+  }
+  return violations;
+}
+
+function createValidator(compiled: Compiled): Validator {
+  return {
+    check: (value, location) => violationsOf(compiled, value, location),
+    defaults: (value) => compiled.Default(value),
+    convert: (value) => compiled.Convert(value),
+    clean(value, track) {
+      const cleaned = compiled.Clean(Value.Clone(value));
+      return { value: cleaned, removed: track ? removedPointers(value, cleaned) : [] };
+    },
+  };
+}
+
 /** Prepares validators once per schema object and reuses them. */
 export function createValidators() {
   const cache = new WeakMap<object, Validator>();
   return (schema: TSchema): Validator => {
     const cached = cache.get(schema);
     if (cached !== undefined) return cached;
-    const compiled = Compile(validationSchema(schema));
-    const validator: Validator = {
-      check(value, location) {
-        if (compiled.Check(value)) return [];
-        const violations: Violation[] = [];
-        for (const error of compiled.Errors(value)) {
-          violations.push({ location, pointer: error.instancePath, message: error.message });
-          if (violations.length === MAX_VIOLATIONS) break;
-        }
-        return violations;
-      },
-      defaults: (value) => compiled.Default(value),
-      convert: (value) => compiled.Convert(value),
-      clean(value, track) {
-        const copy = Value.Clone(value);
-        const cleaned = compiled.Clean(copy);
-        return { value: cleaned, removed: track ? removedPointers(value, cleaned) : [] };
-      },
-    };
+    const validator = createValidator(Compile(validationSchema(schema)));
     cache.set(schema, validator);
     return validator;
   };

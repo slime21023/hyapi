@@ -12,14 +12,14 @@ function kindOf(schema: unknown): Kind {
 /** Splits `k,v,k,v` (explode false) or `k=v,k=v` (explode true) into an object. */
 function objectFromList(text: string, explode: boolean): Record<string, string> {
   const result: Record<string, string> = {};
-  if (explode) {
-    for (const pair of text.split(",")) {
-      const index = pair.indexOf("=");
-      if (index > 0) result[pair.slice(0, index)] = pair.slice(index + 1);
-    }
-  } else {
-    const parts = text.split(",");
+  const parts = text.split(",");
+  if (!explode) {
     for (let i = 0; i + 1 < parts.length; i += 2) result[parts[i]!] = parts[i + 1]!;
+    return result;
+  }
+  for (const pair of parts) {
+    const index = pair.indexOf("=");
+    if (index > 0) result[pair.slice(0, index)] = pair.slice(index + 1);
   }
   return result;
 }
@@ -96,30 +96,38 @@ export function readParameters(
 function readQuery(query: URLSearchParams, parameter: ParameterModel): unknown {
   const { name } = parameter;
   const kind = kindOf(parameter.schema);
-  if (parameter.style === "deepObject") {
-    const result: Record<string, string> = {};
-    const prefix = `${name}[`;
-    for (const [key, value] of query) {
-      if (key.startsWith(prefix) && key.endsWith("]")) result[key.slice(prefix.length, -1)] = value;
-    }
-    return Object.keys(result).length === 0 ? undefined : result;
-  }
+  if (parameter.style === "deepObject") return readDeepObject(query, name);
   if (kind === "array") {
     const all = query.getAll(name);
     if (all.length === 0) return undefined;
     return parameter.explode ? all : all.flatMap((value) => value === "" ? [] : value.split(","));
   }
-  if (kind === "object" && parameter.explode) {
-    // form + explode spreads the object's properties as separate query parameters.
-    const properties = (parameter.schema as { properties?: Record<string, unknown> }).properties ??
-      {};
-    const result: Record<string, string> = {};
-    for (const key of Object.keys(properties)) {
-      const value = query.get(key);
-      if (value !== null) result[key] = value;
-    }
-    return Object.keys(result).length === 0 ? undefined : result;
-  }
+  if (kind === "object" && parameter.explode) return readSpreadObject(query, parameter);
   const value = query.get(name);
   return value === null ? undefined : fromText(value, parameter);
+}
+
+/** `name[key]=value` pairs; undefined when there are none. */
+function readDeepObject(query: URLSearchParams, name: string): Record<string, string> | undefined {
+  const result: Record<string, string> = {};
+  const prefix = `${name}[`;
+  for (const [key, value] of query) {
+    if (key.startsWith(prefix) && key.endsWith("]")) result[key.slice(prefix.length, -1)] = value;
+  }
+  return Object.keys(result).length === 0 ? undefined : result;
+}
+
+/** form + explode spreads an object's properties as separate query parameters. */
+function readSpreadObject(
+  query: URLSearchParams,
+  parameter: ParameterModel,
+): Record<string, string> | undefined {
+  const properties = (parameter.schema as { properties?: Record<string, unknown> }).properties ??
+    {};
+  const result: Record<string, string> = {};
+  for (const key of Object.keys(properties)) {
+    const value = query.get(key);
+    if (value !== null) result[key] = value;
+  }
+  return Object.keys(result).length === 0 ? undefined : result;
 }

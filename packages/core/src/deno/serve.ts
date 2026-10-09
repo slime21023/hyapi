@@ -47,6 +47,39 @@ function defaultSignals(): Deno.Signal[] {
   return Deno.build.os === "windows" ? ["SIGINT", "SIGBREAK"] : ["SIGINT", "SIGTERM"];
 }
 
+/** A listening server and what stopping it needs. */
+interface Running {
+  readonly app: App;
+  readonly server: Deno.HttpServer<Deno.NetAddr>;
+  readonly listener: AbortController;
+  readonly signals: readonly Deno.Signal[];
+  readonly onSignal: () => void;
+  readonly options: ServeOptions;
+}
+
+/**
+ * Removes the signal handlers, then closes the application and stops the listener together. Open
+ * connections are closed forcibly after `shutdownTimeoutMs`. Rejects with the close error, if any.
+ */
+async function stop(running: Running): Promise<void> {
+  const { app, server, listener, signals, onSignal, options } = running;
+  for (const signal of signals) Deno.removeSignalListener(signal, onSignal);
+  options.signal?.removeEventListener("abort", onSignal);
+  const force = setTimeout(() => listener.abort(), options.shutdownTimeoutMs ?? 30_000);
+  let failure: { error: unknown } | undefined;
+  try {
+    await Promise.all([
+      app.close().catch((error) => void (failure = { error })),
+      // Stops accepting connections and waits for open responses.
+      server.shutdown().catch(() => {}),
+    ]);
+  } finally {
+    clearTimeout(force);
+  }
+  await server.finished;
+  if (failure !== undefined) throw failure.error;
+}
+
 /**
  * Serves an application with `Deno.serve` and shuts it down gracefully on OS signals.
  *
@@ -75,31 +108,11 @@ export function serve(app: App, options: ServeOptions = {}): Server {
 
   // Installed only after the listener started, so a failed start leaves no handlers behind.
   const signals = [...(options.signals ?? defaultSignals())];
+  let stopping: Promise<void> | undefined;
+  const shutdown = () => (stopping ??= stop({ app, server, listener, signals, onSignal, options }));
   const onSignal = () => void shutdown().catch(() => {});
   for (const signal of signals) Deno.addSignalListener(signal, onSignal);
   options.signal?.addEventListener("abort", onSignal, { once: true });
-
-  let stopping: Promise<void> | undefined;
-  function shutdown(): Promise<void> {
-    stopping ??= (async () => {
-      for (const signal of signals) Deno.removeSignalListener(signal, onSignal);
-      options.signal?.removeEventListener("abort", onSignal);
-      const force = setTimeout(() => listener.abort(), options.shutdownTimeoutMs ?? 30_000);
-      let failure: { error: unknown } | undefined;
-      try {
-        await Promise.all([
-          app.close().catch((error) => void (failure = { error })),
-          // Stops accepting connections and waits for open responses.
-          server.shutdown().catch(() => {}),
-        ]);
-      } finally {
-        clearTimeout(force);
-      }
-      await server.finished;
-      if (failure !== undefined) throw failure.error;
-    })();
-    return stopping;
-  }
 
   const finished = (async () => {
     await server.finished;

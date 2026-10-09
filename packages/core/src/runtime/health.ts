@@ -25,6 +25,23 @@ export interface Health {
   check(): Promise<HealthReportValue>;
 }
 
+/** Runs one check within the timeout; throwing or timing out makes it unhealthy. */
+async function runCheck(name: string, check: HealthCheck, timeoutMs: number) {
+  const started = performance.now();
+  let status: HealthStatus;
+  let detail: string | undefined;
+  try {
+    const result = await withDeadline(check, timeoutMs);
+    status = result?.status ?? "healthy";
+    detail = result?.detail;
+  } catch (error) {
+    status = "unhealthy";
+    detail = error instanceof Error ? error.message : String(error);
+  }
+  const durationMs = Math.round((performance.now() - started) * 100) / 100;
+  return [name, { status, durationMs, ...(detail === undefined ? {} : { detail }) }] as const;
+}
+
 /**
  * Creates a health aggregator. The overall status is the worst check status. A closing
  * application answers every new request with 503, so the health operation needs no draining
@@ -54,25 +71,7 @@ export function createHealth(
   return Object.freeze({
     async check() {
       const results = await Promise.all(
-        Object.entries(checks).map(async ([name, check]) => {
-          const started = performance.now();
-          let status: HealthStatus;
-          let detail: string | undefined;
-          try {
-            const result = await withDeadline(check, timeoutMs);
-            status = result?.status ?? "healthy";
-            detail = result?.detail;
-          } catch (error) {
-            status = "unhealthy";
-            detail = error instanceof Error ? error.message : String(error);
-          }
-          const durationMs = Math.round((performance.now() - started) * 100) / 100;
-          return [name, {
-            status,
-            durationMs,
-            ...(detail === undefined ? {} : { detail }),
-          }] as const;
-        }),
+        Object.entries(checks).map(([name, check]) => runCheck(name, check, timeoutMs)),
       );
       const statuses = results.map(([, result]) => result.status);
       const status: HealthStatus = statuses.includes("unhealthy")

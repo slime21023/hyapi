@@ -40,6 +40,7 @@ Deno.test("top-level functions, else-if chains, and expression callbacks add no 
     [],
   );
   assertEquals(chains("function f() { for (;;) { if (a) xs.map((x) => x.y); } }"), []);
+  assertEquals(chains("function f() { for (;;) { if (a) p.catch(() => {}); } }"), []);
   assertEquals(chains("function f() { for (;;) { if (a) xs.map((x) => { return x; }); } }"), [
     "loop > if > closure",
   ]);

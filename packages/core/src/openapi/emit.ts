@@ -41,20 +41,22 @@ type Json = Record<string, JsonValue>;
  * schema named with `defineSchema` becomes a `$ref`, except the component being defined.
  */
 function toJsonSchema(schema: unknown, component?: string): JsonValue {
-  const visit = (node: unknown, isRoot: boolean): JsonValue => {
-    if (Array.isArray(node)) return node.map((item) => visit(item, false));
-    if (typeof node !== "object" || node === null) return node as JsonValue;
-    const name = schemaName(node);
-    if (name !== undefined && !(isRoot && name === component)) {
-      return { $ref: `#/components/schemas/${name}` };
-    }
-    const result: Json = {};
-    for (const [key, value] of Object.entries(node)) {
-      if (value !== undefined) result[key] = visit(value, false);
-    }
-    return result;
-  };
-  return visit(schema, true);
+  return jsonNode(schema, true, component);
+}
+
+/** One node of {@link toJsonSchema}; `isRoot` marks the schema that `component` defines. */
+function jsonNode(node: unknown, isRoot: boolean, component: string | undefined): JsonValue {
+  if (Array.isArray(node)) return node.map((item) => jsonNode(item, false, component));
+  if (typeof node !== "object" || node === null) return node as JsonValue;
+  const name = schemaName(node);
+  if (name !== undefined && !(isRoot && name === component)) {
+    return { $ref: `#/components/schemas/${name}` };
+  }
+  const result: Json = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (value !== undefined) result[key] = jsonNode(value, false, component);
+  }
+  return result;
 }
 
 function requirements(security: readonly RequirementModel[]): JsonValue {

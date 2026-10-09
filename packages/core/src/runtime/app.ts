@@ -5,6 +5,7 @@ import { describeErrors, type Diagnostic, type DiagnosticCode } from "../contrac
 import type { FormatModel } from "../contract/model.ts";
 import type { Schemes } from "../contract/security.ts";
 import {
+  type Binding,
   bindOperations,
   checkLifecycle,
   checkVerifiers,
@@ -12,7 +13,7 @@ import {
   type StartupDiagnosticCode,
   type StartupReport,
 } from "./binding.ts";
-import { type AppEvent, createEmitter, type EventListener } from "./events.ts";
+import { type AppEvent, createEmitter, type Emit, type EventListener } from "./events.ts";
 import type { Implementation } from "./handler.ts";
 import {
   type LifecycleFailure,
@@ -20,10 +21,16 @@ import {
   startResources,
   stopResources,
 } from "./lifecycle.ts";
-import { execute, type Outcome, planOperation, type ResponseValidation } from "./pipeline.ts";
+import {
+  execute,
+  type OperationPlan,
+  type Outcome,
+  planOperation,
+  type ResponseValidation,
+} from "./pipeline.ts";
 import { describeError, problemResponse } from "./problem.ts";
-import { compileRoutes, type Router } from "./routing.ts";
-import { createSecurity, type Verifiers } from "./security.ts";
+import { compileRoutes, type RouteMatch, type Router } from "./routing.ts";
+import { createSecurity, type SecurityEvaluator, type Verifiers } from "./security.ts";
 import { createValidators } from "./validation.ts";
 
 // deno-lint-ignore no-explicit-any
@@ -188,76 +195,294 @@ function lifecycleEvent(failure: LifecycleFailure): AppEvent {
  * Passes a streamed body through, calling `done` once when it ends, fails, or is cancelled. When
  * `shutdown` aborts, the body is cancelled and the stream errors with the abort reason.
  */
-function trackBody(
-  body: ReadableStream<Uint8Array>,
-  done: () => void,
-  shutdown: AbortSignal,
-): ReadableStream<Uint8Array> {
-  const reader = body.getReader();
-  let finished = false;
-  let abort: (() => void) | undefined;
-  const finish = () => {
-    if (finished) return;
-    finished = true;
-    if (abort !== undefined) shutdown.removeEventListener("abort", abort);
-    done();
-  };
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      abort = () => {
-        void reader.cancel(shutdown.reason).catch(() => {});
-        controller.error(shutdown.reason);
-        finish();
-      };
-      if (shutdown.aborted) abort();
-      else shutdown.addEventListener("abort", abort, { once: true });
-    },
-    async pull(controller) {
-      try {
-        const { done: end, value } = await reader.read();
-        if (end) {
-          controller.close();
-          finish();
-        } else controller.enqueue(value);
-      } catch (error) {
-        controller.error(error);
-        finish();
-      }
-    },
-    cancel(reason) {
-      finish();
-      return reader.cancel(reason);
-    },
-  });
+class TrackedBody implements UnderlyingDefaultSource<Uint8Array> {
+  readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
+  readonly #done: () => void;
+  readonly #shutdown: AbortSignal;
+  #finished = false;
+  #abort: (() => void) | undefined;
+
+  constructor(body: ReadableStream<Uint8Array>, done: () => void, shutdown: AbortSignal) {
+    this.#reader = body.getReader();
+    this.#done = done;
+    this.#shutdown = shutdown;
+  }
+
+  start(controller: ReadableStreamDefaultController<Uint8Array>): void {
+    this.#abort = () => {
+      void this.#reader.cancel(this.#shutdown.reason).catch(() => {});
+      controller.error(this.#shutdown.reason);
+      this.#finish();
+    };
+    if (this.#shutdown.aborted) this.#abort();
+    else this.#shutdown.addEventListener("abort", this.#abort, { once: true });
+  }
+
+  async pull(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
+    try {
+      const { done, value } = await this.#reader.read();
+      if (!done) return controller.enqueue(value);
+      controller.close();
+      this.#finish();
+    } catch (error) {
+      controller.error(error);
+      this.#finish();
+    }
+  }
+
+  cancel(reason?: unknown): Promise<void> {
+    this.#finish();
+    return this.#reader.cancel(reason);
+  }
+
+  #finish(): void {
+    if (this.#finished) return;
+    this.#finished = true;
+    if (this.#abort !== undefined) this.#shutdown.removeEventListener("abort", this.#abort);
+    this.#done();
+  }
 }
 
 /** Counts in-flight requests and lets `close()` wait until they finish. */
-function createTracker() {
-  let inFlight = 0;
-  let drained: (() => void) | undefined;
-  return {
-    enter() {
-      inFlight++;
-    },
-    leave() {
-      inFlight--;
-      if (inFlight === 0) drained?.();
-    },
-    get count() {
-      return inFlight;
-    },
-    /** Resolves when no request is in flight, or after `ms`. */
-    wait(ms: number): Promise<void> {
-      return new Promise((resolve) => {
-        if (inFlight === 0) return resolve();
-        const timer = setTimeout(resolve, ms);
-        drained = () => {
-          clearTimeout(timer);
-          resolve();
-        };
+class InFlight {
+  #count = 0;
+  #drained: (() => void) | undefined;
+
+  get count(): number {
+    return this.#count;
+  }
+
+  enter(): void {
+    this.#count++;
+  }
+
+  leave(): void {
+    this.#count--;
+    if (this.#count === 0) this.#drained?.();
+  }
+
+  /** Resolves when no request is in flight, or after `ms`. */
+  drained(ms: number): Promise<void> {
+    return new Promise((resolve) => this.#whenDrained(resolve, ms));
+  }
+
+  #whenDrained(resolve: () => void, ms: number): void {
+    if (this.#count === 0) return resolve();
+    const timer = setTimeout(resolve, ms);
+    this.#drained = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+  }
+}
+
+function notImplementedWarnings(bindings: readonly Binding[]): AppEvent[] {
+  return bindings.filter((binding) => binding.handler === undefined).map(({ operation }) => ({
+    type: "startup.warning",
+    code: "not-implemented",
+    message: "the operation is not implemented yet and answers 501",
+    operationId: operation.operationId,
+  }));
+}
+
+type Settings = ReturnType<typeof readSettings>;
+type DocumentEndpoint = NonNullable<ReturnType<typeof documentEndpoint>>;
+
+/** Everything a started application needs, prepared by {@link createApp}. */
+interface Runtime {
+  readonly settings: Settings;
+  readonly emit: Emit;
+  readonly router: Router;
+  readonly plans: ReadonlyMap<string, OperationPlan>;
+  readonly security: SecurityEvaluator;
+  readonly lifecycle: readonly LifecycleResource[];
+  readonly document: DocumentEndpoint | undefined;
+}
+
+/** A response, and whether its body streams and so keeps the request in flight. */
+interface Handled {
+  readonly response: Response;
+  readonly streaming: boolean;
+}
+
+const buffered = (response: Response): Handled => ({ response, streaming: false });
+
+const shuttingDown = () =>
+  problemResponse(503, "SHUTTING_DOWN", {
+    detail: "The server is shutting down.",
+    headers: { connection: "close" },
+  });
+
+/** The opt-in document endpoint answers GET and HEAD. */
+function serveDocument(document: DocumentEndpoint, method: string): Response {
+  if (method !== "GET" && method !== "HEAD") {
+    return problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } });
+  }
+  return new Response(method === "HEAD" ? null : document.text, {
+    headers: { "content-type": document.type },
+  });
+}
+
+/** The problem response for a request that matches no operation. */
+function unmatched(
+  match: Exclude<RouteMatch, { kind: "found" }>,
+  method: string,
+  pathname: string,
+): Response {
+  switch (match.kind) {
+    case "malformed-path":
+      return problemResponse(400, "MALFORMED_REQUEST", {
+        detail: "The path is not valid percent-encoding.",
       });
-    },
-  };
+    case "not-found":
+      return problemResponse(404, "NOT_FOUND", { detail: `No operation matches ${pathname}.` });
+  }
+  return problemResponse(405, "METHOD_NOT_ALLOWED", {
+    detail: `${method} is not declared for ${pathname}.`,
+    headers: { allow: match.allow.join(", ") },
+  });
+}
+
+/** A started application: the only owner of mutable state in Core (ADR 0003 §2). */
+class RunningApp {
+  readonly #runtime: Runtime;
+  readonly #inFlight = new InFlight();
+  readonly #shutdown = new AbortController();
+  #state: "running" | "closing" | "closed" = "running";
+  #closing: Promise<void> | undefined;
+
+  constructor(runtime: Runtime) {
+    this.#runtime = runtime;
+  }
+
+  async fetch(request: Request): Promise<Response> {
+    if (this.#state !== "running") return shuttingDown();
+    this.#inFlight.enter();
+    // A streamed body keeps the request in flight until it ends, so close() waits for it and
+    // lifecycle resources stop only after it.
+    let streaming = false;
+    try {
+      const handled = await this.#handle(request);
+      streaming = handled.streaming;
+      return streaming ? this.#track(handled.response) : handled.response;
+    } catch (caught) {
+      const { development } = this.#runtime.settings;
+      return problemResponse(
+        500,
+        "INTERNAL_ERROR",
+        development ? { debug: describeError(caught) } : {},
+      );
+    } finally {
+      if (!streaming) this.#inFlight.leave();
+    }
+  }
+
+  close(): Promise<void> {
+    this.#closing ??= this.#stop();
+    return this.#closing;
+  }
+
+  async #stop(): Promise<void> {
+    const { settings, lifecycle, emit } = this.#runtime;
+    this.#state = "closing";
+    // Drain within the budget, then abort what is left and give it a moment to settle.
+    await this.#inFlight.drained(settings.shutdownTimeoutMs);
+    if (this.#inFlight.count > 0) {
+      this.#shutdown.abort(new DOMException("The server is shutting down.", "AbortError"));
+      await this.#inFlight.drained(Math.min(1_000, settings.shutdownTimeoutMs));
+    }
+    const failures = await stopResources(lifecycle, settings.shutdownTimeoutMs);
+    for (const failure of failures) emit(lifecycleEvent(failure));
+    this.#state = "closed";
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures.map((failure) => failure.error),
+        `${failures.length} lifecycle resource(s) failed to stop`,
+      );
+    }
+  }
+
+  #track(response: Response): Response {
+    const source = new TrackedBody(
+      response.body!,
+      () => this.#inFlight.leave(),
+      this.#shutdown.signal,
+    );
+    return new Response(new ReadableStream(source), {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+  }
+
+  async #handle(request: Request): Promise<Handled> {
+    const { router, document } = this.#runtime;
+    const url = new URL(request.url);
+    if (document !== undefined && url.pathname === document.path) {
+      return buffered(serveDocument(document, request.method));
+    }
+    const match = router.match(request.method, url.pathname);
+    if (match.kind !== "found") return buffered(unmatched(match, request.method, url.pathname));
+    return await this.#runOperation(request, url, match);
+  }
+
+  async #runOperation(
+    request: Request,
+    url: URL,
+    match: Extract<RouteMatch, { kind: "found" }>,
+  ): Promise<Handled> {
+    const { emit, plans, settings, security } = this.#runtime;
+    const { operation } = match;
+    const base = {
+      operationId: operation.operationId,
+      method: request.method,
+      path: operation.path,
+      deprecated: operation.deprecated,
+    };
+    emit({ type: "operation.start", ...base });
+    const started = performance.now();
+    const outcome = await execute(
+      plans.get(operation.operationId)!,
+      request,
+      url,
+      match.params,
+      settings,
+      security,
+      this.#shutdown.signal,
+    );
+    this.#report(outcome, base, started);
+    const { response } = outcome;
+    if (!match.head) {
+      return { response, streaming: outcome.streaming === true && response.body !== null };
+    }
+    void response.body?.cancel().catch(() => {});
+    return buffered(new Response(null, { status: response.status, headers: response.headers }));
+  }
+
+  /** Turns the facts of an outcome into events (ADR 0003 §9). */
+  #report(
+    outcome: Outcome,
+    base: { operationId: string; method: string; path: string; deprecated: boolean },
+    started: number,
+  ): void {
+    const { emit } = this.#runtime;
+    const { operationId } = base;
+    if (outcome.stripped !== undefined) {
+      emit({ type: "response.stripped", operationId, ...outcome.stripped });
+    }
+    if (outcome.violation !== undefined) {
+      emit({ type: "response.violation", operationId, ...outcome.violation });
+    }
+    const error = outcome.error === undefined ? undefined : describeError(outcome.error);
+    emit({
+      type: "operation.end",
+      ...base,
+      status: outcome.response.status,
+      durationMs: Math.round((performance.now() - started) * 100) / 100,
+      ...(outcome.code === undefined ? {} : { code: outcome.code }),
+      ...(error === undefined ? {} : { error: { name: error.name, message: error.message } }),
+    });
+  }
 }
 
 /**
@@ -303,17 +528,7 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
       ...(d.operationId === undefined ? {} : { operationId: d.operationId }),
     });
   }
-  if (settings.development) {
-    for (const { operation, handler } of bindings) {
-      if (handler !== undefined) continue;
-      emit({
-        type: "startup.warning",
-        code: "not-implemented",
-        message: "the operation is not implemented yet and answers 501",
-        operationId: operation.operationId,
-      });
-    }
-  }
+  if (settings.development) notImplementedWarnings(bindings).forEach(emit);
 
   // Every check passed: only now touch process-wide state and compile validators.
   registerFormats(model.formats);
@@ -345,140 +560,17 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
     verifiers as Parameters<typeof createSecurity>[1],
     model.info.title,
   );
-  const shutdown = new AbortController();
-  const tracker = createTracker();
-  let state: "running" | "closing" | "closed" = "running";
-  let closing: Promise<void> | undefined;
-
-  const report = (outcome: Outcome, operationId: string) => {
-    if (outcome.stripped !== undefined) {
-      emit({ type: "response.stripped", operationId, ...outcome.stripped });
-    }
-    if (outcome.violation !== undefined) {
-      emit({ type: "response.violation", operationId, ...outcome.violation });
-    }
-  };
-
-  const handle = async (request: Request): Promise<{ response: Response; streaming: boolean }> => {
-    const url = new URL(request.url);
-    const buffered = (response: Response) => ({ response, streaming: false });
-    if (document !== undefined && url.pathname === document.path) {
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        return buffered(
-          problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } }),
-        );
-      }
-      return buffered(
-        new Response(request.method === "HEAD" ? null : document.text, {
-          headers: { "content-type": document.type },
-        }),
-      );
-    }
-    const match = router.match(request.method, url.pathname);
-    switch (match.kind) {
-      case "not-found":
-        return buffered(problemResponse(404, "NOT_FOUND", {
-          detail: `No operation matches ${url.pathname}.`,
-        }));
-      case "method-not-allowed":
-        return buffered(problemResponse(405, "METHOD_NOT_ALLOWED", {
-          detail: `${request.method} is not declared for ${url.pathname}.`,
-          headers: { allow: match.allow.join(", ") },
-        }));
-      case "malformed-path":
-        return buffered(problemResponse(400, "MALFORMED_REQUEST", {
-          detail: "The path is not valid percent-encoding.",
-        }));
-    }
-    const { operation } = match;
-    const base = {
-      operationId: operation.operationId,
-      method: request.method,
-      path: operation.path,
-      deprecated: operation.deprecated,
-    };
-    emit({ type: "operation.start", ...base });
-    const started = performance.now();
-    const outcome = await execute(
-      plans.get(operation.operationId)!,
-      request,
-      url,
-      match.params,
-      settings,
-      security,
-      shutdown.signal,
-    );
-    report(outcome, operation.operationId);
-    const { response } = outcome;
-    emit({
-      type: "operation.end",
-      ...base,
-      status: response.status,
-      durationMs: Math.round((performance.now() - started) * 100) / 100,
-      ...(outcome.code === undefined ? {} : { code: outcome.code }),
-      ...(outcome.error === undefined ? {} : {
-        error: (({ name, message }) => ({ name, message }))(describeError(outcome.error)),
-      }),
-    });
-    if (match.head) {
-      void response.body?.cancel().catch(() => {});
-      return buffered(new Response(null, { status: response.status, headers: response.headers }));
-    }
-    return { response, streaming: outcome.streaming === true && response.body !== null };
-  };
-
-  const app: App = {
-    async fetch(request) {
-      if (state !== "running") {
-        return problemResponse(503, "SHUTTING_DOWN", {
-          detail: "The server is shutting down.",
-          headers: { connection: "close" },
-        });
-      }
-      tracker.enter();
-      // A streamed body keeps the request in flight until it ends, so close() waits for it and
-      // lifecycle resources stop only after it.
-      let streaming = false;
-      try {
-        const { response, streaming: streams } = await handle(request);
-        if (!streams) return response;
-        streaming = true;
-        return new Response(trackBody(response.body!, tracker.leave, shutdown.signal), {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      } catch (caught) {
-        return problemResponse(
-          500,
-          "INTERNAL_ERROR",
-          settings.development ? { debug: describeError(caught) } : {},
-        );
-      } finally {
-        if (!streaming) tracker.leave();
-      }
-    },
-    close() {
-      closing ??= (async () => {
-        state = "closing";
-        // Drain within the budget, then abort what is left and give it a moment to settle.
-        await tracker.wait(settings.shutdownTimeoutMs);
-        if (tracker.count > 0) {
-          shutdown.abort(new DOMException("The server is shutting down.", "AbortError"));
-          await tracker.wait(Math.min(1_000, settings.shutdownTimeoutMs));
-        }
-        const stopFailures = await stopResources(lifecycle, settings.shutdownTimeoutMs);
-        for (const failure of stopFailures) emit(lifecycleEvent(failure));
-        state = "closed";
-        if (stopFailures.length > 0) {
-          throw new AggregateError(
-            stopFailures.map((failure) => failure.error),
-            `${stopFailures.length} lifecycle resource(s) failed to stop`,
-          );
-        }
-      })();
-      return closing;
-    },
-  };
-  return Object.freeze(app);
+  const running = new RunningApp({
+    settings,
+    emit,
+    router,
+    plans,
+    security,
+    lifecycle,
+    document,
+  });
+  return Object.freeze({
+    fetch: (request: Request) => running.fetch(request),
+    close: () => running.close(),
+  });
 }
