@@ -76,3 +76,16 @@ Deno.test("skip bypasses the check, and options are validated", async () => {
   assertThrows(() => withCsrf(inner, { secret: "short" }), RangeError);
   assertThrows(() => withCsrf(inner, { secret, secure: false }), TypeError);
 });
+
+Deno.test("CORS preflight passes through without a token or a cookie", async () => {
+  const handler = withCsrf(inner, { secret });
+  const response = await handler(
+    new Request("http://app/items", {
+      method: "OPTIONS",
+      headers: { origin: "https://app.example.com", "access-control-request-method": "POST" },
+    }),
+  );
+  assertEquals(response.status, 200);
+  assertEquals(response.headers.get("set-cookie"), null);
+  await response.body?.cancel();
+});

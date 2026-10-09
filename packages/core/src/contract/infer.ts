@@ -19,9 +19,15 @@ type ParameterInput<X> = X extends TObject<infer Props> ? RequireKeys<Static<X>,
 type BodySchemaOf<B> = B extends SchemaLike ? B
   : B extends { readonly schema: infer S } ? S
   : never;
-type BodyInput<B> = B extends { readonly required: false }
-  ? { readonly body?: StaticOf<BodySchemaOf<B>> }
-  : { readonly body: StaticOf<BodySchemaOf<B>> };
+// Bodies that are neither JSON nor text reach the handler as bytes (RFC 0001 A24).
+type IsBytes<M> = string extends M ? false
+  : M extends "application/json" | `${string}+json` | `text/${string}` ? false
+  : true;
+type BodyValue<B> = B extends { readonly mediaType: infer M } ? IsBytes<M> extends true ? Uint8Array
+  : StaticOf<BodySchemaOf<B>>
+  : StaticOf<BodySchemaOf<B>>;
+type BodyInput<B> = B extends { readonly required: false } ? { readonly body?: BodyValue<B> }
+  : { readonly body: BodyValue<B> };
 
 // An operation without inputs gets an empty object, so `({}, ctx) => ...` type-checks.
 // deno-lint-ignore ban-types

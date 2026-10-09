@@ -32,7 +32,10 @@ export type DiagnosticCode =
   | "duplicate-response-name"
   | "unnamed-schema"
   | "unknown-format"
-  | "invalid-format";
+  | "invalid-format"
+  | "implicit-public"
+  | "unsupported-body-schema"
+  | "reserved-schema-name";
 
 /** One problem found in an API's contracts, or, with a wider `Code`, at application startup. */
 export interface Diagnostic<Code extends string = DiagnosticCode> {

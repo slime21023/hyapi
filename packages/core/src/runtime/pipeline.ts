@@ -1,7 +1,8 @@
 import Type from "typebox";
 import type { OperationModel, ParameterLocation, ResponseModel } from "../contract/model.ts";
 import { cloneSchema } from "../contract/snapshot.ts";
-import { encodeBody, isJsonMediaType, readBody } from "./body.ts";
+import { isJsonMediaType } from "../contract/media.ts";
+import { encodeBody, readBody } from "./body.ts";
 import { readParameters } from "./params.ts";
 import { describeError, HttpError, problemResponse, type Violation } from "./problem.ts";
 import type { Denial, SecurityEvaluator } from "./security.ts";
@@ -32,6 +33,11 @@ export interface Outcome {
   readonly violation?: { readonly status: number; readonly violations: readonly Violation[] };
   /** Development only: undeclared response fields that were removed. */
   readonly stripped?: { readonly status: number; readonly removed: readonly string[] };
+  /**
+   * The body is produced while it is sent (a raw `Response` from the handler, or a stream), so the
+   * request stays in flight until the body ends.
+   */
+  readonly streaming?: boolean;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -60,7 +66,14 @@ export interface OperationPlan {
   readonly timeoutMs: number;
   readonly locations: readonly LocationPlan[];
   readonly body: Validator | undefined;
-  readonly responses: ReadonlyMap<number, { model: ResponseModel; body: Validator | undefined }>;
+  readonly responses: ReadonlyMap<number, ResponsePlan>;
+}
+
+interface ResponsePlan {
+  readonly model: ResponseModel;
+  readonly body: Validator | undefined;
+  /** One validator per declared header, by header name. */
+  readonly headers: ReadonlyMap<string, Validator>;
 }
 
 const LOCATION_ORDER: readonly ParameterLocation[] = ["path", "query", "header", "cookie"];
@@ -89,9 +102,15 @@ export function planOperation(
     locations.push({ location, key: INPUT_KEYS[location], validator: validators(schema) });
   }
   const responses = new Map(
-    operation.responses.map((response) => [
+    operation.responses.map((response): [number, ResponsePlan] => [
       response.status,
-      { model: response, body: response.body ? validators(response.body.schema) : undefined },
+      {
+        model: response,
+        body: response.body ? validators(response.body.schema) : undefined,
+        headers: new Map(
+          response.headers.map((header) => [header.name, validators(header.schema)]),
+        ),
+      },
     ]),
   );
   return {
@@ -286,9 +305,21 @@ function lookupHeader(headers: unknown, name: string): unknown {
   return undefined;
 }
 
+/**
+ * The outcome of a contract violation for a raw `Response`: when it is still sent (policy `log`),
+ * its body streams; when it is replaced (policy `enforce`), its body is cancelled.
+ */
+function withBody(outcome: Outcome, original: Response): Outcome {
+  if (outcome.response === original) return { ...outcome, streaming: original.body !== null };
+  void original.body?.cancel().catch(() => {});
+  return outcome;
+}
+
 /** Applies the response policy and serializes a handler result. */
 function respond(plan: OperationPlan, result: unknown, settings: PipelineSettings): Outcome {
   const { operation } = plan;
+  // With "off", no response check runs and no violation is reported (RFC 0001 A26).
+  const checking = settings.responseValidation !== "off";
   const violations: Violation[] = [];
   let stripped: Outcome["stripped"];
   const contractViolation = (status: number, fallback: () => Response): Outcome => {
@@ -312,15 +343,16 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
   };
 
   if (result instanceof Response) {
-    if (!plan.responses.has(result.status)) {
+    const streaming = result.body !== null;
+    if (checking && !plan.responses.has(result.status)) {
       violations.push({
         location: "response",
         pointer: "",
         message: `status ${result.status} is not declared`,
       });
-      return contractViolation(result.status, () => result);
+      return withBody(contractViolation(result.status, () => result), result);
     }
-    return { response: result };
+    return { response: result, streaming };
   }
   if (
     typeof result !== "object" || result === null ||
@@ -347,31 +379,43 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
   }
 
   if (declared === undefined) {
+    const undeclared = () => {
+      if (body === undefined) return new Response(null, { status, headers });
+      headers.set("content-type", "application/json");
+      return new Response(JSON.stringify(body), { status, headers });
+    };
+    if (!checking) return { response: undeclared() };
     violations.push({
       location: "response",
       pointer: "",
       message: `status ${status} is not declared`,
     });
-    return contractViolation(status, () => {
-      if (body === undefined) return new Response(null, { status, headers });
-      headers.set("content-type", "application/json");
-      return new Response(JSON.stringify(body), { status, headers });
-    });
+    return contractViolation(status, undeclared);
   }
 
-  for (const header of declared.model.headers) {
-    if (header.required && lookupHeader(given, header.name) === undefined) {
-      violations.push({
-        location: "response",
-        pointer: `/headers/${header.name}`,
-        message: "required header is missing",
-      });
+  if (checking) {
+    for (const header of declared.model.headers) {
+      const value = lookupHeader(given, header.name);
+      const pointer = `/headers/${header.name}`;
+      if (value === undefined) {
+        if (header.required) {
+          violations.push({ location: "response", pointer, message: "required header is missing" });
+        }
+        continue;
+      }
+      violations.push(
+        ...declared.headers.get(header.name)!.check(value, "response").map((v) => ({
+          ...v,
+          pointer: `${pointer}${v.pointer}`,
+        })),
+      );
     }
   }
 
   let payload: BodyInit | null = null;
+  let streaming = false;
   if (declared.model.body === undefined) {
-    if (body !== undefined) {
+    if (checking && body !== undefined) {
       violations.push({
         location: "response",
         pointer: "/body",
@@ -394,7 +438,7 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
         stripped = { status, removed: cleaned.removed };
       }
     }
-    if (settings.responseValidation !== "off" && !(value instanceof Uint8Array)) {
+    if (checking && !(value instanceof Uint8Array) && !(value instanceof ReadableStream)) {
       violations.push(
         ...declared.body!.check(value, "response").map((v) => ({
           ...v,
@@ -403,10 +447,22 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
       );
     }
     payload = encodeBody(value, mediaType);
+    streaming = payload instanceof ReadableStream;
     headers.set("content-type", mediaType);
   }
 
   const send = () => new Response(payload, { status, headers });
-  if (violations.length > 0) return contractViolation(status, send);
-  return { response: send(), ...(stripped === undefined ? {} : { stripped }) };
+  if (violations.length > 0) {
+    const outcome = contractViolation(status, send);
+    if (outcome.code !== undefined && payload instanceof ReadableStream) {
+      void payload.cancel().catch(() => {});
+      return outcome;
+    }
+    return streaming ? { ...outcome, streaming } : outcome;
+  }
+  return {
+    response: send(),
+    ...(stripped === undefined ? {} : { stripped }),
+    ...(streaming ? { streaming } : {}),
+  };
 }

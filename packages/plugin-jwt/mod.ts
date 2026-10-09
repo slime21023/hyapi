@@ -46,8 +46,11 @@ export interface JwtBearerOptions<Identity> {
   readonly key: string | Uint8Array | CryptoKey | JWK;
   /** Accepted `iss` values. */
   readonly issuer?: string | readonly string[];
-  /** Accepted `aud` values. */
-  readonly audience?: string | readonly string[];
+  /**
+   * Accepted `aud` values. Required: without an audience check, a token issued for any other
+   * service that trusts the same key would be accepted.
+   */
+  readonly audience: string | readonly string[];
   /** Allowed clock skew for `exp`, `nbf`, and `iat`. Defaults to 0 seconds. */
   readonly clockToleranceSeconds?: number;
   /** Claims that must be present. Defaults to `["exp"]`. */
@@ -121,6 +124,10 @@ export async function jwtBearer<Identity = JWTPayload>(
   if (!Number.isFinite(tolerance) || tolerance < 0) {
     throw new RangeError("clockToleranceSeconds must be a non-negative number");
   }
+  const audiences = typeof options.audience === "string" ? [options.audience] : options.audience;
+  if (!Array.isArray(audiences) || audiences.length === 0 || audiences.some((a) => !a)) {
+    throw new TypeError("audience must name this API, such as 'orders-api'");
+  }
   const key = await importKey(options.algorithm, options.key);
   const identityOf = options.identity ?? ((claims: JWTPayload) => claims as Identity);
   const scopesOf = options.scopes ?? defaultScopes;
@@ -129,7 +136,7 @@ export async function jwtBearer<Identity = JWTPayload>(
     clockTolerance: tolerance,
     requiredClaims: [...(options.requiredClaims ?? ["exp"])],
     ...(options.issuer === undefined ? {} : { issuer: options.issuer as string | string[] }),
-    ...(options.audience === undefined ? {} : { audience: options.audience as string | string[] }),
+    audience: options.audience as string | string[],
   };
 
   return async (token) => {

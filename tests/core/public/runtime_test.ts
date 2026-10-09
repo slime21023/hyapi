@@ -506,3 +506,34 @@ Deno.test("startup rejects contract errors with their diagnostics", async () => 
     "unknown-format",
   ]);
 });
+
+Deno.test("byte bodies reach the handler as the bytes that were sent", async () => {
+  const files = defineContract({
+    operations: {
+      upload: {
+        method: "PUT",
+        path: "/files",
+        body: { schema: T.String({ format: "binary" }), mediaType: "application/octet-stream" },
+        responses: { 200: T.Object({ size: T.Integer(), first: T.Integer() }) },
+      },
+    },
+  });
+  const app = await createApp({
+    api: defineApi({ info: { title: "Files", version: "1" }, contracts: [files] }),
+    onEvent: () => {},
+    implementations: [
+      implement(files, {
+        upload: ({ body }) => ({ status: 200, body: { size: body.byteLength, first: body[0]! } }),
+      }),
+    ],
+  });
+  const response = await app.fetch(
+    new Request("http://t/files", {
+      method: "PUT",
+      headers: { "content-type": "application/octet-stream" },
+      body: new Uint8Array([7, 8, 9]),
+    }),
+  );
+  assertEquals(await response.json(), { size: 3, first: 7 });
+  await app.close();
+});

@@ -32,9 +32,11 @@ serve(app, { fetch: withCors(app.fetch, { origins: ["https://app.example.com"] }
 `app.close()`, which `serve` calls, runs these steps:
 
 1. new requests get 503 `SHUTTING_DOWN`;
-2. in-flight requests drain within `shutdownTimeoutMs`;
-3. the remaining requests are aborted through `ctx.signal` and answer 503; and
-4. lifecycle resources stop in reverse order, within one shared budget.
+2. in-flight requests, including streamed response bodies, drain within `shutdownTimeoutMs`;
+3. the remaining requests are aborted through `ctx.signal` and answer 503, and open streams are
+   cancelled; and
+4. lifecycle resources stop in reverse order, within one shared budget, so no stream outlives the
+   resources it reads from.
 
 `serve` forces the remaining connections closed after its own `shutdownTimeoutMs` (30 seconds by
 default). Keep it above the app's budget, and the platform's termination grace period above both.

@@ -48,7 +48,8 @@ function withVary(headers: Headers, value: string): void {
 /**
  * Wraps a handler with CORS. Preflight requests from allowed origins are answered with 204;
  * preflight from other origins gets 403. Other requests reach the handler, and allowed origins
- * get CORS headers on the response.
+ * get CORS headers on the response. Unless the origin is `*`, every response varies by `Origin`,
+ * so a shared cache never serves one origin's answer to another.
  */
 export function withCors(handler: FetchHandler, options: CorsOptions): FetchHandler {
   const wildcard = Array.isArray(options.origins) && options.origins.includes("*");
@@ -66,6 +67,18 @@ export function withCors(handler: FetchHandler, options: CorsOptions): FetchHand
   const exposeHeaders = options.exposeHeaders ?? [];
   const maxAge = options.maxAgeSeconds ?? 600;
 
+  // Responses can have immutable headers, so headers are always set on a copy.
+  const varyByOrigin = (response: Response): Response => {
+    if (wildcard) return response;
+    const headers = new Headers(response.headers);
+    withVary(headers, "origin");
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  };
+
   const decorate = (headers: Headers, origin: string) => {
     headers.set("access-control-allow-origin", wildcard ? "*" : origin);
     if (!wildcard) withVary(headers, "origin");
@@ -77,9 +90,11 @@ export function withCors(handler: FetchHandler, options: CorsOptions): FetchHand
     const requestedMethod = request.headers.get("access-control-request-method");
     if (request.method === "OPTIONS" && origin !== null && requestedMethod !== null) {
       if (!allowed(origin)) {
-        return problemResponse(403, "CORS_ORIGIN_NOT_ALLOWED", {
-          detail: `Origin ${origin} may not call this API.`,
-        });
+        return varyByOrigin(
+          problemResponse(403, "CORS_ORIGIN_NOT_ALLOWED", {
+            detail: `Origin ${origin} may not call this API.`,
+          }),
+        );
       }
       const requested = (request.headers.get("access-control-request-headers") ?? "")
         .split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
@@ -103,8 +118,7 @@ export function withCors(handler: FetchHandler, options: CorsOptions): FetchHand
     }
 
     const response = await handler(request);
-    if (origin === null || !allowed(origin)) return response;
-    // Responses can have immutable headers, so the CORS headers go on a copy.
+    if (origin === null || !allowed(origin)) return varyByOrigin(response);
     const headers = new Headers(response.headers);
     decorate(headers, origin);
     if (exposeHeaders.length > 0) {

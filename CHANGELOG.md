@@ -7,8 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Layered architecture (roadmap M8, [ADR 0003](_adr/0003-layered-architecture.md)). Released with M9
-as `0.2.0`.
+Layered architecture (roadmap M8, [ADR 0003](_adr/0003-layered-architecture.md)), and correctness
+and safe defaults (roadmap M9, from
+[Review 0001](_adr/reviews/0001-component-and-production-readiness.md)). To be released as `0.2.0`.
+
+### Security
+
+- Security fails closed: when the API declares security schemes, an operation without a requirement
+  at any level is the startup error `implicit-public`. Mark public operations with `security: []`.
+- Request bodies that are neither JSON nor text were passed to handlers unvalidated while typed as
+  the declared schema. Their schema must now be `T.String({ format: "binary" })`
+  (`unsupported-body-schema`), and handlers receive them typed as `Uint8Array`.
+- `@hyapi/plugin-jwt` requires `audience`.
+- `@hyapi/plugin-cors` adds `Vary: Origin` to every response unless the origin is `*`.
+- The example rate-limits by the last `X-Forwarded-For` entry, which its proxy added, instead of the
+  first, which clients control.
 
 ### Added
 
@@ -22,6 +35,13 @@ as `0.2.0`.
   the runtime mechanisms, and a test that pins the TypeBox behavior Core relies on.
 - CI accepts intended breaking changes of the example API when a pull request has the `breaking-api`
   label.
+- Response header values are validated against their schemas.
+- Streamed response bodies count as in-flight requests: `close()` waits for them, cancels them when
+  the shutdown budget runs out, and stops lifecycle resources afterwards.
+- A result body may be a `ReadableStream`; streamed bodies are not validated.
+- Diagnostic `reserved-schema-name` for schemas other than the built-in `Problem` named `Problem`.
+- A test of the canonical wrapper order `withCors(withCsrf(withRateLimit(app.fetch)))`, and guide
+  sections on the order, exposed headers, and proxy trust.
 
 ### Changed
 
@@ -33,6 +53,8 @@ as `0.2.0`.
   result in `createApp`, `hyapi emit`, and `hyapi doctor`.
 - `hyapi doctor` reads operations from the emitted document.
 - The request body reader is cancelled when the request's signal aborts.
+- `responseValidation: "off"` runs no response check and emits no `response.violation` event.
+- `@hyapi/plugin-csrf` lets CORS preflight requests through without setting its cookie.
 
 ### Removed
 

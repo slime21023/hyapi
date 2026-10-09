@@ -99,6 +99,16 @@ ADR 0001 §1–§3, §7, §8; ADR 0002 §2, §5; RFC 0001.
   the names in `defineApi({ formats })` (RFC 0001 A16). The result never depends on TypeBox's
   process-wide registry. Redeclaring a standard format is `invalid-format`.
 
+## Resolved in M9
+
+- **Fail closed.** `implicit-public` is an error when the API declares security schemes and an
+  operation has no requirement at any level (RFC 0001 A23).
+- **Byte bodies.** `unsupported-body-schema` is an error when a request body that is neither JSON
+  nor text has a schema other than a binary string (A24). The media-type classification lives in
+  `media.ts`, and the runtime uses the same functions.
+- **Reserved name.** `reserved-schema-name` is an error when a schema other than the built-in
+  `Problem` is named `Problem` (A25).
+
 ## Open questions
 
 - None. Future questions are tracked in the [roadmap](../roadmap.md).

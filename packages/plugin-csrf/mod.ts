@@ -108,6 +108,10 @@ export function withCsrf(handler: FetchHandler, options: CsrfOptions): FetchHand
 
   return async (request) => {
     if (options.skip?.(request) === true) return await handler(request);
+    // A CORS preflight carries no credentials and must not receive a cookie.
+    const preflight = request.method === "OPTIONS" &&
+      request.headers.has("access-control-request-method");
+    if (preflight) return await handler(request);
     const current = readCookie(request.headers.get("cookie"), cookieName);
     if (!SAFE_METHODS.has(request.method)) {
       const echoed = request.headers.get(headerName) ?? undefined;

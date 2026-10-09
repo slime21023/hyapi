@@ -11,7 +11,7 @@ const { app, fetch } = await buildExample({
   corsOrigins: ["https://app.example.com"],
   log: (event) => void events.push(event),
 });
-const token = await new SignJWT({ sub: "librarian", scope: "books:write" })
+const token = await new SignJWT({ sub: "librarian", scope: "books:write", aud: "library-api" })
   .setProtectedHeader({ alg: "HS256" }).setExpirationTime("1h")
   .sign(new TextEncoder().encode(secret));
 

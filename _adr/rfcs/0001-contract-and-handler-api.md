@@ -357,6 +357,23 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   `notImplemented` operation emits `startup.warning` with code `not-implemented`, instead of a
   direct `console.warn`.
 
+## 17. Amendments made for Review 0001 (M9)
+
+- **A23. No implicit public operations.** When the API declares at least one security scheme, an
+  operation whose effective requirement is empty at every level (operation, contract, and API) is
+  the error `implicit-public`. Mark a public operation explicitly with `security: []`. An API
+  without security schemes is unaffected.
+- **A24. Byte request bodies.** A request body whose media type is neither JSON (`application/json`
+  or `+json`) nor `text/*` reaches the handler as a `Uint8Array`, and `InputOf` types it so. Its
+  schema must be a binary string, `T.String({ format: "binary" })`; any other schema is the error
+  `unsupported-body-schema`. Form and multipart bodies remain a later goal.
+- **A25. `Problem` is reserved.** A schema named `Problem` must be the built-in `Problem` schema;
+  another schema with that name is the error `reserved-schema-name`, because the name selects
+  `application/problem+json`.
+- **A26. Response checks follow the policy.** Declared response headers are validated against their
+  schemas, not only for presence. With `responseValidation: "off"`, no response check runs and no
+  `response.violation` event is emitted; undeclared fields are still stripped.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object
