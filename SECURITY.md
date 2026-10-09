@@ -66,6 +66,7 @@ HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes 
 
 **Hosting**
 
-- Run with `--unstable-no-legacy-abort`, so that request signals report real client disconnects.
+- Run with `--unstable-no-legacy-abort`, or `"unstable": ["no-legacy-abort"]` in the root
+  `deno.json`, so that request signals report real client disconnects.
 - `serve()` drains in-flight requests on SIGINT and SIGTERM, then closes connections that remain
   open after its shutdown budget.

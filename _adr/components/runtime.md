@@ -246,6 +246,18 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
 - **Several applications.** `serve` closes one application; the guide shows how to close others
   after `finished`. No API was added.
 
+## Resolved in M10c
+
+- **Per-operation body limits (RFC 0001 A34).** `createApp({ bodyLimits })` overrides
+  `bodyLimitBytes` per operation; the plan carries each operation's limit.
+- **Request signals.** Each request gets its own `AbortController`, created by the application,
+  which the pipeline aborts on client disconnect or timeout. The application keeps the controllers
+  of in-flight requests and aborts them with the `SHUTTING_DOWN` reason when the shutdown budget
+  runs out. No request attaches anything to a long-lived signal: `AbortSignal.any` with the shutdown
+  signal leaked about 1 KB per request, found by the
+  [HTTP load baseline](../baselines/http-load.md).
+- **Streams** listen to their request's signal, so forced shutdown still cancels them.
+
 ## Open questions
 
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and

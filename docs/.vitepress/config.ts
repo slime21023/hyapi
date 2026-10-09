@@ -23,6 +23,7 @@ export default defineConfig({
             { text: "Security", link: "/guide/security" },
             { text: "OpenAPI and the CLI", link: "/guide/openapi-and-cli" },
             { text: "Operations", link: "/guide/operations" },
+            { text: "Deployment", link: "/guide/deployment" },
             { text: "Plugins", link: "/guide/plugins" },
           ],
         },

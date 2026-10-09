@@ -29,8 +29,8 @@ function files(name: string, local: string | undefined): Record<string, string> 
   const { imports, cli } = wiring(local);
   const config = {
     tasks: {
-      dev: "deno run --watch --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
-      start: "deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts",
+      dev: "deno run --watch --allow-net --allow-env src/main.ts",
+      start: "deno run --allow-net --allow-env src/main.ts",
       emit: `${cli} emit`,
       doctor: `${cli} doctor`,
       diff: `${cli} diff`,
@@ -39,6 +39,8 @@ function files(name: string, local: string | undefined): Record<string, string> 
     },
     imports: { ...imports, typebox: TYPEBOX, "@std/assert": "jsr:@std/assert@^1" },
     fmt: { lineWidth: 100 },
+    // Request signals report real client disconnects only with this (see serve's documentation).
+    unstable: ["no-legacy-abort"],
     hyapi: { api: "./contracts/api.ts#api", openapi: "./openapi.json" },
   };
   return {

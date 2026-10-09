@@ -9,11 +9,19 @@ const server = serve(app, { port: 8000 });
 await server.finished;
 ```
 
-Run with `--unstable-no-legacy-abort`:
+Turn on Deno's `no-legacy-abort` behavior, in `deno.json`:
+
+```json
+{ "unstable": ["no-legacy-abort"] }
+```
+
+or with the flag:
 
 ```sh
 deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts
 ```
+
+In a workspace, only the root `deno.json` can turn it on; members ignore `unstable`.
 
 Without the flag, Deno aborts every request's signal after a successful response, which handlers
 would observe as a client disconnect.

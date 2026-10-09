@@ -19,7 +19,6 @@ export type ResponseValidation = "off" | "log" | "enforce";
 export interface PipelineSettings {
   readonly development: boolean;
   readonly responseValidation: ResponseValidation;
-  readonly bodyLimitBytes: number;
 }
 
 /**
@@ -69,6 +68,8 @@ export interface OperationPlan {
   readonly handler: AnyHandler | undefined;
   /** The request timeout of this operation. */
   readonly timeoutMs: number;
+  /** The request body limit of this operation. */
+  readonly bodyLimitBytes: number;
   readonly locations: readonly LocationPlan[];
   readonly body: Validator | undefined;
   readonly responses: ReadonlyMap<number, ResponsePlan>;
@@ -89,7 +90,7 @@ const LOCATION_ORDER: readonly ParameterLocation[] = ["path", "query", "header",
 export function planOperation(
   operation: OperationModel,
   handler: AnyHandler | undefined,
-  timeoutMs: number,
+  limits: { readonly timeoutMs: number; readonly bodyLimitBytes: number },
   validators: ValidatorFactory,
 ): OperationPlan {
   const locations: LocationPlan[] = [];
@@ -123,7 +124,8 @@ export function planOperation(
   return {
     operation,
     handler,
-    timeoutMs,
+    timeoutMs: limits.timeoutMs,
+    bodyLimitBytes: limits.bodyLimitBytes,
     locations,
     body: operation.body ? validators(operation.body.schema) : undefined,
     responses,
@@ -184,6 +186,16 @@ interface RequestScope extends Incoming {
   readonly bounded: <T>(work: Promise<T> | T) => Promise<T>;
 }
 
+/**
+ * The abort reason of requests that the application cancels at shutdown. The application aborts
+ * each in-flight request's own controller with it; requests never listen to a signal that lives
+ * as long as the application, which would keep every request reachable until shutdown.
+ */
+export const SHUTTING_DOWN: DOMException = new DOMException(
+  "The server is shutting down.",
+  "AbortError",
+);
+
 /** A promise that rejects when `signal` aborts. Its rejection is always handled. */
 function rejectOnAbort(signal: AbortSignal): Promise<never> {
   const aborted = new Promise<never>((_, reject) => {
@@ -201,17 +213,20 @@ export async function execute(
   incoming: Incoming,
   settings: PipelineSettings,
   security: SecurityEvaluator,
-  shutdown: AbortSignal,
+  controller: AbortController,
 ): Promise<Outcome> {
-  const { request } = incoming;
   // One signal for the whole request: client disconnect, the request timeout, and forced
-  // shutdown. The timeout covers verifiers, body reading, and the handler.
-  const timeout = new AbortController();
-  const signal = AbortSignal.any([request.signal, timeout.signal, shutdown]);
-  const timer = setTimeout(
-    () => timeout.abort(new DOMException("The request timed out.", "TimeoutError")),
-    plan.timeoutMs,
-  );
+  // shutdown, for which the application aborts `controller`. The timeout covers verifiers, body
+  // reading, and the handler. The request's own signal is collected with the request, so its
+  // listener needs no removal.
+  const { request } = incoming;
+  const { signal } = controller;
+  if (request.signal.aborted) controller.abort(request.signal.reason);
+  request.signal.addEventListener("abort", () => controller.abort(request.signal.reason), {
+    once: true,
+  });
+  const timeout = new DOMException("The request timed out.", "TimeoutError");
+  const timer = setTimeout(() => controller.abort(timeout), plan.timeoutMs);
   const aborted = rejectOnAbort(signal);
   const scope: RequestScope = {
     ...incoming,
@@ -223,8 +238,7 @@ export async function execute(
   try {
     return await run(scope, security);
   } catch (error) {
-    return interrupted(error, timeout.signal, shutdown, plan) ??
-      thrown(error, plan.operation, settings);
+    return interrupted(error, timeout, plan) ?? thrown(error, plan.operation, settings);
   } finally {
     clearTimeout(timer);
   }
@@ -233,16 +247,15 @@ export async function execute(
 /** The answer when the request timed out or the server is shutting down; otherwise undefined. */
 function interrupted(
   error: unknown,
-  timeout: AbortSignal,
-  shutdown: AbortSignal,
+  timeout: DOMException,
   plan: OperationPlan,
 ): Outcome | undefined {
-  if (timeout.aborted && error === timeout.reason) {
+  if (error === timeout) {
     return fail(503, "REQUEST_TIMEOUT", {
       detail: `The request did not complete within ${plan.timeoutMs} ms.`,
     });
   }
-  if (shutdown.aborted && error === shutdown.reason) {
+  if (error === SHUTTING_DOWN) {
     return fail(503, "SHUTTING_DOWN", {
       detail: "The server is shutting down.",
       headers: { connection: "close" },
@@ -323,14 +336,14 @@ const failed = (outcome: Outcome): BodyInput => ({ kind: "failed", outcome });
 
 /** Reads and validates the declared body; a failure carries its problem response. */
 async function readInputBody(scope: RequestScope, body: BodyModel): Promise<BodyInput> {
-  const { plan, settings } = scope;
+  const { plan } = scope;
   const result = await scope.bounded(
-    readBody(scope.request, body, settings.bodyLimitBytes, scope.signal),
+    readBody(scope.request, body, plan.bodyLimitBytes, scope.signal),
   );
   switch (result.kind) {
     case "too-large":
       return failed(fail(413, "PAYLOAD_TOO_LARGE", {
-        detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
+        detail: `The request body exceeds ${plan.bodyLimitBytes} bytes.`,
       }));
     case "unsupported-media-type":
       return failed(fail(415, "UNSUPPORTED_MEDIA_TYPE", {

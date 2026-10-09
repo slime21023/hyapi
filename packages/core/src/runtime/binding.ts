@@ -14,6 +14,7 @@ export type StartupDiagnosticCode =
   | "invalid-handler"
   | "unknown-handler"
   | "unknown-timeout-target"
+  | "unknown-body-limit-target"
   | "missing-verifier"
   | "invalid-verifier"
   | "unknown-verifier"
@@ -36,6 +37,39 @@ export interface Binding {
   readonly operation: OperationModel;
   readonly handler: AnyHandler | undefined;
   readonly timeoutMs: number;
+  readonly bodyLimitBytes: number;
+}
+
+/** The application-wide limits and their per-operation overrides. */
+export interface Limits {
+  readonly requestTimeoutMs: number;
+  readonly bodyLimitBytes: number;
+  readonly timeouts: Readonly<Record<string, unknown>>;
+  readonly bodyLimits: Readonly<Record<string, unknown>>;
+}
+
+/** Reports per-operation overrides for unknown operations, and values that are not positive. */
+function checkLimits(model: ContractModel, limits: Limits, error: StartupReport): void {
+  const operations = new Map(
+    model.operations.map((operation) => [operation.operationId, operation]),
+  );
+  for (const [operationId, value] of Object.entries(limits.timeouts)) {
+    if (!operations.has(operationId)) {
+      error("unknown-timeout-target", `'${operationId}' is not an operation of the API`);
+    } else if (value !== undefined && !positiveInteger(value)) {
+      error("invalid-option", `the timeout of '${operationId}' must be a positive integer`);
+    }
+  }
+  for (const [operationId, value] of Object.entries(limits.bodyLimits)) {
+    const operation = operations.get(operationId);
+    if (operation === undefined) {
+      error("unknown-body-limit-target", `'${operationId}' is not an operation of the API`);
+    } else if (operation.body === undefined) {
+      error("unknown-body-limit-target", `'${operationId}' declares no request body`);
+    } else if (value !== undefined && !positiveInteger(value)) {
+      error("invalid-option", `the body limit of '${operationId}' must be a positive integer`);
+    }
+  }
 }
 
 export function positiveInteger(value: unknown): value is number {
@@ -71,8 +105,7 @@ export function bindOperations(
   model: ContractModel,
   contracts: readonly AnyContract[],
   implementations: readonly Implementation[],
-  timeouts: Readonly<Record<string, unknown>>,
-  requestTimeoutMs: number,
+  limits: Limits,
   error: StartupReport,
 ): Binding[] {
   const byContract = new Map<AnyContract, Implementation>();
@@ -98,14 +131,7 @@ export function bindOperations(
     }
   });
 
-  const operationIds = new Set(model.operations.map((operation) => operation.operationId));
-  for (const [operationId, value] of Object.entries(timeouts)) {
-    if (!operationIds.has(operationId)) {
-      error("unknown-timeout-target", `'${operationId}' is not an operation of the API`);
-    } else if (value !== undefined && !positiveInteger(value)) {
-      error("invalid-option", `the timeout of '${operationId}' must be a positive integer`);
-    }
-  }
+  checkLimits(model, limits, error);
 
   const bindings: Binding[] = [];
   for (const operation of model.operations) {
@@ -130,11 +156,13 @@ export function bindOperations(
       );
       continue;
     }
-    const timeout = timeouts[operation.operationId];
+    const timeout = limits.timeouts[operation.operationId];
+    const bodyLimit = limits.bodyLimits[operation.operationId];
     bindings.push({
       operation,
       handler: isNotImplemented ? undefined : handler as AnyHandler,
-      timeoutMs: positiveInteger(timeout) ? timeout : requestTimeoutMs,
+      timeoutMs: positiveInteger(timeout) ? timeout : limits.requestTimeoutMs,
+      bodyLimitBytes: positiveInteger(bodyLimit) ? bodyLimit : limits.bodyLimitBytes,
     });
   }
   for (const implementation of byContract.values()) checkHandlerNames(implementation, error);

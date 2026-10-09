@@ -29,12 +29,15 @@ together in a `StartupError`; no partially started application is returned.
 | `requestTimeoutMs`   | `30000`                                       | Time allowed per request; exceeding it answers 503                                       |
 | `timeouts`           | none                                          | Per-operation timeouts, keyed by `operationId`                                           |
 | `bodyLimitBytes`     | `1048576`                                     | Maximum request body size; larger bodies answer 413                                      |
+| `bodyLimits`         | none                                          | Per-operation body limits, keyed by `operationId`                                        |
 | `lifecycle`          | none                                          | Resources started before serving and stopped on close                                    |
 | `onEvent`            | `console.warn` for problem events             | Receives read-only events                                                                |
 | `shutdownTimeoutMs`  | `10000`                                       | The drain budget, and the budget for stopping resources                                  |
-| `document`           | none                                          | Serves an emitted OpenAPI document at an explicit path                                   |
+| `documents`          | none                                          | Serves emitted OpenAPI documents, each at its own path                                   |
+| `requestId`          | off                                           | Gives each request an ID for events, handlers, and a response header                     |
 
-[Operations](./operations) covers `lifecycle`, `health`, `onEvent`, and shutdown.
+[Operations](./operations) covers `lifecycle`, `health`, `onEvent`, `requestId`, `documents`, and
+shutdown.
 
 ## The request path
 

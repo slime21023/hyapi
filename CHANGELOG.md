@@ -7,7 +7,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Observability and authorization (roadmap M10a), and several documents (roadmap M10b).
+Observability and authorization (roadmap M10a), several documents (roadmap M10b), and operations
+(roadmap M10c).
+
+### Fixed
+
+- **Memory leak:** every request's signal stayed reachable from the application's shutdown signal
+  until shutdown, about 1 KB per request. Long-running servers grew without bound. Each request now
+  has its own controller, which the application aborts at forced shutdown. Found by the new HTTP
+  load baseline.
+
+### Operations
+
+- `createApp({ bodyLimits })` sets request body limits per operation, keyed by `operationId`.
+- A deployment guide: containers, Kubernetes probes and grace periods, Deno Deploy and `deno serve`.
+- `"unstable": ["no-legacy-abort"]` in the root `deno.json` replaces the command-line flag; the
+  starter project uses it.
+- `deno task bench:http` measures throughput, latency, and memory over real HTTP.
 
 ### Several documents
 
