@@ -45,7 +45,7 @@ type SchemesOf<Definition> = Definition extends Api<infer SchemeSet, any> ? Sche
  * @typeParam Definition - The API, as `typeof api`.
  */
 // deno-lint-ignore no-explicit-any
-export type OperationIdsOf<Definition> = Definition extends Api<any, infer Contracts>
+type OperationIdsOf<Definition> = Definition extends Api<any, infer Contracts>
   ? Contracts extends readonly (infer Resource)[]
     // deno-lint-ignore no-explicit-any
     ? Resource extends Contract<any, infer Operations, any> ? keyof Operations & string : never

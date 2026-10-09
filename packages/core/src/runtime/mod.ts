@@ -4,7 +4,6 @@ export {
   type AppOptions,
   createApp,
   type DocumentOption,
-  type OperationIdsOf,
   type StartupDiagnostic,
   type StartupDiagnosticCode,
   StartupError,

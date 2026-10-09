@@ -34,8 +34,11 @@ Observability and authorization (roadmap M10a), several documents (roadmap M10b)
 - `Diagnostic` is no longer generic; `StartupError.diagnostics` is
   `(Diagnostic | StartupDiagnostic)[]`.
 - `Implementation` is no longer generic.
-- `HandlerFor`, `VerifierFor`, `PathParams`, and `OperationMap` are no longer exported; use
-  `Handler` and `Verifier`.
+- `HandlerFor`, `VerifierFor`, `SecurityOf`, `IdentityOf`, `CredentialOf`, `OperationIdsOf`,
+  `PathParams`, and `OperationMap` are no longer exported; use `Handler`, `Verifier`, and
+  `AppOptions`.
+- `OperationOf` and `SecurityFor` are removed; use `typeof contract.operations.name` and
+  `Parameters<Handler<typeof contract, "name">>[1]["security"]`.
 - Every type parameter in the packages has a descriptive name, and public generic types document
   theirs.
 

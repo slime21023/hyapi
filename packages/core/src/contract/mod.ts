@@ -16,7 +16,7 @@ export {
   type StyleOverrides,
   type TagSpec,
 } from "./define.ts";
-export type { InputOf, OperationOf, ResultOf, SecurityFor, SecurityOf } from "./infer.ts";
+export type { InputOf, ResultOf } from "./infer.ts";
 export { defineResponse, type NamedResponse, type ResponseSpec } from "./response.ts";
 export { defineSchema, HealthReport, Problem } from "./schema.ts";
 export {
@@ -24,11 +24,9 @@ export {
   type BasicCredential,
   type BasicScheme,
   type BasicSpec,
-  type CredentialOf,
   defineSecurity,
   httpBasic,
   httpBearer,
-  type IdentityOf,
   oauth2,
   type OAuthFlow,
   type OAuthFlows,

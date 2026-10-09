@@ -2,7 +2,6 @@
 // generics that carry a contract's literal declarations to its handlers; everything else in Core
 // should not need generics.
 import type { Static, TObject, TSchema } from "typebox";
-import type { AnyContract, Contract } from "./define.ts";
 import type { NamedResponse } from "./response.ts";
 import type { IdentityOf, Schemes } from "./security.ts";
 
@@ -117,27 +116,3 @@ export type SecurityOf<Operation, SchemeSet extends Schemes, DefaultSecurity = u
     ? FromRequirements<Requirements, SchemeSet>
     : DefaultSecurity extends readonly unknown[] ? FromRequirements<DefaultSecurity, SchemeSet>
     : Inherited<SchemeSet>;
-
-/**
- * The declaration of one operation of a contract.
- *
- * @typeParam Resource - The contract, as `typeof contract`.
- * @typeParam OperationId - The operation's `operationId`.
- */
-export type OperationOf<
-  Resource extends AnyContract,
-  OperationId extends keyof Resource["operations"],
-> = Resource["operations"][OperationId];
-
-/**
- * The security result type of one operation of a contract.
- *
- * @typeParam Resource - The contract, as `typeof contract`.
- * @typeParam OperationId - The operation's `operationId`.
- */
-export type SecurityFor<
-  Resource extends AnyContract,
-  OperationId extends keyof Resource["operations"],
-> = Resource extends Contract<infer SchemeSet, infer Operations, infer DefaultSecurity>
-  ? SecurityOf<Operations[OperationId & keyof Operations], SchemeSet, DefaultSecurity>
-  : never;
