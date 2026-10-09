@@ -1,27 +1,22 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertThrows } from "@std/assert";
 import { Validator } from "@seriousme/openapi-schema-validator";
-import { checkContracts, type ContractModel } from "@hyapi/core/contract";
+import Type from "typebox";
+import { ContractError, defineApi, defineContract } from "@hyapi/core/contract";
 import { emitOpenApi, OPENAPI_VERSION, serializeOpenApi } from "@hyapi/core/openapi";
 import { api } from "../../fixtures/library_api.ts";
 
 const golden = new URL("../../fixtures/library_api.openapi.json", import.meta.url);
 
-function model(): ContractModel {
-  const result = checkContracts(api);
-  if (!result.ok) throw new Error(JSON.stringify(result.diagnostics));
-  return result.model;
-}
-
 // deno-lint-ignore no-explicit-any
-const document = () => emitOpenApi(model()) as any;
+const document = () => emitOpenApi(api) as any;
 
 Deno.test("emission matches the committed golden document byte for byte", async () => {
   // The golden file is also checked by `deno fmt`, so the canonical text is formatter-stable.
-  assertEquals(serializeOpenApi(emitOpenApi(model())), await Deno.readTextFile(golden));
+  assertEquals(serializeOpenApi(emitOpenApi(api)), await Deno.readTextFile(golden));
 });
 
 Deno.test("emission is deterministic across runs", () => {
-  assertEquals(serializeOpenApi(emitOpenApi(model())), serializeOpenApi(emitOpenApi(model())));
+  assertEquals(serializeOpenApi(emitOpenApi(api)), serializeOpenApi(emitOpenApi(api)));
 });
 
 Deno.test("the emitted document is valid OpenAPI 3.1", async () => {
@@ -52,7 +47,7 @@ Deno.test("named schemas become component references, including inside derived s
 });
 
 Deno.test("hidden TypeBox markers never reach the document", () => {
-  const text = serializeOpenApi(emitOpenApi(model()));
+  const text = serializeOpenApi(emitOpenApi(api));
   assert(!text.includes("~kind") && !text.includes("~optional") && !text.includes("~hyapi"));
 });
 
@@ -84,4 +79,20 @@ Deno.test("parameters, bodies, and responses carry their declared details", () =
   assertEquals(Object.keys(components.responses.NotFound.content), ["application/problem+json"]);
   assertEquals(Object.keys(paths["/export"].get.responses["200"].content), ["text/csv"]);
   assertEquals(paths["/books/{id}"].delete.deprecated, true);
+});
+
+Deno.test("contracts with errors throw a ContractError with every diagnostic", () => {
+  const broken = defineApi({
+    info: { title: "Broken", version: "1" },
+    contracts: [
+      defineContract({
+        operations: {
+          a: { method: "GET", path: "/a/{id}", responses: { 200: Type.Object({}) } },
+        } as never,
+      }),
+    ],
+  });
+  const error = assertThrows(() => emitOpenApi(broken), ContractError);
+  assert(error.diagnostics.some((d) => d.code === "path-parameter-mismatch"));
+  assert(error.message.includes("[path-parameter-mismatch] a:"));
 });

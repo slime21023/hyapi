@@ -4,13 +4,15 @@ import type { SchemeSpec } from "./security.ts";
 
 /**
  * The single, normalized interpretation of an API. The runtime and the OpenAPI emitter read only
- * this model, never raw declarations (ADR 0002 §2). Its shape is not a compatibility promise for
- * application code.
+ * this model, never raw declarations (ADR 0002 §2). It is internal to `@hyapi/core` and deeply
+ * frozen (ADR 0003 §2, §7).
  */
 export interface ContractModel {
   readonly info: ApiInfo;
   readonly servers: readonly ServerSpec[];
   readonly tags: readonly TagSpec[];
+  /** Custom formats declared with `defineApi({ formats })`. */
+  readonly formats: readonly FormatModel[];
   /** Security schemes in declaration order. */
   readonly securitySchemes: readonly SecuritySchemeModel[];
   /** The root requirement, or `undefined` when the API declares none. */
@@ -21,6 +23,12 @@ export interface ContractModel {
   readonly schemas: readonly NamedSchemaModel[];
   /** Named responses in first-reference order. */
   readonly responses: readonly NamedResponseModel[];
+}
+
+/** A custom format and its check. */
+export interface FormatModel {
+  readonly name: string;
+  readonly check: (value: string) => boolean;
 }
 
 export interface SecuritySchemeModel {

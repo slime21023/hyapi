@@ -79,8 +79,20 @@ route match (404, or 405 with Allow; HEAD served for GET)
 ## Interface
 
 `createApp`, `implement`, `notImplemented`, `HttpError`, application options, and the types that
-handlers, verifiers, and event listeners need. The application object exposes `fetch`, `close`, and
-`health`. Internal modules are not exported.
+handlers, verifiers, and event listeners need. The application object exposes `fetch` and `close`.
+Internal modules are not exported.
+
+## Modules
+
+The runtime spans layers L2–L4 of [ADR 0003](../0003-layered-architecture.md); its §3 table assigns
+every module, and the architecture test enforces the edges and the absence of module-level state.
+
+- **L2 mechanisms:** `deadline`, `routing`, `params`, `body`, `validation`, `security`, `problem`,
+  `health`, `lifecycle`, and `handler`. They return results and emit nothing.
+- **L3 request flow:** `pipeline` returns an `Outcome` with the response and its facts: problem
+  `code`, thrown error, security denial, response violations, and stripped fields.
+- **L4 application:** `binding` (startup checks of implementations, handlers, timeouts, verifiers,
+  and lifecycle resources), `events`, and `app`, the only owner of state and emitter of events.
 
 ## Dependencies
 
@@ -113,8 +125,8 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   extension member identifies the problem. Validation failures add `violations` with `location`,
   `pointer`, and `message`. At most 20 violations are reported per value.
 - **Formats.**
-  - TypeBox's built-in formats are asserted, and so are formats registered with TypeBox
-    `Format.Set`.
+  - TypeBox's built-in formats are asserted, and so are formats declared with
+    `defineApi({ formats })` (since M8; before, formats registered with TypeBox `Format.Set`).
   - OpenAPI's `int32` is enforced as a range on a validation copy of the schema; the emitted schema
     is unchanged.
   - `int64`, `float`, `double`, `password`, `byte`, and `binary` are annotations.
@@ -159,9 +171,8 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   Stop failures and timeouts are aggregated, and the later resources still stop.
 - **Health.** `createHealth(checks, { timeoutMs })` is a standalone aggregator, so handlers use it
   without a cycle. Checks run concurrently with a timeout. The overall status is the worst check
-  status. Passed to `createApp({ health })`, it reports `unhealthy` with `draining: true` once
-  `close()` starts. The `HealthReport` schema lives in `@hyapi/core/contract` for health operation
-  contracts.
+  status. The `HealthReport` schema lives in `@hyapi/core/contract` for health operation contracts.
+  (Since M8, health has no draining state: a closing application answers 503 to every request.)
 - **Events.** `createApp({ onEvent })` receives read-only events:
   - `operation.start` and `operation.end` (status, duration, problem `code`, thrown error, and the
     `deprecated` flag);
@@ -181,6 +192,20 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
 - **Conditional statuses.** Return one object per status, for example
   `ok ? { status: 200, body } : { status: 503, body }`. TypeScript cannot split
   `{ status: 200 | 503 }` across a union that also allows a raw `Response` (RFC 0001 A12).
+
+## Resolved in M8
+
+- **Layers.** The modules above, per ADR 0003. `wire.ts` was split into `params.ts` and `body.ts`;
+  the body reader is cancelled when the request's signal aborts.
+- **Formats.** `createApp` checks that each declared format is not registered in the process with a
+  different check (`format-conflict`). It registers them only after every startup check passes, and
+  before it compiles validators: TypeBox resolves formats at compile time, so a format registered
+  later would never be checked.
+- **Startup.** `StartupError.diagnostics` is `Diagnostic<DiagnosticCode | StartupDiagnosticCode>[]`.
+  In development, each `notImplemented` operation emits `startup.warning` with code
+  `not-implemented`.
+- **Events.** The application derives every event from pipeline outcomes and lifecycle failures; it
+  no longer parses its own problem responses to find their `code`.
 
 ## Open questions
 

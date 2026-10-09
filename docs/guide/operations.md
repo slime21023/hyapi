@@ -65,9 +65,9 @@ const health = createHealth({ database: (signal) => pool.ping({ signal }) }, { t
 ```
 
 A check that resolves is healthy, one that returns `{ status: "degraded", detail }` is degraded, and
-one that throws or times out is unhealthy. Pass `health` to `createApp`, and the report turns
-`unhealthy` with `draining: true` as soon as shutdown starts, so load balancers stop sending
-traffic. Expose it through a declared operation; `HealthReport` is the schema:
+one that throws or times out is unhealthy. Expose it through a declared operation; `HealthReport` is
+the schema. Once shutdown starts, every new request, including the health operation, answers 503
+`SHUTTING_DOWN`, so load balancers stop sending traffic:
 
 ```ts
 health: {

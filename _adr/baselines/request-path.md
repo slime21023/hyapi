@@ -58,3 +58,21 @@ All changes are within the 20% threshold.
 
 A pull request that slows these benchmarks by more than 20% on the same hardware must explain the
 regression (see `CONTRIBUTING.md`).
+
+## Re-run after M8 (2026-10-09)
+
+M8 restructured Core into the layers of ADR 0003. Its exit criterion is no request-path regression
+above 5%. `main` (before M8) and the M8 branch were benchmarked on the same machine, alternating,
+five runs each; the table shows medians.
+
+| Benchmark                          | Before M8 | After M8 | Change |
+| ---------------------------------- | --------: | -------: | -----: |
+| `GET /items/{id}`                  |   20.6 µs |  18.8 µs |  -8.7% |
+| `GET /items?q&limit&tags`          |   32.1 µs |  30.9 µs |  -3.7% |
+| `POST /items` (JSON body)          |   23.4 µs |  23.6 µs |  +0.9% |
+| 404 for an undeclared path         |    3.7 µs |   3.6 µs |  -2.7% |
+| Reference: plain handler (control) |    1.9 µs |   1.7 µs | -10.5% |
+
+No benchmark regresses beyond the noise between runs (about ±1 µs). The application no longer clones
+and parses problem responses to find their `code`, and the frozen model adds no cost per request,
+because validators are compiled from copies once at startup.

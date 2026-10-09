@@ -73,6 +73,7 @@ status and code. Deciding which status a situation gets is L3 policy.
 | L2    | `lifecycle.ts`  | Start and stop resources in order; return failures instead of emitting them.                 |
 | L2    | `handler.ts`    | Handler, context, and implementation types; `implement`.                                     |
 | L3    | `pipeline.ts`   | The request flow and response policy; returns an `Outcome`.                                  |
+| L4    | `binding.ts`    | Startup checks of implementations, handlers, timeouts, verifiers, and lifecycle resources.   |
 | L4    | `events.ts`     | Event types and the listener wrapper that contains listener errors.                          |
 | L4    | `app.ts`        | Assembly, startup diagnostics, phases, in-flight tracking, close; the only caller of `emit`. |
 

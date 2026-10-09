@@ -13,7 +13,6 @@ import {
   type DiagnosticCode,
   httpBearer,
   oauth2,
-  Problem,
 } from "@hyapi/core/contract";
 
 const T = Type;
@@ -53,156 +52,6 @@ function expectWarning(result: CheckResult, code: DiagnosticCode): void {
     JSON.stringify(result.diagnostics),
   );
 }
-
-// --- Normalization -------------------------------------------------------------------------------
-
-Deno.test("a valid API normalizes into a ContractModel", () => {
-  const security = defineSecurity({
-    bearer: httpBearer<{ subject: string }>(),
-    key: apiKey<{ client: string }>({ in: "header", name: "x-api-key" }),
-  });
-  const Item = defineSchema("Item", T.Object({ id: T.String(), name: T.String() }));
-  const ItemList = defineSchema("ItemList", T.Object({ items: T.Array(Item) }));
-  const NotFound = defineResponse("NotFound", { description: "Not found", body: Problem });
-
-  const items = defineContract({
-    securitySchemes: security,
-    security: [{ bearer: ["items:read"] }],
-    tags: ["items"],
-    operations: {
-      listItems: {
-        method: "GET",
-        path: "/items",
-        query: T.Object({
-          limit: T.Optional(T.With(T.Integer(), { default: 20 })),
-          filter: T.Optional(T.Object({ name: T.String() })),
-        }),
-        styles: { query: { filter: { style: "deepObject" } } },
-        responses: { 200: ItemList },
-      },
-      getItem: {
-        method: "GET",
-        path: "/items/{id}",
-        security: [{ bearer: ["items:read"] }, { key: [] }],
-        params: T.Object({ id: T.String() }),
-        headers: T.Object({ "if-none-match": T.Optional(T.String()) }),
-        responses: { 200: Item, 404: NotFound },
-      },
-      createItem: {
-        method: "POST",
-        path: "/items",
-        tags: ["admin"],
-        body: { schema: Item, required: false, description: "The item" },
-        responses: {
-          201: { description: "Created", body: Item, headers: T.Object({ location: T.String() }) },
-        },
-      },
-    },
-  });
-  const health = defineContract({
-    operations: {
-      health: {
-        method: "GET",
-        path: "/health",
-        security: [],
-        responses: { 204: { description: "Healthy" } },
-      },
-      status: { method: "GET", path: "/status", responses: { 200: Ok } },
-    },
-  });
-
-  const result = checkContracts(
-    defineApi({
-      info,
-      securitySchemes: security,
-      security: [{ key: [] }],
-      contracts: [items, health],
-    }),
-  );
-  assert(result.ok, JSON.stringify(result.diagnostics));
-  const { model } = result;
-
-  assertEquals(model.operations.map((o) => o.operationId), [
-    "listItems",
-    "getItem",
-    "createItem",
-    "health",
-    "status",
-  ]);
-  assertEquals(
-    model.operations.map((o) => [o.operationId, o.securityOrigin]),
-    [
-      ["listItems", "contract"],
-      ["getItem", "operation"],
-      ["createItem", "contract"],
-      ["health", "operation"],
-      ["status", "api"],
-    ],
-  );
-  const [listItems, getItem, createItem, healthOp, status] = model.operations;
-  assertEquals(healthOp!.security, []);
-  assertEquals(status!.security, [[{ scheme: "key", scopes: [] }]]);
-  assertEquals(getItem!.security, [
-    [{ scheme: "bearer", scopes: ["items:read"] }],
-    [{ scheme: "key", scopes: [] }],
-  ]);
-
-  // Parameters: locations, style defaults, overrides, requiredness, and defaults.
-  assertEquals(
-    listItems!.parameters.map((p) => [p.name, p.in, p.style, p.explode, p.required, p.hasDefault]),
-    [
-      ["limit", "query", "form", true, false, true],
-      ["filter", "query", "deepObject", true, false, false],
-    ],
-  );
-  assertEquals(
-    getItem!.parameters.map((p) => [p.name, p.in, p.style, p.explode, p.required]),
-    [
-      ["id", "path", "simple", false, true],
-      ["if-none-match", "header", "simple", false, false],
-    ],
-  );
-  assertEquals(getItem!.pathParameters, ["id"]);
-
-  // Responses: shorthand descriptions, problem media type, named responses, and headers.
-  assertEquals(
-    getItem!.responses.map((r) => [r.status, r.description, r.body?.mediaType, r.name]),
-    [
-      [200, "OK", "application/json", undefined],
-      [404, "Not found", "application/problem+json", "NotFound"],
-    ],
-  );
-  assertEquals(createItem!.responses[0]!.headers.map((h) => [h.name, h.required]), [[
-    "location",
-    true,
-  ]]);
-  assertEquals(healthOp!.responses[0]!.body, undefined);
-
-  // Bodies and tags.
-  assertEquals(createItem!.body?.mediaType, "application/json");
-  assertEquals(createItem!.body?.required, false);
-  assertEquals(createItem!.body?.description, "The item");
-  assertEquals(createItem!.tags, ["admin"]);
-  assertEquals(listItems!.tags, ["items"]);
-  assertEquals(status!.tags, []);
-
-  // Named components in first-reference order, including nested schemas.
-  assertEquals(model.schemas.map((s) => s.name), ["ItemList", "Item", "Problem", "Ok"]);
-  assertEquals(model.responses.map((r) => r.name), ["NotFound"]);
-  assertEquals(model.securitySchemes.map((s) => s.name), ["bearer", "key"]);
-  assertEquals(model.security, [[{ scheme: "key", scopes: [] }]]);
-  assert(Object.isFrozen(model) && Object.isFrozen(model.operations));
-});
-
-Deno.test("defineSchema returns a named copy and leaves the input schema unnamed", () => {
-  const plain = T.Object({ a: T.String() });
-  const named = defineSchema("Named", plain);
-  assert(named !== plain);
-  assertEquals(JSON.stringify(named), JSON.stringify(plain));
-  const result = checkContracts(apiOf({ a: op({ responses: { 200: named } }) }));
-  assert(result.ok);
-  assertEquals(result.model.schemas.map((s) => s.name), ["Named"]);
-});
 
 Deno.test("structurally identical schemas may share a name", () => {
   const first = defineSchema("Same", T.Object({ a: T.String() }));
@@ -513,15 +362,41 @@ Deno.test("duplicate-response-name", () => {
 });
 
 Deno.test("unknown-format", () => {
-  const withFormat = (format: string) =>
+  const withFormat = (format: string, formats?: Record<string, unknown>) =>
     checkContracts(
       apiOf({
         a: op({ responses: { 200: defineSchema("F", T.Object({ v: T.String({ format }) })) } }),
-      }),
+      }, formats === undefined ? {} : { formats }),
     );
   expectError(withFormat("made-up"), "unknown-format");
   assert(withFormat("email").ok);
   assert(withFormat("int64").ok);
+  assert(withFormat("made-up", { "made-up": () => true }).ok);
+});
+
+Deno.test("formats registered elsewhere in the process do not change the result", async () => {
+  const Format = await import("typebox/format");
+  const api = apiOf({
+    a: op({
+      responses: { 200: defineSchema("F", T.Object({ v: T.String({ format: "elsewhere" }) })) },
+    }),
+  });
+  expectError(checkContracts(api), "unknown-format");
+  Format.Set("elsewhere", () => true);
+  expectError(checkContracts(api), "unknown-format");
+});
+
+Deno.test("invalid-format", () => {
+  const withFormats = (formats: Record<string, unknown>) =>
+    checkContracts(apiOf({ a: op() }, { formats }));
+  expectError(withFormats({ email: () => true }), "invalid-format");
+  expectError(withFormats({ int32: () => true }), "invalid-format");
+  expectError(withFormats({ isbn: "not a function" }), "invalid-format");
+  assert(withFormats({ isbn: () => true }).ok);
+});
+
+Deno.test("checkContracts returns diagnostics only", () => {
+  assertEquals(Object.keys(checkContracts(apiOf({ a: op() }))).sort(), ["diagnostics", "ok"]);
 });
 
 Deno.test("unnamed-schema", () => {

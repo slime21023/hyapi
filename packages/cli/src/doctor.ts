@@ -1,15 +1,41 @@
 import { relative } from "jsr:@std/path@^1";
-import type { OperationModel } from "@hyapi/core/contract";
+import type { OpenApiDocument } from "@hyapi/core/openapi";
 import { compileProject, readDocument } from "./emit.ts";
 import type { Io } from "./run.ts";
 
-/** Statuses the runtime can produce for an operation, with the reason for each. */
-function frameworkStatuses(operation: OperationModel): [number, string][] {
-  const statuses: [number, string][] = [];
-  if (operation.parameters.length > 0 || operation.body !== undefined) {
-    statuses.push([400, "invalid input"]);
+const METHODS = ["get", "head", "post", "put", "patch", "delete", "options", "trace"];
+
+interface DocumentOperation {
+  readonly operationId: string;
+  readonly hasParameters: boolean;
+  readonly hasBody: boolean;
+  readonly statuses: ReadonlySet<number>;
+}
+
+/** The operations of an emitted document, in document order. */
+function operationsOf(document: OpenApiDocument): DocumentOperation[] {
+  const operations: DocumentOperation[] = [];
+  const paths = (document.paths ?? {}) as Record<string, Record<string, unknown>>;
+  for (const item of Object.values(paths)) {
+    for (const method of METHODS) {
+      const operation = item[method] as Record<string, unknown> | undefined;
+      if (operation === undefined) continue;
+      operations.push({
+        operationId: String(operation.operationId),
+        hasParameters: Array.isArray(operation.parameters) && operation.parameters.length > 0,
+        hasBody: operation.requestBody !== undefined,
+        statuses: new Set(Object.keys(operation.responses ?? {}).map(Number)),
+      });
+    }
   }
-  if (operation.body !== undefined) {
+  return operations;
+}
+
+/** Statuses the runtime can produce for an operation, with the reason for each. */
+function frameworkStatuses(operation: DocumentOperation): [number, string][] {
+  const statuses: [number, string][] = [];
+  if (operation.hasParameters || operation.hasBody) statuses.push([400, "invalid input"]);
+  if (operation.hasBody) {
     statuses.push([413, "an oversized body"], [415, "an undeclared media type"]);
   }
   statuses.push([500, "unexpected errors"], [503, "request timeouts"]);
@@ -42,24 +68,24 @@ export async function doctorCommand(
   }
 
   const missing = new Map<number, { reason: string; operations: string[] }>();
-  for (const operation of compiled.model.operations) {
-    const declared = new Set(operation.responses.map((response) => response.status));
+  const operations = operationsOf(compiled.document);
+  for (const operation of operations) {
     for (const [status, reason] of frameworkStatuses(operation)) {
-      if (declared.has(status)) continue;
+      if (operation.statuses.has(status)) continue;
       const entry = missing.get(status) ?? { reason, operations: [] };
       entry.operations.push(operation.operationId);
       missing.set(status, entry);
     }
   }
-  for (const [status, { reason, operations }] of [...missing].sort(([a], [b]) => a - b)) {
+  for (const [status, { reason, operations: ids }] of [...missing].sort(([a], [b]) => a - b)) {
     io.out(
-      `info: ${operations.length} operation(s) do not declare ${status}, which the runtime ` +
-        `returns for ${reason}: ${operations.join(", ")}`,
+      `info: ${ids.length} operation(s) do not declare ${status}, which the runtime ` +
+        `returns for ${reason}: ${ids.join(", ")}`,
     );
   }
   io.out(
     problems === 0
-      ? `doctor: ${compiled.model.operations.length} operations, no problems`
+      ? `doctor: ${operations.length} operations, no problems`
       : `doctor: ${problems} problem(s)`,
   );
   return problems === 0 ? 0 : 1;

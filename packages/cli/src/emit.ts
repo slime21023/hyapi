@@ -1,6 +1,6 @@
 import { dirname, relative } from "jsr:@std/path@^1";
-import { checkContracts, type ContractModel } from "@hyapi/core/contract";
-import { emitOpenApi } from "@hyapi/core/openapi";
+import { checkContracts } from "@hyapi/core/contract";
+import { emitOpenApi, type OpenApiDocument } from "@hyapi/core/openapi";
 import { resolveProject } from "./config.ts";
 import { serialize } from "./document.ts";
 import { loadApi } from "./load.ts";
@@ -12,14 +12,16 @@ export async function compileProject(
   cwd: string,
   flags: { readonly api?: string; readonly out?: string },
   io: Io,
-): Promise<{ model: ContractModel; text: string; documentPath: string } | undefined> {
+): Promise<{ document: OpenApiDocument; text: string; documentPath: string } | undefined> {
   const project = await resolveProject(cwd, flags);
-  const result = checkContracts(await loadApi(project.apiModule, project.apiExport));
+  const api = await loadApi(project.apiModule, project.apiExport);
+  const result = checkContracts(api);
   for (const diagnostic of result.diagnostics) io.err(formatDiagnostic(diagnostic));
   if (!result.ok) return undefined;
+  const document = emitOpenApi(api);
   return {
-    model: result.model,
-    text: serialize(emitOpenApi(result.model), project.format),
+    document,
+    text: serialize(document, project.format),
     documentPath: project.documentPath,
   };
 }

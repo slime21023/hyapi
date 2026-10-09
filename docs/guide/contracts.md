@@ -42,7 +42,8 @@ special meaning.
 
 Schemas must be representable in JSON Schema, because the emitted document must describe exactly
 what the runtime enforces. Codecs, refinements, functions, and `undefined` are rejected. `format`
-values must be ones TypeBox checks, or ones registered by OpenAPI.
+values must be standard formats that TypeBox checks (such as `uuid`, `email`, and `date-time`),
+OpenAPI annotations (such as `int64` and `binary`), or formats declared on the API.
 
 ## Responses
 
@@ -146,10 +147,31 @@ Contracts that declare `securitySchemes` must use the same `defineSecurity` valu
 large APIs into one contract per resource: editor feedback depends on the size of a contract, not of
 the whole API.
 
+### Custom formats
+
+Declare a check for every custom `format` on the API, so that the CLI, the runtime, and the emitted
+document agree:
+
+```ts
+const isIsbn = (value: string) => /^97[89]\d{10}$/.test(value);
+
+export const api = defineApi({
+  info: { title: "Library API", version: "1.2.0" },
+  formats: { isbn: isIsbn },
+  contracts: [books],
+});
+
+// In a schema:
+T.String({ format: "isbn" });
+```
+
+`createApp` registers the checks with TypeBox, whose format names are shared by the whole process:
+two APIs in one process that declare the same name must pass the same function, or startup fails
+with `format-conflict`.
+
 ## Diagnostics
 
-`checkContracts(api)` interprets the contracts once and returns either
-`{ ok: true, model, diagnostics }` or `{ ok: false, diagnostics }`. `createApp`, `hyapi emit`, and
-`hyapi doctor` all run it, so the same messages appear everywhere. Each diagnostic has a stable
-`code`, for example `duplicate-route`, `path-parameter-mismatch`, `unknown-format`, or
-`unnamed-schema` (a warning).
+`checkContracts(api)` returns `{ ok, diagnostics }`. `createApp`, `hyapi emit`, and `hyapi doctor`
+all run the same checks, so the same messages appear everywhere, and the result never depends on
+what else runs in the process. Each diagnostic has a stable `code`, for example `duplicate-route`,
+`path-parameter-mismatch`, `unknown-format`, or `unnamed-schema` (a warning).

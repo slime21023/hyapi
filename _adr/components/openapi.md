@@ -30,10 +30,10 @@ the product HyAPI delivers, so it must be faithful, deterministic, and stable.
 
 ## Interface
 
-`emitOpenApi(model)` returns an OpenAPI 3.1 document object (`openapi: "3.1.1"`).
-`serializeOpenApi(document)` returns the canonical JSON text: two-space indentation, LF line
-endings, and a final newline, which `deno fmt` leaves unchanged. YAML serialization lives in the
-CLI.
+`emitOpenApi(api)` normalizes the API's contracts with the internal `compileContracts` and returns
+an OpenAPI 3.1 document object (`openapi: "3.1.1"`). `serializeOpenApi(document)` returns the
+canonical JSON text: two-space indentation, LF line endings, and a final newline, which `deno fmt`
+leaves unchanged. YAML serialization lives in the CLI.
 
 ## Dependencies
 
@@ -41,8 +41,12 @@ CLI.
 
 ## Failure behavior
 
-The `ContractModel` has already passed diagnostics. Any construct that still cannot be projected is
-a HyAPI defect and throws an internal error. It is never silently omitted.
+Contracts with errors throw `ContractError` with every diagnostic, so `emitOpenApi` never emits a
+partial document. Any construct that passed diagnostics and still cannot be projected is a HyAPI
+defect and throws an internal error. It is never silently omitted.
+
+Parameter `style` and `explode` are emitted only when they differ from OpenAPI's defaults for the
+location, which the emitter reads from the contract component instead of keeping its own table.
 
 ## Related decisions
 

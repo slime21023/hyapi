@@ -5,6 +5,47 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Layered architecture (roadmap M8, [ADR 0003](_adr/0003-layered-architecture.md)). Released with M9
+as `0.2.0`.
+
+### Added
+
+- `defineApi({ formats })` declares checks for custom `format` values. `createApp` registers them
+  with TypeBox only after every startup check passes, and reports `format-conflict` when a name is
+  already registered with a different check. New diagnostic `invalid-format`.
+- `ContractError`, thrown by `emitOpenApi` with every diagnostic.
+- `startup.warning` events with code `not-implemented` for `notImplemented` operations in
+  development.
+- Architecture tests for the layer edges of ADR 0003 and for module-level state, internal tests for
+  the runtime mechanisms, and a test that pins the TypeBox behavior Core relies on.
+- CI accepts intended breaking changes of the example API when a pull request has the `breaking-api`
+  label.
+
+### Changed
+
+- `checkContracts(api)` returns `{ ok, diagnostics }`; the contract model is internal.
+- `emitOpenApi(api)` takes the API definition instead of a model.
+- `StartupError.diagnostics` uses `Diagnostic` with `StartupDiagnosticCode`.
+- The contract model is a deep, frozen copy of the declarations.
+- Contract checking no longer reads TypeBox's process-wide format registry, so it gives the same
+  result in `createApp`, `hyapi emit`, and `hyapi doctor`.
+- `hyapi doctor` reads operations from the emitted document.
+- The request body reader is cancelled when the request's signal aborts.
+
+### Removed
+
+- `ContractModel` and the other model types from `@hyapi/core/contract`.
+- The `health` option of `createApp`, `draining` in `HealthReport`, and the module-level draining
+  state. A closing application already answers 503 to every request.
+- `ProblemCode` and `StartupDiagnostic`.
+
+### Fixed
+
+- `serve().finished` no longer rejects when a lifecycle resource fails to stop, which crashed the
+  process with an unhandled rejection.
+
 ## [0.1.0] - Unreleased
 
 The first release of the contract-first redesign.

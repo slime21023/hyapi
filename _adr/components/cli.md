@@ -24,7 +24,7 @@ OpenAPI document, govern its evolution, and diagnose contracts without starting 
   and it fails on unacknowledged breaking changes.
 - **`hyapi doctor`** runs contract diagnostics and checks that the committed document exists and is
   current, without starting a server. It also lists the framework statuses that operations can
-  produce but do not declare.
+  produce but do not declare, reading operations from the emitted document.
 
 ## Boundary
 

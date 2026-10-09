@@ -6,8 +6,7 @@ import type {
   Schemes,
   Security,
 } from "../contract/security.ts";
-import { problemResponse } from "./problem.ts";
-import { parseCookies } from "./wire.ts";
+import { parseCookies } from "./params.ts";
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -52,10 +51,19 @@ type Outcome =
   | { readonly kind: "invalid" }
   | { readonly kind: "verified"; readonly identity: unknown; readonly scopes: ReadonlySet<string> };
 
+/** Why no alternative of an operation's security requirement was satisfied. */
+export interface Denial {
+  /** 401 when no credential verified; 403 when one verified but lacked a required scope. */
+  readonly status: 401 | 403;
+  readonly reason: "missing" | "invalid" | "insufficient-scope";
+  /** `WWW-Authenticate` challenges, in scheme order; possibly empty. */
+  readonly challenges: readonly string[];
+}
+
 /** The result of evaluating an operation's security. */
 export type SecurityResult =
   | { readonly kind: "allowed"; readonly security: Readonly<Record<string, unknown>> }
-  | { readonly kind: "denied"; readonly response: Response };
+  | { readonly kind: "denied"; readonly denial: Denial };
 
 const BEARER = /^Bearer[ \t]+([^\s]+)[ \t]*$/i;
 const BASIC = /^Basic[ \t]+([A-Za-z0-9+/=]+)[ \t]*$/i;
@@ -158,6 +166,7 @@ export function createSecurity(
     };
 
     let insufficient: { scheme: string; scopes: readonly string[] } | undefined;
+    let invalid = false;
     for (const requirement of requirements) {
       const identities: Record<string, unknown> = {};
       let satisfied = true;
@@ -165,6 +174,7 @@ export function createSecurity(
       for (const { scheme, scopes } of requirement) {
         const outcome = await verify(scheme);
         if (outcome.kind !== "verified") {
+          invalid ||= outcome.kind === "invalid";
           satisfied = false;
           break;
         }
@@ -183,10 +193,11 @@ export function createSecurity(
       const header = challenge(specs.get(insufficient.scheme)!, realm, insufficient.scopes);
       return {
         kind: "denied",
-        response: problemResponse(403, "FORBIDDEN", {
-          detail: "The credentials do not grant the scopes this operation requires.",
-          ...(header === undefined ? {} : { headers: { "www-authenticate": header } }),
-        }),
+        denial: {
+          status: 403,
+          reason: "insufficient-scope",
+          challenges: header === undefined ? [] : [header],
+        },
       };
     }
     const challenges = [
@@ -197,12 +208,7 @@ export function createSecurity(
     ];
     return {
       kind: "denied",
-      response: problemResponse(401, "UNAUTHORIZED", {
-        detail: "The request lacks valid credentials for this operation.",
-        ...(challenges.length === 0
-          ? {}
-          : { headers: { "www-authenticate": challenges.join(", ") } }),
-      }),
+      denial: { status: 401, reason: invalid ? "invalid" : "missing", challenges },
     };
   };
 }

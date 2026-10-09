@@ -30,7 +30,11 @@ export interface ServeOptions {
 /** A running listener. */
 export interface Server {
   readonly addr: Deno.NetAddr;
-  /** Settles when the listener has stopped and the application has closed. */
+  /**
+   * Resolves when the listener has stopped and the application has closed. It never rejects:
+   * `shutdown()` rejects with close errors, and the application reports each failing resource as
+   * a `lifecycle.error` event.
+   */
   readonly finished: Promise<void>;
   /**
    * Stops accepting connections, closes the application (drain, abort, stop resources), and
@@ -99,7 +103,8 @@ export function serve(app: App, options: ServeOptions = {}): Server {
 
   const finished = (async () => {
     await server.finished;
-    if (stopping !== undefined) await stopping;
+    // Close errors belong to shutdown(); a second rejection here would go unhandled.
+    if (stopping !== undefined) await stopping.catch(() => {});
   })();
 
   return Object.freeze({ addr: server.addr as Deno.NetAddr, finished, shutdown });

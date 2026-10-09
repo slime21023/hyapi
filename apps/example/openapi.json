@@ -470,7 +470,6 @@
         "type": "object",
         "required": [
           "status",
-          "draining",
           "checks"
         ],
         "properties": {
@@ -489,9 +488,6 @@
                 "const": "unhealthy"
               }
             ]
-          },
-          "draining": {
-            "type": "boolean"
           },
           "checks": {
             "type": "object",

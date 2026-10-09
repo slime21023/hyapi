@@ -1,13 +1,28 @@
-import { checkContracts, type Diagnostic } from "../contract/check.ts";
+import * as Format from "typebox/format";
+import { compileContracts } from "../contract/check.ts";
 import type { AnyContract, Api, Contract } from "../contract/define.ts";
+import { describeErrors, type Diagnostic, type DiagnosticCode } from "../contract/diagnostics.ts";
+import type { FormatModel } from "../contract/model.ts";
 import type { Schemes } from "../contract/security.ts";
-import { createEmitter, type EventListener } from "./events.ts";
+import {
+  bindOperations,
+  checkLifecycle,
+  checkVerifiers,
+  positiveInteger,
+  type StartupDiagnosticCode,
+  type StartupReport,
+} from "./binding.ts";
+import { type AppEvent, createEmitter, type EventListener } from "./events.ts";
 import type { Implementation } from "./handler.ts";
-import { type Health, markDraining } from "./health.ts";
-import { type LifecycleResource, startResources, stopResources } from "./lifecycle.ts";
-import { execute, type OperationPlan, planOperation, type ResponseValidation } from "./pipeline.ts";
+import {
+  type LifecycleFailure,
+  type LifecycleResource,
+  startResources,
+  stopResources,
+} from "./lifecycle.ts";
+import { execute, type Outcome, planOperation, type ResponseValidation } from "./pipeline.ts";
 import { describeError, problemResponse } from "./problem.ts";
-import { compileRoutes } from "./routing.ts";
+import { compileRoutes, type Router } from "./routing.ts";
 import { createSecurity, type Verifiers } from "./security.ts";
 import { createValidators } from "./validation.ts";
 
@@ -54,8 +69,6 @@ interface BaseOptions<A extends Api> {
   readonly bodyLimitBytes?: number;
   /** Resources started in order before the app is returned, and stopped in reverse on close. */
   readonly lifecycle?: readonly LifecycleResource[];
-  /** The health aggregator from `createHealth`; it reports unhealthy while the app shuts down. */
-  readonly health?: Health;
   /** Receives read-only events. Without it, problem events are written with `console.warn`. */
   readonly onEvent?: EventListener;
   /**
@@ -79,33 +92,125 @@ export interface App {
   close(): Promise<void>;
 }
 
-/** A problem that prevents an application from starting. */
-export interface StartupDiagnostic {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly message: string;
-  readonly operationId?: string;
-  readonly location?: string;
-}
+export type { StartupDiagnosticCode };
 
 /** Thrown by {@link createApp} with every diagnostic that prevents startup. */
 export class StartupError extends Error {
-  readonly diagnostics: readonly StartupDiagnostic[];
+  readonly diagnostics: readonly Diagnostic<DiagnosticCode | StartupDiagnosticCode>[];
 
-  constructor(diagnostics: readonly StartupDiagnostic[]) {
-    const errors = diagnostics.filter((d) => d.severity === "error");
+  constructor(diagnostics: readonly Diagnostic<DiagnosticCode | StartupDiagnosticCode>[]) {
+    const count = diagnostics.filter((d) => d.severity === "error").length;
     super(
-      `The application cannot start (${errors.length} error${errors.length === 1 ? "" : "s"}):\n` +
-        errors.map((d) => `- [${d.code}]${d.operationId ? ` ${d.operationId}:` : ""} ${d.message}`)
-          .join("\n"),
+      `The application cannot start (${count} error${count === 1 ? "" : "s"}):\n` +
+        describeErrors(diagnostics),
     );
     this.name = "StartupError";
     this.diagnostics = diagnostics;
   }
 }
 
-function positiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
+function readSettings(options: BaseOptions<Api>, error: StartupReport) {
+  const development = options.development ?? false;
+  const settings = {
+    development,
+    responseValidation: options.responseValidation ?? (development ? "enforce" : "log"),
+    bodyLimitBytes: options.bodyLimitBytes ?? 1_048_576,
+    requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
+    shutdownTimeoutMs: options.shutdownTimeoutMs ?? 10_000,
+  } as const;
+  if (!["off", "log", "enforce"].includes(settings.responseValidation)) {
+    error("invalid-option", "responseValidation must be 'off', 'log', or 'enforce'");
+  }
+  for (const name of ["requestTimeoutMs", "bodyLimitBytes", "shutdownTimeoutMs"] as const) {
+    if (!positiveInteger(settings[name])) {
+      error("invalid-option", `${name} must be a positive integer`);
+    }
+  }
+  return settings;
+}
+
+/**
+ * TypeBox's format registry is process-wide and cannot remove entries (ADR 0003 §5), so a name
+ * registered with a different check by anything else is a conflict.
+ */
+function checkFormats(formats: readonly FormatModel[], error: StartupReport): void {
+  for (const { name, check } of formats) {
+    const registered = Format.Get(name);
+    if (registered !== undefined && registered !== check) {
+      error(
+        "format-conflict",
+        `format '${name}' is already registered in this process with a different check`,
+      );
+    }
+  }
+}
+
+function registerFormats(formats: readonly FormatModel[]): void {
+  for (const { name, check } of formats) if (!Format.Has(name)) Format.Set(name, check);
+}
+
+/** The opt-in document endpoint; it must not shadow a declared route. */
+function documentEndpoint(
+  document: BaseOptions<Api>["document"],
+  router: Router,
+  error: StartupReport,
+): { readonly path: string; readonly text: string; readonly type: string } | undefined {
+  if (document === undefined) return undefined;
+  if (typeof document.path !== "string" || !document.path.startsWith("/")) {
+    error("invalid-option", "document.path must start with '/'");
+    return undefined;
+  }
+  if (router.match("GET", document.path).kind !== "not-found") {
+    error("document-route-conflict", `document.path '${document.path}' is a declared route`);
+    return undefined;
+  }
+  const yaml = /\.ya?ml$/i.test(document.path);
+  return typeof document.content === "string"
+    ? {
+      path: document.path,
+      text: document.content,
+      type: yaml ? "application/yaml" : "application/json",
+    }
+    : { path: document.path, text: JSON.stringify(document.content), type: "application/json" };
+}
+
+function lifecycleEvent(failure: LifecycleFailure): AppEvent {
+  const { name, message } = describeError(failure.error);
+  return {
+    type: "lifecycle.error",
+    name: failure.name,
+    phase: failure.phase,
+    error: { name, message },
+  };
+}
+
+/** Counts in-flight requests and lets `close()` wait until they finish. */
+function createTracker() {
+  let inFlight = 0;
+  let drained: (() => void) | undefined;
+  return {
+    enter() {
+      inFlight++;
+    },
+    leave() {
+      inFlight--;
+      if (inFlight === 0) drained?.();
+    },
+    get count() {
+      return inFlight;
+    },
+    /** Resolves when no request is in flight, or after `ms`. */
+    wait(ms: number): Promise<void> {
+      return new Promise((resolve) => {
+        if (inFlight === 0) return resolve();
+        const timer = setTimeout(resolve, ms);
+        drained = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    },
+  };
 }
 
 /**
@@ -114,170 +219,33 @@ function positiveInteger(value: unknown): value is number {
  * {@link StartupError}.
  */
 export async function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
-  const development = options.development ?? false;
   const emit = createEmitter(options.onEvent);
-  const settings = {
-    development,
-    responseValidation: options.responseValidation ?? (development ? "enforce" : "log"),
-    bodyLimitBytes: options.bodyLimitBytes ?? 1_048_576,
-    emit,
-  } as const;
-  const requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
-  const shutdownTimeoutMs = options.shutdownTimeoutMs ?? 10_000;
-
-  const diagnostics: StartupDiagnostic[] = [];
-  const error = (code: string, message: string, operationId?: string) =>
+  const diagnostics: Diagnostic<DiagnosticCode | StartupDiagnosticCode>[] = [];
+  const error: StartupReport = (code, message, operationId) =>
     diagnostics.push({ severity: "error", code, message, ...(operationId ? { operationId } : {}) });
 
-  if (!["off", "log", "enforce"].includes(settings.responseValidation)) {
-    error("invalid-option", "responseValidation must be 'off', 'log', or 'enforce'");
-  }
-  for (
-    const [name, value] of [
-      ["requestTimeoutMs", requestTimeoutMs],
-      ["bodyLimitBytes", settings.bodyLimitBytes],
-      ["shutdownTimeoutMs", shutdownTimeoutMs],
-    ] as const
-  ) {
-    if (!positiveInteger(value)) error("invalid-option", `${name} must be a positive integer`);
-  }
+  const settings = readSettings(options, error);
   const lifecycle = options.lifecycle ?? [];
-  const resourceNames = new Set<string>();
-  for (const resource of lifecycle) {
-    if (typeof resource?.name !== "string" || resource.name === "") {
-      error("invalid-lifecycle", "every lifecycle resource needs a non-empty name");
-    } else if (resourceNames.has(resource.name)) {
-      error("invalid-lifecycle", `lifecycle resource '${resource.name}' is listed twice`);
-    } else resourceNames.add(resource.name);
-    for (const phase of ["start", "stop"] as const) {
-      if (resource?.[phase] !== undefined && typeof resource[phase] !== "function") {
-        error("invalid-lifecycle", `'${resource.name}' ${phase} must be a function`);
-      }
-    }
-  }
+  checkLifecycle(lifecycle, error);
 
-  const checked = checkContracts(options.api);
-  diagnostics.push(...checked.diagnostics as readonly Diagnostic[]);
-  if (!checked.ok) throw new StartupError(diagnostics);
-  const { model } = checked;
+  const compiled = compileContracts(options.api);
+  diagnostics.push(...compiled.diagnostics);
+  if (!compiled.ok) throw new StartupError(diagnostics);
+  const { model } = compiled;
 
-  // Implementations: exactly one per contract, with one handler per operation.
-  const contracts = options.api.contracts as readonly AnyContract[];
-  const byContract = new Map<AnyContract, Implementation>();
-  for (const implementation of options.implementations) {
-    if (!contracts.includes(implementation?.contract)) {
-      error(
-        "unknown-implementation",
-        "an implementation is bound to a contract that the API does not list",
-      );
-    } else if (byContract.has(implementation.contract)) {
-      error(
-        "duplicate-implementation",
-        `contract ${contracts.indexOf(implementation.contract)} is implemented twice`,
-      );
-    } else byContract.set(implementation.contract, implementation);
-  }
-  contracts.forEach((contract, index) => {
-    if (!byContract.has(contract)) {
-      error(
-        "missing-implementation",
-        `contract ${index} has no implementation; pass implement(contract, handlers)`,
-      );
-    }
-  });
-
-  // Per-operation timeouts.
-  const timeouts = (options.timeouts ?? {}) as Readonly<Record<string, unknown>>;
-  const operationIds = new Set(model.operations.map((operation) => operation.operationId));
-  for (const [operationId, value] of Object.entries(timeouts)) {
-    if (!operationIds.has(operationId)) {
-      error("unknown-timeout-target", `'${operationId}' is not an operation of the API`);
-    } else if (value !== undefined && !positiveInteger(value)) {
-      error("invalid-option", `the timeout of '${operationId}' must be a positive integer`);
-    }
-  }
-
-  const validators = createValidators();
-  const plans = new Map<string, OperationPlan>();
-  const pending: string[] = [];
-  for (const operation of model.operations) {
-    const implementation = byContract.get(contracts[operation.contract]!);
-    if (implementation === undefined) continue;
-    const handler = implementation.handlers[operation.operationId];
-    const isNotImplemented = typeof handler === "object" && handler !== null &&
-      (handler as { kind?: unknown }).kind === "hyapi.not-implemented";
-    if (handler === undefined) {
-      error(
-        "missing-handler",
-        "the operation has no handler; implement it or use notImplemented",
-        operation.operationId,
-      );
-      continue;
-    }
-    if (!isNotImplemented && typeof handler !== "function") {
-      error(
-        "invalid-handler",
-        "a handler must be a function or notImplemented",
-        operation.operationId,
-      );
-      continue;
-    }
-    if (isNotImplemented) pending.push(operation.operationId);
-    const timeout = timeouts[operation.operationId];
-    plans.set(
-      operation.operationId,
-      planOperation(
-        operation,
-        isNotImplemented ? undefined : handler as never,
-        positiveInteger(timeout) ? timeout : requestTimeoutMs,
-        validators,
-      ),
-    );
-  }
-  for (const implementation of byContract.values()) {
-    const declared = new Set(Object.keys(implementation.contract.operations));
-    for (const name of Object.keys(implementation.handlers)) {
-      if (!declared.has(name)) {
-        error("unknown-handler", `'${name}' is not an operation of its contract`, name);
-      }
-    }
-  }
-
-  // Verifiers: exactly one function per declared security scheme.
+  const bindings = bindOperations(
+    model,
+    options.api.contracts as readonly AnyContract[],
+    options.implementations,
+    (options.timeouts ?? {}) as Readonly<Record<string, unknown>>,
+    settings.requestTimeoutMs,
+    error,
+  );
   const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
-  const schemeNames = new Set(model.securitySchemes.map((scheme) => scheme.name));
-  for (const name of schemeNames) {
-    if (verifiers[name] === undefined) {
-      error(
-        "missing-verifier",
-        `security scheme '${name}' has no verifier; pass verifiers.${name}`,
-      );
-    } else if (typeof verifiers[name] !== "function") {
-      error("invalid-verifier", `the verifier for '${name}' must be a function`);
-    }
-  }
-  for (const name of Object.keys(verifiers)) {
-    if (!schemeNames.has(name)) {
-      error("unknown-verifier", `'${name}' is not a security scheme declared by defineSecurity`);
-    }
-  }
-
-  // The opt-in document endpoint must not shadow a declared route.
+  checkVerifiers(model, verifiers, error);
+  checkFormats(model.formats, error);
   const router = compileRoutes(model.operations);
-  const document = options.document;
-  let documentBody: { text: string; type: string } | undefined;
-  if (document !== undefined) {
-    if (typeof document.path !== "string" || !document.path.startsWith("/")) {
-      error("invalid-option", "document.path must start with '/'");
-    } else if (router.match("GET", document.path).kind !== "not-found") {
-      error("document-route-conflict", `document.path '${document.path}' is a declared route`);
-    } else {
-      const yaml = /\.ya?ml$/i.test(document.path);
-      documentBody = typeof document.content === "string"
-        ? { text: document.content, type: yaml ? "application/yaml" : "application/json" }
-        : { text: JSON.stringify(document.content), type: "application/json" };
-    }
-  }
+  const document = documentEndpoint(options.document, router, error);
 
   if (diagnostics.some((d) => d.severity === "error")) throw new StartupError(diagnostics);
   for (const d of diagnostics) {
@@ -288,11 +256,42 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
       ...(d.operationId === undefined ? {} : { operationId: d.operationId }),
     });
   }
-  if (development && pending.length > 0) {
-    console.warn(`[hyapi] not implemented: ${pending.join(", ")}`);
+  if (settings.development) {
+    for (const { operation, handler } of bindings) {
+      if (handler !== undefined) continue;
+      emit({
+        type: "startup.warning",
+        code: "not-implemented",
+        message: "the operation is not implemented yet and answers 501",
+        operationId: operation.operationId,
+      });
+    }
   }
 
-  await startResources(lifecycle, shutdownTimeoutMs, emit);
+  // Every check passed: only now touch process-wide state and compile validators.
+  registerFormats(model.formats);
+  const validators = createValidators();
+  const plans = new Map(
+    bindings.map(({ operation, handler, timeoutMs }) => [
+      operation.operationId,
+      planOperation(operation, handler, timeoutMs, validators),
+    ]),
+  );
+
+  const failures = await startResources(lifecycle, settings.shutdownTimeoutMs);
+  if (failures.length > 0) {
+    for (const failure of failures) emit(lifecycleEvent(failure));
+    const [{ name, error: cause }, ...rollback] = failures as [
+      LifecycleFailure,
+      ...LifecycleFailure[],
+    ];
+    if (rollback.length === 0) throw cause;
+    throw new AggregateError(
+      [cause, ...rollback.map((failure) => failure.error)],
+      `'${name}' failed to start`,
+      { cause },
+    );
+  }
 
   const security = createSecurity(
     model.securitySchemes,
@@ -300,19 +299,27 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
     model.info.title,
   );
   const shutdown = new AbortController();
+  const tracker = createTracker();
   let state: "running" | "closing" | "closed" = "running";
-  let inFlight = 0;
-  let drained: (() => void) | undefined;
   let closing: Promise<void> | undefined;
+
+  const report = (outcome: Outcome, operationId: string) => {
+    if (outcome.stripped !== undefined) {
+      emit({ type: "response.stripped", operationId, ...outcome.stripped });
+    }
+    if (outcome.violation !== undefined) {
+      emit({ type: "response.violation", operationId, ...outcome.violation });
+    }
+  };
 
   const handle = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
-    if (documentBody !== undefined && url.pathname === document!.path) {
+    if (document !== undefined && url.pathname === document.path) {
       if (request.method !== "GET" && request.method !== "HEAD") {
         return problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } });
       }
-      return new Response(request.method === "HEAD" ? null : documentBody.text, {
-        headers: { "content-type": documentBody.type },
+      return new Response(request.method === "HEAD" ? null : document.text, {
+        headers: { "content-type": document.type },
       });
     }
     const match = router.match(request.method, url.pathname);
@@ -349,16 +356,14 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
       security,
       shutdown.signal,
     );
+    report(outcome, operation.operationId);
     const { response } = outcome;
-    const code = response.headers.get("content-type") === "application/problem+json"
-      ? await response.clone().json().then((body) => body?.code, () => undefined)
-      : undefined;
     emit({
       type: "operation.end",
       ...base,
       status: response.status,
       durationMs: Math.round((performance.now() - started) * 100) / 100,
-      ...(typeof code === "string" ? { code } : {}),
+      ...(outcome.code === undefined ? {} : { code: outcome.code }),
       ...(outcome.error === undefined ? {} : {
         error: (({ name, message }) => ({ name, message }))(describeError(outcome.error)),
       }),
@@ -376,7 +381,7 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
           headers: { connection: "close" },
         });
       }
-      inFlight++;
+      tracker.enter();
       try {
         return await handle(request);
       } catch (caught) {
@@ -386,33 +391,26 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
           settings.development ? { debug: describeError(caught) } : {},
         );
       } finally {
-        inFlight--;
-        if (inFlight === 0) drained?.();
+        tracker.leave();
       }
     },
     close() {
       closing ??= (async () => {
         state = "closing";
-        if (options.health !== undefined) markDraining(options.health);
         // Drain within the budget, then abort what is left and give it a moment to settle.
-        const waitDrained = (ms: number) =>
-          new Promise<void>((resolve) => {
-            if (inFlight === 0) return resolve();
-            const timer = setTimeout(resolve, ms);
-            drained = () => {
-              clearTimeout(timer);
-              resolve();
-            };
-          });
-        await waitDrained(shutdownTimeoutMs);
-        if (inFlight > 0) {
+        await tracker.wait(settings.shutdownTimeoutMs);
+        if (tracker.count > 0) {
           shutdown.abort(new DOMException("The server is shutting down.", "AbortError"));
-          await waitDrained(Math.min(1_000, shutdownTimeoutMs));
+          await tracker.wait(Math.min(1_000, settings.shutdownTimeoutMs));
         }
-        const errors = await stopResources(lifecycle, shutdownTimeoutMs, emit);
+        const stopFailures = await stopResources(lifecycle, settings.shutdownTimeoutMs);
+        for (const failure of stopFailures) emit(lifecycleEvent(failure));
         state = "closed";
-        if (errors.length > 0) {
-          throw new AggregateError(errors, `${errors.length} lifecycle resource(s) failed to stop`);
+        if (stopFailures.length > 0) {
+          throw new AggregateError(
+            stopFailures.map((failure) => failure.error),
+            `${stopFailures.length} lifecycle resource(s) failed to stop`,
+          );
         }
       })();
       return closing;

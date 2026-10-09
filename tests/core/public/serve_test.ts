@@ -101,6 +101,30 @@ Deno.test("an abort signal starts the shutdown", async () => {
   assertEquals(log, ["resource stopped"]);
 });
 
+Deno.test("a resource that fails to stop rejects shutdown(), never finished", async () => {
+  const failing = () =>
+    createApp({
+      api,
+      onEvent: () => {},
+      lifecycle: [{ name: "broken", stop: () => Promise.reject(new Error("stuck")) }],
+      implementations: [
+        implement(contract, { slow: () => ({ status: 200, body: { done: true } }) }),
+      ],
+    });
+  // Explicit shutdown: the caller handles the error, and finished still resolves.
+  const explicit = listen(await failing());
+  await explicit.port;
+  await assertRejects(() => explicit.server.shutdown(), AggregateError);
+  await explicit.server.finished;
+
+  // Shutdown from a signal: nobody calls shutdown(), so finished must not reject either.
+  const controller = new AbortController();
+  const signalled = listen(await failing(), { signal: controller.signal });
+  await signalled.port;
+  controller.abort();
+  await signalled.server.finished;
+});
+
 Deno.test("a stuck request cannot hold the shutdown past its budget", async () => {
   const log: string[] = [];
   const app = await makeApp(log, { ignoreAbort: true, shutdownTimeoutMs: 50 });

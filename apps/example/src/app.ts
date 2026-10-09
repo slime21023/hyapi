@@ -59,7 +59,6 @@ export async function buildExample(config: ExampleConfig): Promise<{
       start: () => repository.start(),
       stop: () => repository.stop(),
     }],
-    health,
     development: config.development,
     onEvent: config.log ?? jsonLog,
     timeouts: { exportBooks: 60_000 },

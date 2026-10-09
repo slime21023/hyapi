@@ -39,7 +39,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08) |
 | [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08) |
 | [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
-| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Planned           |
+| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
 | [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Planned           |
 | [M10](#m10-production-features)         | Production features (0.3.0)                          | runtime, serve, cli, plugins           | M9         | Planned           |
 

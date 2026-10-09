@@ -58,6 +58,9 @@ ADR 0001 §12; ADR 0002 §3, §4.
     accepting connections and waiting for open responses) run concurrently.
   - After `shutdownTimeoutMs` (default 30 s, kept above the app's budget), the listener's signal
     aborts open connections.
+- **Failures (M8).** `finished` never rejects. `shutdown()` rejects with the application's close
+  errors, and the application emits a `lifecycle.error` event for each failing resource, so a
+  signal-triggered shutdown cannot leave an unhandled rejection.
   - `shutdown()` is idempotent and rethrows close failures.
 - **Legacy abort on Deno 2.9.** Measured on Deno 2.9.7: without `--unstable-no-legacy-abort`, Deno
   still aborts `request.signal` after every successful response, and it prints a warning when
