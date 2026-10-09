@@ -16,6 +16,13 @@ export interface VerifierContext {
   readonly signal: AbortSignal;
   readonly request: Request;
   readonly operationId: string;
+  /**
+   * The operation's effective requirement in OpenAPI form: alternatives, each mapping scheme
+   * names to the scopes it requires.
+   */
+  readonly requirements: readonly Readonly<Record<string, readonly string[]>>[];
+  /** The request ID, when `createApp({ requestId })` is on. */
+  readonly requestId: string | undefined;
 }
 
 /** A successful verification: the identity and the scopes it grants. */
@@ -58,6 +65,10 @@ export interface Denial {
   readonly reason: "missing" | "invalid" | "insufficient-scope";
   /** `WWW-Authenticate` challenges, in scheme order; possibly empty. */
   readonly challenges: readonly string[];
+  /** The schemes the operation accepts, in declaration order. */
+  readonly schemes: readonly string[];
+  /** For `insufficient-scope`: the scopes the failing alternative requires. */
+  readonly requiredScopes?: readonly string[];
 }
 
 /** The result of evaluating an operation's security. */
@@ -120,6 +131,10 @@ function challenge(spec: SecuritySchemeModel["spec"], realm: string, scopes?: re
   }
   if (spec.type === "http" && spec.scheme === "basic") {
     return `Basic realm="${realm.replaceAll('"', "'")}", charset="UTF-8"`;
+  }
+  // API keys have no registered scheme; this challenge still tells clients where the key goes.
+  if (spec.type === "apiKey" && scopes === undefined) {
+    return `ApiKey in="${spec.in}", name="${spec.name}"`;
   }
   return undefined;
 }
@@ -200,6 +215,7 @@ function deny(
   config: SecurityConfig,
 ): SecurityResult {
   const { specs, realm } = config;
+  const schemes = [...new Set(requirements.flat().map(({ scheme }) => scheme))];
   if (insufficient !== undefined) {
     const header = challenge(specs.get(insufficient.scheme)!, realm, insufficient.scopes);
     return {
@@ -208,18 +224,16 @@ function deny(
         status: 403,
         reason: "insufficient-scope",
         challenges: header === undefined ? [] : [header],
+        schemes,
+        requiredScopes: insufficient.scopes,
       },
     };
   }
-  const challenges = [
-    ...new Set(
-      requirements.flat().map(({ scheme }) => challenge(specs.get(scheme)!, realm))
-        .filter((value): value is string => value !== undefined),
-    ),
-  ];
+  const challenges = schemes.map((scheme) => challenge(specs.get(scheme)!, realm))
+    .filter((value): value is string => value !== undefined);
   return {
     kind: "denied",
-    denial: { status: 401, reason: invalid ? "invalid" : "missing", challenges },
+    denial: { status: 401, reason: invalid ? "invalid" : "missing", challenges, schemes },
   };
 }
 

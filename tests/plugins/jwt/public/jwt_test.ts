@@ -17,6 +17,8 @@ const verifierContext = {
   signal: new AbortController().signal,
   request: new Request("http://test"),
   operationId: "op",
+  requirements: [],
+  requestId: undefined,
 };
 
 async function hs256(claims: JWTPayload, key = secret, expiresIn: string | number = "1h") {

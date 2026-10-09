@@ -195,7 +195,8 @@ Deno.test("API keys are read from their declared header, query, or cookie", asyn
   assertEquals((await call(app, "/query-key?key=k1")).body, { who: "c1" });
   assertEquals((await call(app, "/cookie-key", { cookie: "a=1; session=k1" })).body, { who: "c1" });
   const missing = await call(app, "/header-key", { cookie: "session=k1" });
-  assertEquals([missing.status, missing.challenge], [401, null]);
+  // RFC 9110: every 401 carries a challenge; API keys get one that names where the key goes.
+  assertEquals([missing.status, missing.challenge], [401, 'ApiKey in="header", name="x-api-key"']);
 });
 
 Deno.test("OAuth 2 and OpenID Connect use bearer tokens", async () => {
@@ -214,7 +215,10 @@ Deno.test("alternatives are OR: the first satisfied requirement wins", async () 
     who: JSON.stringify({ headerKey: { client: "c1" } }),
   });
   const neither = await call(app, "/either");
-  assertEquals([neither.status, neither.challenge], [401, "Bearer"]);
+  assertEquals([neither.status, neither.challenge], [
+    401,
+    'Bearer, ApiKey in="header", name="x-api-key"',
+  ]);
 });
 
 Deno.test("schemes within a requirement are AND, in order, stopping at the first failure", async () => {

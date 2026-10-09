@@ -5,6 +5,33 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Observability and authorization (roadmap M10a).
+
+### Added
+
+- `createApp({ requestId })`, off by default. When on, each request gets an ID. The ID appears on
+  every event about the request, as `ctx.requestId` for handlers and verifiers, and in the
+  `x-request-id` response header (configurable). With `trustIncoming`, a well-formed incoming ID is
+  reused.
+- `security.denied` events with the status, the reason (`missing`, `invalid`, or
+  `insufficient-scope`), the accepted schemes, and the required scopes. They never include
+  credentials.
+- `request.unmatched` events for 404, 405, and malformed paths.
+- `VerifierContext.requirements`: the operation's requirement in OpenAPI form.
+- `ErrorInfo`: the `error` of `operation.end` and `lifecycle.error` includes `stack` and up to three
+  levels of `cause`.
+- 401 responses for API key schemes carry `WWW-Authenticate: ApiKey in="...", name="..."`.
+- The authorization recipe: roles as scopes, resource rules as typed handler wrappers, and auditing.
+
+### Changed
+
+- `Context` and `VerifierContext` have a `requestId` field, and `VerifierContext` has
+  `requirements`. Code that builds a `VerifierContext` itself, for example in tests, must add them.
+- A verifier that throws `HttpError` is documented: it answers with that status and ends security
+  evaluation.
+
 ## [0.2.0] - 2026-10-09
 
 The first published release of the contract-first redesign. It contains everything listed under

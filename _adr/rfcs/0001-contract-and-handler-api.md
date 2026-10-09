@@ -374,6 +374,37 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   schemas, not only for presence. With `responseValidation: "off"`, no response check runs and no
   `response.violation` event is emitted; undeclared fields are still stripped.
 
+## 18. Amendments made for M10a (observability and authorization)
+
+- **A27. Request IDs are opt-in.** `createApp({ requestId })` takes `true` or
+  `{ header?, trustIncoming? }`, and is off by default.
+  - When on, every request gets an ID. It appears as `requestId` on every event about the request,
+    as `ctx.requestId` for handlers and verifiers, and in the response header named by `header`
+    (default `x-request-id`).
+  - With `trustIncoming: true`, an incoming header value is reused when it has 1 to 128 characters
+    from `A-Z a-z 0-9 . _ : -`. Otherwise, and by default, a random UUID is generated.
+  - `Context` and `VerifierContext` gain `requestId: string | undefined`.
+- **A28. Denials are events.** `security.denied` carries:
+  - `operationId`, `method`, `path`, and `status` (401 or 403);
+  - `reason`: `missing`, `invalid`, or `insufficient-scope`;
+  - `schemes`, the schemes the operation accepts, in declaration order; and
+  - `requiredScopes`, for `insufficient-scope`.
+
+  It never carries credentials.
+- **A29. Verifiers see the requirement.** `VerifierContext.requirements` is the operation's
+  effective requirement in OpenAPI form: a list of alternatives, each mapping scheme names to
+  required scopes. A verifier may throw `HttpError`, for example 403 for a suspended account. That
+  answers with its status and ends security evaluation, so later alternatives are not tried.
+- **A30. Error events carry the error.** The `error` of `operation.end` and `lifecycle.error`
+  includes `stack` and `cause` (to a depth of three) when present. Responses are unchanged: outside
+  development they never include error details.
+- **A31. API keys have a challenge.** A 401 for an operation that accepts an `apiKey` scheme
+  includes `WWW-Authenticate: ApiKey in="<in>", name="<name>"`, so that every 401 carries a
+  challenge, as RFC 9110 requires.
+- **A32. Unmatched requests are events.** `request.unmatched` reports requests that match no
+  operation, with `method`, `path`, `status` (404, 405, or 400 for malformed paths), and the problem
+  `code`. Requests for the document endpoint and requests refused during shutdown are not reported.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

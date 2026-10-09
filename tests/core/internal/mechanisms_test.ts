@@ -194,15 +194,17 @@ Deno.test("security: denials carry status, reason, and challenges", async () => 
       signal: request.signal,
       request,
       operationId: "op",
+      requirements: [],
+      requestId: undefined,
     });
   };
   assertEquals(await run(undefined), {
     kind: "denied",
-    denial: { status: 401, reason: "missing", challenges: ["Bearer"] },
+    denial: { status: 401, reason: "missing", challenges: ["Bearer"], schemes: ["bearer"] },
   });
   assertEquals(await run("Bearer bad"), {
     kind: "denied",
-    denial: { status: 401, reason: "invalid", challenges: ["Bearer"] },
+    denial: { status: 401, reason: "invalid", challenges: ["Bearer"], schemes: ["bearer"] },
   });
   assertEquals(await run("Bearer good", ["write"]), {
     kind: "denied",
@@ -210,6 +212,8 @@ Deno.test("security: denials carry status, reason, and challenges", async () => 
       status: 403,
       reason: "insufficient-scope",
       challenges: ['Bearer error="insufficient_scope", scope="write"'],
+      schemes: ["bearer"],
+      requiredScopes: ["write"],
     },
   });
   assertEquals(await run("Bearer good", ["read"]), {

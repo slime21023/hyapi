@@ -29,19 +29,19 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                               | Goal                                                 | Components                             | Depends on | Status            |
-| --------------------------------------- | ---------------------------------------------------- | -------------------------------------- | ---------- | ----------------- |
-| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                             | —          | Done (2026-10-08) |
-| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                               | M0         | Done (2026-10-08) |
-| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                                | M1         | Done (2026-10-08) |
-| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                           | M1         | Done (2026-10-08) |
-| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                       | M2         | Done (2026-10-08) |
-| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08) |
-| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08) |
-| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
-| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
-| [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
-| [M10](#m10-production-features)         | Production features (0.3.0)                          | runtime, serve, cli, plugins           | M9         | Planned           |
+| Milestone                               | Goal                                                 | Components                             | Depends on | Status                  |
+| --------------------------------------- | ---------------------------------------------------- | -------------------------------------- | ---------- | ----------------------- |
+| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                             | —          | Done (2026-10-08)       |
+| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                               | M0         | Done (2026-10-08)       |
+| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                                | M1         | Done (2026-10-08)       |
+| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                           | M1         | Done (2026-10-08)       |
+| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                       | M2         | Done (2026-10-08)       |
+| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08)       |
+| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08)       |
+| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09)       |
+| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09)       |
+| [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09)       |
+| [M10](#m10-production-features)         | Production features (0.3.0)                          | runtime, serve, cli, plugins           | M9         | In progress (M10a done) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -355,6 +355,14 @@ Findings: F2.2, F2.3, F2.6, F2.7, F4, F5.2–F5.5, F5.7, F5.9.
   and `doctor`, and `diff --document` and `--base`.
 - **Limits and deployment:** per-operation body limits (F5.5); a deployment guide for Deno Deploy
   and containers, with liveness and readiness (F5.7); an HTTP load and memory baseline (F5.9).
+
+**Plan:** M10 is delivered in three committed stages:
+
+- **M10a:** authorization and observability (F2.2, F2.3, F2.6, F2.7, F5.2–F5.4), RFC 0001 A27–A32.
+  Done.
+- **M10b:** several documents (F4).
+- **M10c:** per-operation body limits, the deployment guide, and the HTTP load baseline (F5.5, F5.7,
+  F5.9).
 
 **Exit criteria:** the example application uses the request ID, a denial event, and two documents
 (public and internal); every new event is in the observability recipe; `deno task verify` and CI

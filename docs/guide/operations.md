@@ -96,13 +96,30 @@ health: async () => {
 | Event                              | When                                                                                                         |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `operation.start`, `operation.end` | Around every matched request, with status, duration, problem `code`, thrown error, and the `deprecated` flag |
+| `security.denied`                  | Security answered 401 or 403, with the reason, accepted schemes, and required scopes                         |
+| `request.unmatched`                | A request matched no operation (404, 405, or 400 for a malformed path)                                       |
 | `response.violation`               | A response does not match its schema                                                                         |
 | `response.stripped`                | Development only: undeclared fields were removed                                                             |
-| `startup.warning`                  | A contract warning, such as an unnamed schema                                                                |
+| `startup.warning`                  | A contract warning, such as an unnamed schema, or a `notImplemented` operation in development                |
 | `lifecycle.error`                  | A resource failed to start or stop                                                                           |
 
 Listeners cannot change requests or responses, and their errors are contained. Without a listener,
-problem events are written with `console.warn`. See [Observability](../recipes/observability).
+problem events are written with `console.warn`. Errors in events include their stack and cause;
+responses still hide them outside development. Events never contain credentials. `durationMs` is the
+time until the response headers were ready; a streamed body may continue afterwards. See
+[Observability](../recipes/observability).
+
+## Request IDs
+
+```ts
+const app = await createApp({ api, implementations, requestId: true });
+```
+
+Request IDs are off by default. When on, every request gets an ID: it is in every event about the
+request, in `ctx.requestId` for handlers and verifiers, and in the `x-request-id` response header.
+Change the header with `requestId: { header: "x-correlation-id" }`. Incoming IDs are ignored unless
+`trustIncoming: true`; then a value of 1 to 128 characters from `A-Z a-z 0-9 . _ : -` is reused.
+Trust incoming IDs only behind a proxy that sets or validates them.
 
 `operation.end` events of deprecated operations show who still calls them before you remove them.
 

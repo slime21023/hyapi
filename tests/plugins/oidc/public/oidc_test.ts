@@ -9,6 +9,8 @@ const ctx = {
   signal: new AbortController().signal,
   request: new Request("http://test"),
   operationId: "op",
+  requirements: [],
+  requestId: undefined,
 };
 
 /** A local issuer serving discovery and JWKS; `jwksStatus` can simulate an outage. */
