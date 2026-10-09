@@ -418,6 +418,13 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   Each document is its own `defineApi` sharing contract values; the application is built from the
   complete API. Documents are not access control: Core cannot see what a document leaves out.
 
+## 20. Amendments made for M10c (operations)
+
+- **A34. Per-operation body limits.** `createApp({ bodyLimits })` overrides `bodyLimitBytes` per
+  operation, keyed by `operationId` in types, like `timeouts`. An unknown operation, or one that
+  declares no request body, is `unknown-body-limit-target`; a value that is not a positive integer
+  is `invalid-option`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

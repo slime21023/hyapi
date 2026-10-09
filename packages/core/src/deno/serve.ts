@@ -83,7 +83,8 @@ async function stop(running: Running): Promise<void> {
 /**
  * Serves an application with `Deno.serve` and shuts it down gracefully on OS signals.
  *
- * Run with `--unstable-no-legacy-abort`: without it, Deno aborts every request's signal after a
+ * Run with `--unstable-no-legacy-abort`, or `"unstable": ["no-legacy-abort"]` in the root
+ * `deno.json`: without it, Deno aborts every request's signal after a
  * successful response, which handlers would observe as a client disconnect.
  *
  * @example
