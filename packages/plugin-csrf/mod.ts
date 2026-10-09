@@ -115,12 +115,10 @@ export function withCsrf(handler: FetchHandler, options: CsrfOptions): FetchHand
     const current = readCookie(request.headers.get("cookie"), cookieName);
     if (!SAFE_METHODS.has(request.method)) {
       const echoed = request.headers.get(headerName) ?? undefined;
-      if (current === undefined || echoed !== current || !(await valid(current))) {
-        return problemResponse(403, "CSRF_FAILED", {
-          detail: `Send the ${cookieName} cookie's token in the ${headerName} header.`,
-        });
-      }
-      return await handler(request);
+      const matches = current !== undefined && echoed === current && await valid(current);
+      return matches ? await handler(request) : problemResponse(403, "CSRF_FAILED", {
+        detail: `Send the ${cookieName} cookie's token in the ${headerName} header.`,
+      });
     }
     const response = await handler(request);
     if (await valid(current)) return response;

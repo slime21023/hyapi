@@ -17,9 +17,8 @@ function operationsOf(document: OpenApiDocument): DocumentOperation[] {
   const operations: DocumentOperation[] = [];
   const paths = (document.paths ?? {}) as Record<string, Record<string, unknown>>;
   for (const item of Object.values(paths)) {
-    for (const method of METHODS) {
-      const operation = item[method] as Record<string, unknown> | undefined;
-      if (operation === undefined) continue;
+    const declared = METHODS.map((method) => item[method] as Record<string, unknown> | undefined);
+    for (const operation of declared.filter((operation) => operation !== undefined)) {
       operations.push({
         operationId: String(operation.operationId),
         hasParameters: Array.isArray(operation.parameters) && operation.parameters.length > 0,
@@ -70,8 +69,10 @@ export async function doctorCommand(
   const missing = new Map<number, { reason: string; operations: string[] }>();
   const operations = operationsOf(compiled.document);
   for (const operation of operations) {
-    for (const [status, reason] of frameworkStatuses(operation)) {
-      if (operation.statuses.has(status)) continue;
+    const undeclared = frameworkStatuses(operation).filter(([status]) =>
+      !operation.statuses.has(status)
+    );
+    for (const [status, reason] of undeclared) {
       const entry = missing.get(status) ?? { reason, operations: [] };
       entry.operations.push(operation.operationId);
       missing.set(status, entry);

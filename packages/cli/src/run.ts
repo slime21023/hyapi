@@ -67,6 +67,55 @@ function value(flag: string | true | undefined): string | undefined {
   return typeof flag === "string" ? flag : undefined;
 }
 
+/** Where a command runs, and the project flags shared by `emit`, `diff`, and `doctor`. */
+interface Invocation {
+  readonly cwd: string;
+  readonly project: { readonly api?: string; readonly out?: string };
+  readonly io: Io;
+}
+
+function diffFormat(flag: string | undefined): "text" | "markdown" | "json" {
+  const format = flag ?? "text";
+  if (format !== "text" && format !== "markdown" && format !== "json") {
+    throw new UsageError("--format must be text, markdown, or json");
+  }
+  return format;
+}
+
+/** Runs one command after checking its options. Throws `UsageError` for invalid usage. */
+async function dispatch(
+  command: string,
+  rest: readonly string[],
+  flags: Record<string, string | true>,
+  { cwd, project, io }: Invocation,
+): Promise<number> {
+  switch (command) {
+    case "emit":
+      allowOnly(flags, ["api", "out", "check"]);
+      return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
+    case "diff":
+      allowOnly(flags, ["api", "out", "format", "allow-breaking"]);
+      return await diffCommand(
+        cwd,
+        {
+          ...project,
+          format: diffFormat(value(flags.format)),
+          allowBreaking: flags["allow-breaking"] === true,
+        },
+        io,
+      );
+    case "doctor":
+      allowOnly(flags, ["api", "out"]);
+      return await doctorCommand(cwd, project, io);
+    case "new":
+      allowOnly(flags, ["local"]);
+      if (rest.length !== 1) throw new UsageError("new needs exactly one directory");
+      return await newCommand(resolve(cwd, rest[0]!), value(flags.local), io);
+    default:
+      throw new UsageError(`unknown command '${command}'`);
+  }
+}
+
 /** Runs one CLI command and returns its exit code. */
 export async function run(args: readonly string[], options: RunOptions = {}): Promise<number> {
   const io: Io = {
@@ -87,32 +136,7 @@ export async function run(args: readonly string[], options: RunOptions = {}): Pr
       ...(api === undefined ? {} : { api }),
       ...(out === undefined ? {} : { out }),
     };
-    switch (command) {
-      case "emit":
-        allowOnly(flags, ["api", "out", "check"]);
-        return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
-      case "diff": {
-        allowOnly(flags, ["api", "out", "format", "allow-breaking"]);
-        const format = value(flags.format) ?? "text";
-        if (format !== "text" && format !== "markdown" && format !== "json") {
-          throw new UsageError("--format must be text, markdown, or json");
-        }
-        return await diffCommand(
-          cwd,
-          { ...project, format, allowBreaking: flags["allow-breaking"] === true },
-          io,
-        );
-      }
-      case "doctor":
-        allowOnly(flags, ["api", "out"]);
-        return await doctorCommand(cwd, project, io);
-      case "new":
-        allowOnly(flags, ["local"]);
-        if (rest.length !== 1) throw new UsageError("new needs exactly one directory");
-        return await newCommand(resolve(cwd, rest[0]!), value(flags.local), io);
-      default:
-        throw new UsageError(`unknown command '${command}'`);
-    }
+    return await dispatch(command, rest, flags, { cwd, project, io });
   } catch (error) {
     if (error instanceof UsageError) {
       io.err(`hyapi: ${error.message}`);

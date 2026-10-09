@@ -15,14 +15,20 @@ export class UsageError extends Error {
   override name = "UsageError";
 }
 
+/** A file's text, or undefined when it does not exist. */
+async function readIfExists(path: string): Promise<string | undefined> {
+  try {
+    return await Deno.readTextFile(path);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) return undefined;
+    throw error;
+  }
+}
+
 async function readConfigFile(cwd: string): Promise<Record<string, unknown> | undefined> {
   for (const name of ["deno.json", "deno.jsonc"]) {
-    try {
-      const text = await Deno.readTextFile(join(cwd, name));
-      return parseJsonc(text) as Record<string, unknown>;
-    } catch (error) {
-      if (!(error instanceof Deno.errors.NotFound)) throw error;
-    }
+    const text = await readIfExists(join(cwd, name));
+    if (text !== undefined) return parseJsonc(text) as Record<string, unknown>;
   }
   return undefined;
 }
