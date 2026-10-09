@@ -65,24 +65,29 @@ export type Emit = (event: AppEvent) => void;
  * policy is never silent.
  */
 export function createEmitter(listener: EventListener | undefined): Emit {
-  if (listener === undefined) {
-    return (event) => {
-      if (event.type !== "operation.start" && event.type !== "operation.end") {
-        console.warn(JSON.stringify({ hyapi: event.type, ...event }));
-      }
-    };
+  if (listener === undefined) return warnAboutProblems;
+  return (event) => deliver(listener, event);
+}
+
+/** The default without a listener: problem events go to `console.warn`. */
+function warnAboutProblems(event: AppEvent): void {
+  if (event.type === "operation.start" || event.type === "operation.end") return;
+  console.warn(JSON.stringify({ hyapi: event.type, ...event }));
+}
+
+/** Calls the listener with a frozen event; whatever it throws or rejects with is contained. */
+function deliver(listener: EventListener, event: AppEvent): void {
+  try {
+    const result = listener(Object.freeze(event));
+    if (result instanceof Promise) result.catch(containListenerError);
+  } catch (error) {
+    containListenerError(error);
   }
-  const contain = (error: unknown) =>
-    console.error(
-      "[hyapi] an event listener failed:",
-      error instanceof Error ? error.message : error,
-    );
-  return (event) => {
-    try {
-      const result = listener(Object.freeze(event));
-      if (result instanceof Promise) result.catch(contain);
-    } catch (error) {
-      contain(error);
-    }
-  };
+}
+
+function containListenerError(error: unknown): void {
+  console.error(
+    "[hyapi] an event listener failed:",
+    error instanceof Error ? error.message : error,
+  );
 }

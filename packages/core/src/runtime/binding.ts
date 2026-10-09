@@ -54,10 +54,11 @@ export function checkLifecycle(
     } else if (names.has(resource.name)) {
       error("invalid-lifecycle", `lifecycle resource '${resource.name}' is listed twice`);
     } else names.add(resource.name);
-    for (const phase of ["start", "stop"] as const) {
-      if (resource?.[phase] !== undefined && typeof resource[phase] !== "function") {
-        error("invalid-lifecycle", `'${resource.name}' ${phase} must be a function`);
-      }
+    const invalid = (["start", "stop"] as const).filter((phase) =>
+      resource?.[phase] !== undefined && typeof resource[phase] !== "function"
+    );
+    for (const phase of invalid) {
+      error("invalid-lifecycle", `'${resource.name}' ${phase} must be a function`);
     }
   }
 }
@@ -136,15 +137,18 @@ export function bindOperations(
       timeoutMs: positiveInteger(timeout) ? timeout : requestTimeoutMs,
     });
   }
-  for (const implementation of byContract.values()) {
-    const declared = new Set(Object.keys(implementation.contract.operations));
-    for (const name of Object.keys(implementation.handlers)) {
-      if (!declared.has(name)) {
-        error("unknown-handler", `'${name}' is not an operation of its contract`, name);
-      }
+  for (const implementation of byContract.values()) checkHandlerNames(implementation, error);
+  return bindings;
+}
+
+/** Reports handlers whose names are not operations of the implemented contract. */
+function checkHandlerNames(implementation: Implementation, error: StartupReport): void {
+  const declared = new Set(Object.keys(implementation.contract.operations));
+  for (const name of Object.keys(implementation.handlers)) {
+    if (!declared.has(name)) {
+      error("unknown-handler", `'${name}' is not an operation of its contract`, name);
     }
   }
-  return bindings;
 }
 
 /** Checks that there is exactly one verifier function per declared security scheme. */

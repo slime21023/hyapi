@@ -124,93 +124,139 @@ function challenge(spec: SecuritySchemeModel["spec"], realm: string, scopes?: re
   return undefined;
 }
 
+/** The schemes and verifiers of an application, prepared once. */
+interface SecurityConfig {
+  readonly specs: ReadonlyMap<string, SecuritySchemeModel["spec"]>;
+  readonly verifiers: Readonly<Record<string, AnyVerifier>>;
+  /** The API title, used as the `Basic` realm. */
+  readonly realm: string;
+}
+
+/** One request's credentials, verified at most once per scheme. */
+interface Attempt {
+  readonly config: SecurityConfig;
+  readonly request: Request;
+  readonly url: URL;
+  readonly ctx: VerifierContext;
+  readonly outcomes: Map<string, Promise<Outcome>>;
+}
+
+/** Extracts and verifies one scheme's credential. */
+async function verifyScheme(scheme: string, attempt: Attempt): Promise<Outcome> {
+  const { config, request, url, ctx } = attempt;
+  const credential = extract(config.specs.get(scheme)!, request, url);
+  if (credential === undefined) return { kind: "missing" };
+  if (credential === null) return { kind: "invalid" };
+  const result = await config.verifiers[scheme]!(credential, ctx) as
+    | Verified<unknown>
+    | null
+    | undefined;
+  if (result === null || result === undefined) return { kind: "invalid" };
+  if (typeof result !== "object" || !("identity" in result)) {
+    throw new TypeError(`the '${scheme}' verifier must return { identity, scopes? } or null`);
+  }
+  const scopes = Array.isArray(result.scopes) ? result.scopes.map(String) : [];
+  return { kind: "verified", identity: result.identity, scopes: new Set(scopes) };
+}
+
+/** Verifies a scheme once per request, even if several alternatives use it. */
+function verifyOnce(scheme: string, attempt: Attempt): Promise<Outcome> {
+  let outcome = attempt.outcomes.get(scheme);
+  if (outcome === undefined) {
+    outcome = verifyScheme(scheme, attempt);
+    attempt.outcomes.set(scheme, outcome);
+  }
+  return outcome;
+}
+
+/** The result of one alternative: satisfied with identities, or why it failed. */
+type AlternativeResult =
+  | { readonly kind: "satisfied"; readonly identities: Readonly<Record<string, unknown>> }
+  | { readonly kind: "failed"; readonly invalid: boolean }
+  | { readonly kind: "insufficient"; readonly scheme: string; readonly scopes: readonly string[] };
+
+/** Checks every scheme of one alternative (AND), in order, stopping at the first failure. */
+async function checkAlternative(
+  requirement: RequirementModel,
+  attempt: Attempt,
+): Promise<AlternativeResult> {
+  const identities: Record<string, unknown> = {};
+  for (const { scheme, scopes } of requirement) {
+    const outcome = await verifyOnce(scheme, attempt);
+    if (outcome.kind !== "verified") return { kind: "failed", invalid: outcome.kind === "invalid" };
+    if (!scopes.every((scope) => outcome.scopes.has(scope))) {
+      return { kind: "insufficient", scheme, scopes };
+    }
+    identities[scheme] = outcome.identity;
+  }
+  return { kind: "satisfied", identities: Object.freeze(identities) };
+}
+
+/** Why no alternative succeeded: 403 when a credential lacked scopes, otherwise 401. */
+function deny(
+  requirements: readonly RequirementModel[],
+  insufficient: { scheme: string; scopes: readonly string[] } | undefined,
+  invalid: boolean,
+  config: SecurityConfig,
+): SecurityResult {
+  const { specs, realm } = config;
+  if (insufficient !== undefined) {
+    const header = challenge(specs.get(insufficient.scheme)!, realm, insufficient.scopes);
+    return {
+      kind: "denied",
+      denial: {
+        status: 403,
+        reason: "insufficient-scope",
+        challenges: header === undefined ? [] : [header],
+      },
+    };
+  }
+  const challenges = [
+    ...new Set(
+      requirements.flat().map(({ scheme }) => challenge(specs.get(scheme)!, realm))
+        .filter((value): value is string => value !== undefined),
+    ),
+  ];
+  return {
+    kind: "denied",
+    denial: { status: 401, reason: invalid ? "invalid" : "missing", challenges },
+  };
+}
+
+/** Tries the alternatives (OR) in order; the first satisfied one wins. */
+async function evaluate(
+  requirements: readonly RequirementModel[],
+  attempt: Attempt,
+): Promise<SecurityResult> {
+  let insufficient: { scheme: string; scopes: readonly string[] } | undefined;
+  let invalid = false;
+  for (const requirement of requirements) {
+    const result = await checkAlternative(requirement, attempt);
+    if (result.kind === "satisfied") return { kind: "allowed", security: result.identities };
+    if (result.kind === "failed") invalid ||= result.invalid;
+    else insufficient ??= { scheme: result.scheme, scopes: result.scopes };
+  }
+  return deny(requirements, insufficient, invalid, attempt.config);
+}
+
 /** Prepares security evaluation for the schemes and verifiers of an application. */
 export function createSecurity(
   schemes: readonly SecuritySchemeModel[],
   verifiers: Readonly<Record<string, AnyVerifier>>,
   realm: string,
 ) {
-  const specs = new Map(schemes.map((scheme) => [scheme.name, scheme.spec]));
-
-  return async function evaluate(
+  const config: SecurityConfig = {
+    specs: new Map(schemes.map((scheme) => [scheme.name, scheme.spec])),
+    verifiers,
+    realm,
+  };
+  return (
     requirements: readonly RequirementModel[],
     request: Request,
     url: URL,
     ctx: VerifierContext,
-  ): Promise<SecurityResult> {
-    // Each scheme is verified at most once per request, even if several alternatives use it.
-    const outcomes = new Map<string, Promise<Outcome>>();
-    const verify = (scheme: string): Promise<Outcome> => {
-      let outcome = outcomes.get(scheme);
-      if (outcome === undefined) {
-        outcome = (async (): Promise<Outcome> => {
-          const credential = extract(specs.get(scheme)!, request, url);
-          if (credential === undefined) return { kind: "missing" };
-          if (credential === null) return { kind: "invalid" };
-          const result = await verifiers[scheme]!(credential, ctx) as
-            | Verified<unknown>
-            | null
-            | undefined;
-          if (result === null || result === undefined) return { kind: "invalid" };
-          if (typeof result !== "object" || !("identity" in result)) {
-            throw new TypeError(
-              `the '${scheme}' verifier must return { identity, scopes? } or null`,
-            );
-          }
-          const scopes = Array.isArray(result.scopes) ? result.scopes.map(String) : [];
-          return { kind: "verified", identity: result.identity, scopes: new Set(scopes) };
-        })();
-        outcomes.set(scheme, outcome);
-      }
-      return outcome;
-    };
-
-    let insufficient: { scheme: string; scopes: readonly string[] } | undefined;
-    let invalid = false;
-    for (const requirement of requirements) {
-      const identities: Record<string, unknown> = {};
-      let satisfied = true;
-      // AND: in declaration order, stopping at the first failure.
-      for (const { scheme, scopes } of requirement) {
-        const outcome = await verify(scheme);
-        if (outcome.kind !== "verified") {
-          invalid ||= outcome.kind === "invalid";
-          satisfied = false;
-          break;
-        }
-        if (!scopes.every((scope) => outcome.scopes.has(scope))) {
-          insufficient ??= { scheme, scopes };
-          satisfied = false;
-          break;
-        }
-        identities[scheme] = outcome.identity;
-      }
-      if (satisfied) return { kind: "allowed", security: Object.freeze(identities) };
-    }
-
-    // No alternative succeeded. A credential that verified but lacked scopes is 403; otherwise 401.
-    if (insufficient !== undefined) {
-      const header = challenge(specs.get(insufficient.scheme)!, realm, insufficient.scopes);
-      return {
-        kind: "denied",
-        denial: {
-          status: 403,
-          reason: "insufficient-scope",
-          challenges: header === undefined ? [] : [header],
-        },
-      };
-    }
-    const challenges = [
-      ...new Set(
-        requirements.flat().map(({ scheme }) => challenge(specs.get(scheme)!, realm))
-          .filter((value): value is string => value !== undefined),
-      ),
-    ];
-    return {
-      kind: "denied",
-      denial: { status: 401, reason: invalid ? "invalid" : "missing", challenges },
-    };
-  };
+  ): Promise<SecurityResult> =>
+    evaluate(requirements, { config, request, url, ctx, outcomes: new Map() });
 }
 
 export type SecurityEvaluator = ReturnType<typeof createSecurity>;

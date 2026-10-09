@@ -32,24 +32,37 @@ async function readLimited(
   const reader = request.body.getReader();
   const cancel = () => void reader.cancel(signal.reason).catch(() => {});
   signal.addEventListener("abort", cancel, { once: true });
-  const chunks: Uint8Array[] = [];
-  let size = 0;
   try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      signal.throwIfAborted();
-      if (done) break;
-      size += value.byteLength;
-      if (size > limit) {
-        await reader.cancel().catch(() => {});
-        return "too-large";
-      }
-      chunks.push(value);
-    }
+    const chunks = await readChunks(reader, limit, signal);
+    return chunks === "too-large" ? chunks : concat(chunks);
   } finally {
     signal.removeEventListener("abort", cancel);
   }
-  const bytes = new Uint8Array(size);
+}
+
+/** Reads every chunk, stopping early once more than `limit` bytes arrived. */
+async function readChunks(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  limit: number,
+  signal: AbortSignal,
+): Promise<Uint8Array[] | "too-large"> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    signal.throwIfAborted();
+    if (done) return chunks;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      return "too-large";
+    }
+    chunks.push(value);
+  }
+}
+
+function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  const bytes = new Uint8Array(chunks.reduce((size, chunk) => size + chunk.byteLength, 0));
   let offset = 0;
   for (const chunk of chunks) {
     bytes.set(chunk, offset);

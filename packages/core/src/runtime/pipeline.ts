@@ -1,5 +1,10 @@
 import Type from "typebox";
-import type { OperationModel, ParameterLocation, ResponseModel } from "../contract/model.ts";
+import type {
+  BodyModel,
+  OperationModel,
+  ParameterLocation,
+  ResponseModel,
+} from "../contract/model.ts";
 import { cloneSchema } from "../contract/snapshot.ts";
 import { isJsonMediaType } from "../contract/media.ts";
 import { encodeBody, readBody } from "./body.ts";
@@ -155,6 +160,30 @@ function denied(denial: Denial): Outcome {
   return { ...outcome, denial };
 }
 
+/** One request in flight: what its steps read, and how they stay within its deadline. */
+interface RequestScope {
+  readonly plan: OperationPlan;
+  readonly request: Request;
+  readonly url: URL;
+  readonly params: Readonly<Record<string, string>>;
+  readonly settings: PipelineSettings;
+  /** Aborts on client disconnect, the request timeout, and forced shutdown. */
+  readonly signal: AbortSignal;
+  /** Races work against `signal`, rejecting with its reason. */
+  readonly bounded: <T>(work: Promise<T> | T) => Promise<T>;
+}
+
+/** A promise that rejects when `signal` aborts. Its rejection is always handled. */
+function rejectOnAbort(signal: AbortSignal): Promise<never> {
+  const aborted = new Promise<never>((_, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  // The race may already be over when the client disconnects; never leave the rejection unhandled.
+  aborted.catch(() => {});
+  return aborted;
+}
+
 /** Runs one matched request through the operation's contract. */
 export async function execute(
   plan: OperationPlan,
@@ -165,7 +194,6 @@ export async function execute(
   security: SecurityEvaluator,
   shutdown: AbortSignal,
 ): Promise<Outcome> {
-  const { operation } = plan;
   // One signal for the whole request: client disconnect, the request timeout, and forced
   // shutdown. The timeout covers verifiers, body reading, and the handler.
   const timeout = new AbortController();
@@ -174,110 +202,144 @@ export async function execute(
     () => timeout.abort(new DOMException("The request timed out.", "TimeoutError")),
     plan.timeoutMs,
   );
-  const aborted = new Promise<never>((_, reject) => {
-    if (signal.aborted) reject(signal.reason);
-    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-  });
-  // The race may already be over when the client disconnects; never leave the rejection unhandled.
-  aborted.catch(() => {});
-  const bounded = <T>(work: Promise<T> | T): Promise<T> =>
-    Promise.race([Promise.resolve(work), aborted]);
-
+  const aborted = rejectOnAbort(signal);
+  const scope: RequestScope = {
+    plan,
+    request,
+    url,
+    params,
+    settings,
+    signal,
+    bounded: (work) => Promise.race([Promise.resolve(work), aborted]),
+  };
   try {
-    return await run();
+    return await run(scope, security);
   } catch (error) {
-    if (timeout.signal.aborted && error === timeout.signal.reason) {
-      return fail(503, "REQUEST_TIMEOUT", {
-        detail: `The request did not complete within ${plan.timeoutMs} ms.`,
-      });
-    }
-    if (shutdown.aborted && error === shutdown.reason) {
-      return fail(503, "SHUTTING_DOWN", {
-        detail: "The server is shutting down.",
-        headers: { connection: "close" },
-      });
-    }
-    return thrown(error, operation, settings);
+    return interrupted(error, timeout.signal, shutdown, plan) ??
+      thrown(error, plan.operation, settings);
   } finally {
     clearTimeout(timer);
   }
+}
 
-  async function run(): Promise<Outcome> {
-    // Security runs first, so unauthenticated callers learn nothing about the schemas.
-    let identities: Readonly<Record<string, unknown>> | undefined;
-    if (operation.security.length > 0) {
-      const result = await bounded(
-        security(operation.security, request, url, {
-          signal,
-          request,
-          operationId: operation.operationId,
-        }),
-      );
-      if (result.kind === "denied") return denied(result.denial);
-      identities = result.security;
-    }
+/** The answer when the request timed out or the server is shutting down; otherwise undefined. */
+function interrupted(
+  error: unknown,
+  timeout: AbortSignal,
+  shutdown: AbortSignal,
+  plan: OperationPlan,
+): Outcome | undefined {
+  if (timeout.aborted && error === timeout.reason) {
+    return fail(503, "REQUEST_TIMEOUT", {
+      detail: `The request did not complete within ${plan.timeoutMs} ms.`,
+    });
+  }
+  if (shutdown.aborted && error === shutdown.reason) {
+    return fail(503, "SHUTTING_DOWN", {
+      detail: "The server is shutting down.",
+      headers: { connection: "close" },
+    });
+  }
+  return undefined;
+}
 
-    // Parameters: read, apply defaults, coerce, and validate every location before the body.
-    const input: Record<string, unknown> = {};
-    const violations: Violation[] = [];
-    for (const { location, key, validator } of plan.locations) {
-      let value: unknown = readParameters(location, operation.parameters, {
-        params,
-        url,
-        headers: request.headers,
-      });
-      if (location !== "path") value = validator.defaults(value);
-      value = validator.convert(value);
-      violations.push(...validator.check(value, location));
-      input[key] = value;
-    }
-    if (violations.length > 0) return validationFailed(violations);
+async function run(scope: RequestScope, security: SecurityEvaluator): Promise<Outcome> {
+  const { plan, request, signal } = scope;
+  const { operation } = plan;
+  // Security runs first, so unauthenticated callers learn nothing about the schemas.
+  let identities: Readonly<Record<string, unknown>> | undefined;
+  if (operation.security.length > 0) {
+    const result = await scope.bounded(
+      security(operation.security, request, scope.url, {
+        signal,
+        request,
+        operationId: operation.operationId,
+      }),
+    );
+    if (result.kind === "denied") return denied(result.denial);
+    identities = result.security;
+  }
 
-    // Body.
-    if (operation.body !== undefined) {
-      const result = await bounded(
-        readBody(request, operation.body, settings.bodyLimitBytes, signal),
-      );
-      switch (result.kind) {
-        case "too-large":
-          return fail(413, "PAYLOAD_TOO_LARGE", {
-            detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
-          });
-        case "unsupported-media-type":
-          return fail(415, "UNSUPPORTED_MEDIA_TYPE", {
-            detail: `Expected ${operation.body.mediaType}, got ${
-              result.mediaType ?? "no content type"
-            }.`,
-            headers: { "accept-post": operation.body.mediaType },
-          });
-        case "malformed":
-          return fail(400, "MALFORMED_REQUEST", { detail: result.detail });
-        case "absent":
-          if (operation.body.required) {
-            return validationFailed([{
-              location: "body",
-              pointer: "",
-              message: "a request body is required",
-            }]);
-          }
-          break;
-        case "ok": {
-          if (!(result.value instanceof Uint8Array)) {
-            const bodyViolations = plan.body!.check(result.value, "body");
-            if (bodyViolations.length > 0) return validationFailed(bodyViolations);
-          }
-          input.body = result.value;
-        }
-      }
-    }
+  const { input, violations } = readInputParameters(scope);
+  if (violations.length > 0) return validationFailed(violations);
+  if (operation.body !== undefined) {
+    const body = await readInputBody(scope, operation.body);
+    if (body.kind === "failed") return body.outcome;
+    if (body.kind === "ok") input.body = body.value;
+  }
 
-    if (plan.handler === undefined) {
-      return fail(501, "NOT_IMPLEMENTED", {
-        detail: `Operation '${operation.operationId}' is not implemented yet.`,
-      });
+  if (plan.handler === undefined) {
+    return fail(501, "NOT_IMPLEMENTED", {
+      detail: `Operation '${operation.operationId}' is not implemented yet.`,
+    });
+  }
+  const ctx = { signal, request, operationId: operation.operationId, security: identities };
+  return respond(plan, await scope.bounded(plan.handler(input, ctx)), scope.settings);
+}
+
+/** Reads, defaults, coerces, and validates every parameter location before the body. */
+function readInputParameters(
+  scope: RequestScope,
+): { input: Record<string, unknown>; violations: Violation[] } {
+  const { plan, params, url, request } = scope;
+  const input: Record<string, unknown> = {};
+  const violations: Violation[] = [];
+  for (const { location, key, validator } of plan.locations) {
+    let value: unknown = readParameters(location, plan.operation.parameters, {
+      params,
+      url,
+      headers: request.headers,
+    });
+    if (location !== "path") value = validator.defaults(value);
+    value = validator.convert(value);
+    violations.push(...validator.check(value, location));
+    input[key] = value;
+  }
+  return { input, violations };
+}
+
+type BodyInput =
+  | { readonly kind: "ok"; readonly value: unknown }
+  | { readonly kind: "absent" }
+  | { readonly kind: "failed"; readonly outcome: Outcome };
+
+const failed = (outcome: Outcome): BodyInput => ({ kind: "failed", outcome });
+
+/** Reads and validates the declared body; a failure carries its problem response. */
+async function readInputBody(scope: RequestScope, body: BodyModel): Promise<BodyInput> {
+  const { plan, settings } = scope;
+  const result = await scope.bounded(
+    readBody(scope.request, body, settings.bodyLimitBytes, scope.signal),
+  );
+  switch (result.kind) {
+    case "too-large":
+      return failed(fail(413, "PAYLOAD_TOO_LARGE", {
+        detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
+      }));
+    case "unsupported-media-type":
+      return failed(fail(415, "UNSUPPORTED_MEDIA_TYPE", {
+        detail: `Expected ${body.mediaType}, got ${result.mediaType ?? "no content type"}.`,
+        headers: { "accept-post": body.mediaType },
+      }));
+    case "malformed":
+      return failed(fail(400, "MALFORMED_REQUEST", { detail: result.detail }));
+    case "absent":
+      return body.required
+        ? failed(validationFailed([{
+          location: "body",
+          pointer: "",
+          message: "a request body is required",
+        }]))
+        : { kind: "absent" };
+    case "ok": {
+      // Byte bodies are not validated: their schema is a binary string (RFC 0001 A24).
+      const violations = result.value instanceof Uint8Array
+        ? []
+        : plan.body!.check(result.value, "body");
+      return violations.length > 0
+        ? failed(validationFailed(violations))
+        : { kind: "ok", value: result.value };
     }
-    const ctx = { signal, request, operationId: operation.operationId, security: identities };
-    return respond(plan, await bounded(plan.handler(input, ctx)), settings);
   }
 }
 
@@ -315,154 +377,210 @@ function withBody(outcome: Outcome, original: Response): Outcome {
   return outcome;
 }
 
+/**
+ * Applies the policy to a response that breaks its contract: `enforce` answers 500, and `log`
+ * sends the response anyway. Either way, the violation is reported.
+ */
+function violated(
+  plan: OperationPlan,
+  settings: PipelineSettings,
+  status: number,
+  violations: readonly Violation[],
+  fallback: () => Response,
+  stripped?: Outcome["stripped"],
+): Outcome {
+  const facts = {
+    violation: { status, violations: [...violations] },
+    ...(stripped === undefined ? {} : { stripped }),
+  };
+  if (settings.responseValidation !== "enforce") return { response: fallback(), ...facts };
+  return {
+    ...fail(500, "RESPONSE_CONTRACT_VIOLATION", {
+      detail:
+        `Operation '${plan.operation.operationId}' returned a response that its contract does not allow.`,
+      ...(settings.development ? { violations } : {}),
+    }),
+    ...facts,
+  };
+}
+
+const undeclaredStatus = (status: number): Violation => ({
+  location: "response",
+  pointer: "",
+  message: `status ${status} is not declared`,
+});
+
 /** Applies the response policy and serializes a handler result. */
 function respond(plan: OperationPlan, result: unknown, settings: PipelineSettings): Outcome {
-  const { operation } = plan;
-  // With "off", no response check runs and no violation is reported (RFC 0001 A26).
-  const checking = settings.responseValidation !== "off";
-  const violations: Violation[] = [];
-  let stripped: Outcome["stripped"];
-  const contractViolation = (status: number, fallback: () => Response): Outcome => {
-    const violation = { status, violations: [...violations] };
-    if (settings.responseValidation === "enforce") {
-      return {
-        ...fail(500, "RESPONSE_CONTRACT_VIOLATION", {
-          detail:
-            `Operation '${operation.operationId}' returned a response that its contract does not allow.`,
-          ...(settings.development ? { violations } : {}),
-        }),
-        violation,
-        ...(stripped === undefined ? {} : { stripped }),
-      };
-    }
-    return {
-      response: fallback(),
-      violation,
-      ...(stripped === undefined ? {} : { stripped }),
-    };
-  };
-
-  if (result instanceof Response) {
-    const streaming = result.body !== null;
-    if (checking && !plan.responses.has(result.status)) {
-      violations.push({
-        location: "response",
-        pointer: "",
-        message: `status ${result.status} is not declared`,
-      });
-      return withBody(contractViolation(result.status, () => result), result);
-    }
-    return { response: result, streaming };
-  }
+  if (result instanceof Response) return respondRaw(plan, result, settings);
   if (
     typeof result !== "object" || result === null ||
     typeof (result as { status?: unknown }).status !== "number"
   ) {
     return fail(500, "RESPONSE_CONTRACT_VIOLATION", {
       detail:
-        `Operation '${operation.operationId}' returned a value that is not a result object or Response.`,
+        `Operation '${plan.operation.operationId}' returned a value that is not a result object or Response.`,
     });
   }
-  const { status, body, headers: given } = result as {
-    status: number;
-    body?: unknown;
-    headers?: unknown;
-  };
-  const declared = plan.responses.get(status);
+  return respondResult(plan, result as ResultObject, settings);
+}
+
+/** A raw `Response` passes through after the status check (RFC 0001 A26 for `off`). */
+function respondRaw(plan: OperationPlan, result: Response, settings: PipelineSettings): Outcome {
+  if (settings.responseValidation === "off" || plan.responses.has(result.status)) {
+    return { response: result, streaming: result.body !== null };
+  }
+  const outcome = violated(
+    plan,
+    settings,
+    result.status,
+    [undeclaredStatus(result.status)],
+    () => result,
+  );
+  return withBody(outcome, result);
+}
+
+interface ResultObject {
+  readonly status: number;
+  readonly body?: unknown;
+  readonly headers?: unknown;
+}
+
+/** Result headers as HTTP headers; non-string values are JSON-encoded. */
+function toHeaders(given: unknown): Headers {
   const headers = new Headers();
-  if (typeof given === "object" && given !== null) {
-    for (const [name, value] of Object.entries(given)) {
-      if (value !== undefined) {
-        headers.set(name, typeof value === "string" ? value : JSON.stringify(value));
-      }
+  if (typeof given !== "object" || given === null) return headers;
+  for (const [name, value] of Object.entries(given)) {
+    if (value !== undefined) {
+      headers.set(name, typeof value === "string" ? value : JSON.stringify(value));
     }
   }
+  return headers;
+}
 
-  if (declared === undefined) {
-    const undeclared = () => {
-      if (body === undefined) return new Response(null, { status, headers });
-      headers.set("content-type", "application/json");
-      return new Response(JSON.stringify(body), { status, headers });
-    };
-    if (!checking) return { response: undeclared() };
-    violations.push({
-      location: "response",
-      pointer: "",
-      message: `status ${status} is not declared`,
-    });
-    return contractViolation(status, undeclared);
-  }
-
-  if (checking) {
-    for (const header of declared.model.headers) {
-      const value = lookupHeader(given, header.name);
-      const pointer = `/headers/${header.name}`;
-      if (value === undefined) {
-        if (header.required) {
-          violations.push({ location: "response", pointer, message: "required header is missing" });
-        }
-        continue;
-      }
-      violations.push(
-        ...declared.headers.get(header.name)!.check(value, "response").map((v) => ({
-          ...v,
-          pointer: `${pointer}${v.pointer}`,
-        })),
-      );
+/** Missing required headers, and header values that do not match their schemas. */
+function headerViolations(declared: ResponsePlan, given: unknown): Violation[] {
+  const violations: Violation[] = [];
+  for (const header of declared.model.headers) {
+    const value = lookupHeader(given, header.name);
+    const pointer = `/headers/${header.name}`;
+    if (value === undefined && header.required) {
+      violations.push({ location: "response", pointer, message: "required header is missing" });
     }
+    if (value === undefined) continue;
+    violations.push(
+      ...declared.headers.get(header.name)!.check(value, "response").map((v) => ({
+        ...v,
+        pointer: `${pointer}${v.pointer}`,
+      })),
+    );
   }
+  return violations;
+}
 
-  let payload: BodyInit | null = null;
-  let streaming = false;
+/** A serialized result body, with what serializing it found. */
+interface Encoded {
+  readonly payload: BodyInit | null;
+  readonly mediaType?: string;
+  readonly streaming: boolean;
+  readonly stripped?: Outcome["stripped"];
+  readonly violations: readonly Violation[];
+}
+
+/** A problem body gets the response status when it has none. */
+function withProblemStatus(mediaType: string, value: unknown, status: number): unknown {
+  const isProblem = mediaType === "application/problem+json" && typeof value === "object" &&
+    value !== null && !("status" in value);
+  return isProblem ? { ...value, status } : value;
+}
+
+/** Strips, checks, and serializes a result body against its declared response. */
+function encodeResult(
+  declared: ResponsePlan,
+  status: number,
+  body: unknown,
+  settings: PipelineSettings,
+): Encoded {
+  const checking = settings.responseValidation !== "off";
   if (declared.model.body === undefined) {
-    if (checking && body !== undefined) {
-      violations.push({
-        location: "response",
-        pointer: "/body",
-        message: `status ${status} declares no body`,
-      });
-    }
-  } else {
-    const { mediaType } = declared.model.body;
-    let value = body;
-    if (
-      mediaType === "application/problem+json" && typeof value === "object" && value !== null &&
-      !("status" in value)
-    ) {
-      value = { ...value, status };
-    }
-    if (isJsonMediaType(mediaType)) {
-      const cleaned = declared.body!.clean(value, settings.development);
-      value = cleaned.value;
-      if (settings.development && cleaned.removed.length > 0) {
-        stripped = { status, removed: cleaned.removed };
-      }
-    }
-    if (checking && !(value instanceof Uint8Array) && !(value instanceof ReadableStream)) {
-      violations.push(
-        ...declared.body!.check(value, "response").map((v) => ({
-          ...v,
-          pointer: `/body${v.pointer}`,
-        })),
-      );
-    }
-    payload = encodeBody(value, mediaType);
-    streaming = payload instanceof ReadableStream;
-    headers.set("content-type", mediaType);
+    const violations: Violation[] = checking && body !== undefined
+      ? [{ location: "response", pointer: "/body", message: `status ${status} declares no body` }]
+      : [];
+    return { payload: null, streaming: false, violations };
   }
-
-  const send = () => new Response(payload, { status, headers });
-  if (violations.length > 0) {
-    const outcome = contractViolation(status, send);
-    if (outcome.code !== undefined && payload instanceof ReadableStream) {
-      void payload.cancel().catch(() => {});
-      return outcome;
+  const { mediaType } = declared.model.body;
+  let value = withProblemStatus(mediaType, body, status);
+  let stripped: Outcome["stripped"];
+  if (isJsonMediaType(mediaType)) {
+    const cleaned = declared.body!.clean(value, settings.development);
+    value = cleaned.value;
+    if (settings.development && cleaned.removed.length > 0) {
+      stripped = { status, removed: cleaned.removed };
     }
-    return streaming ? { ...outcome, streaming } : outcome;
   }
+  // Streams and bytes are not validated; they are produced or passed through as they are.
+  const checkable = checking && !(value instanceof Uint8Array) &&
+    !(value instanceof ReadableStream);
+  const violations = checkable
+    ? declared.body!.check(value, "response").map((v) => ({ ...v, pointer: `/body${v.pointer}` }))
+    : [];
+  const payload = encodeBody(value, mediaType);
   return {
-    response: send(),
+    payload,
+    mediaType,
+    streaming: payload instanceof ReadableStream,
     ...(stripped === undefined ? {} : { stripped }),
-    ...(streaming ? { streaming } : {}),
+    violations,
   };
+}
+
+/** A result object for an undeclared status: a violation unless the policy is `off`. */
+function respondUndeclared(
+  plan: OperationPlan,
+  settings: PipelineSettings,
+  result: ResultObject,
+  headers: Headers,
+): Outcome {
+  const { status, body } = result;
+  const send = () => {
+    if (body === undefined) return new Response(null, { status, headers });
+    headers.set("content-type", "application/json");
+    return new Response(JSON.stringify(body), { status, headers });
+  };
+  if (settings.responseValidation === "off") return { response: send() };
+  return violated(plan, settings, status, [undeclaredStatus(status)], send);
+}
+
+function respondResult(
+  plan: OperationPlan,
+  result: ResultObject,
+  settings: PipelineSettings,
+): Outcome {
+  const { status } = result;
+  const headers = toHeaders(result.headers);
+  const declared = plan.responses.get(status);
+  if (declared === undefined) return respondUndeclared(plan, settings, result, headers);
+
+  const encoded = encodeResult(declared, status, result.body, settings);
+  if (encoded.mediaType !== undefined) headers.set("content-type", encoded.mediaType);
+  const violations = [
+    ...(settings.responseValidation === "off" ? [] : headerViolations(declared, result.headers)),
+    ...encoded.violations,
+  ];
+  const { payload, streaming, stripped } = encoded;
+  const send = () => new Response(payload, { status, headers });
+  if (violations.length === 0) {
+    return {
+      response: send(),
+      ...(stripped === undefined ? {} : { stripped }),
+      ...(streaming ? { streaming } : {}),
+    };
+  }
+  const outcome = violated(plan, settings, status, violations, send, stripped);
+  // A stream replaced by a 500 is never read, so it is cancelled.
+  if (outcome.code !== undefined && payload instanceof ReadableStream) {
+    void payload.cancel().catch(() => {});
+    return outcome;
+  }
+  return streaming ? { ...outcome, streaming } : outcome;
 }

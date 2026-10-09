@@ -77,34 +77,50 @@ export function compileRoutes(operations: readonly OperationModel[]) {
   for (const bucket of buckets.values()) bucket.sort(compareSpecificity);
 
   return {
-    match(method: string, pathname: string): RouteMatch {
-      const bucket = buckets.get(pathname.split("/").length) ?? [];
-      const allowed = new Set<string>();
-      for (const pattern of bucket) {
-        const match = pattern.regex.exec(pathname);
-        if (match === null) continue;
-        const operation = pattern.operations.get(method) ??
-          (method === "HEAD" ? pattern.operations.get("GET") : undefined);
-        for (const declared of pattern.operations.keys()) allowed.add(declared);
-        if (operation === undefined) continue;
-        const params: Record<string, string> = {};
-        try {
-          pattern.names.forEach((name, i) => params[name] = decodeURIComponent(match[i + 1]!));
-        } catch {
-          return { kind: "malformed-path" };
-        }
-        return {
-          kind: "found",
-          operation,
-          params,
-          head: method === "HEAD" && operation.method === "GET",
-        };
-      }
-      if (allowed.size === 0) return { kind: "not-found" };
-      if (allowed.has("GET")) allowed.add("HEAD");
-      return { kind: "method-not-allowed", allow: [...allowed].sort() };
-    },
+    match: (method: string, pathname: string): RouteMatch => matchRoute(buckets, method, pathname),
   };
+}
+
+/** Decoded path parameters, or undefined when a value is not valid percent-encoding. */
+function decodeParams(
+  names: readonly string[],
+  match: RegExpExecArray,
+): Record<string, string> | undefined {
+  const params: Record<string, string> = {};
+  try {
+    names.forEach((name, i) => params[name] = decodeURIComponent(match[i + 1]!));
+  } catch {
+    return undefined;
+  }
+  return params;
+}
+
+function matchRoute(
+  buckets: ReadonlyMap<number, readonly PathPattern[]>,
+  method: string,
+  pathname: string,
+): RouteMatch {
+  const bucket = buckets.get(pathname.split("/").length) ?? [];
+  const allowed = new Set<string>();
+  for (const pattern of bucket) {
+    const match = pattern.regex.exec(pathname);
+    if (match === null) continue;
+    const operation = pattern.operations.get(method) ??
+      (method === "HEAD" ? pattern.operations.get("GET") : undefined);
+    pattern.operations.forEach((_, declared) => allowed.add(declared));
+    if (operation === undefined) continue;
+    const params = decodeParams(pattern.names, match);
+    if (params === undefined) return { kind: "malformed-path" };
+    return {
+      kind: "found",
+      operation,
+      params,
+      head: method === "HEAD" && operation.method === "GET",
+    };
+  }
+  if (allowed.size === 0) return { kind: "not-found" };
+  if (allowed.has("GET")) allowed.add("HEAD");
+  return { kind: "method-not-allowed", allow: [...allowed].sort() };
 }
 
 export type Router = ReturnType<typeof compileRoutes>;

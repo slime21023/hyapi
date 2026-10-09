@@ -1,6 +1,6 @@
 // Enforces the nesting rule of AGENTS.md: control blocks and closures nest at most two levels
 // inside a top-level declaration. `else if` continues its chain at the same level, and an arrow
-// function whose body is a single expression does not count as a level.
+// function whose body is a single expression, or empty, does not count as a level.
 import ts from "typescript";
 
 export interface NestingViolation {
@@ -20,18 +20,6 @@ export const PENDING: ReadonlySet<string> = new Set([
   "packages/cli/src/config.ts",
   "packages/cli/src/doctor.ts",
   "packages/cli/src/run.ts",
-  "packages/core/src/deno/serve.ts",
-  "packages/core/src/openapi/emit.ts",
-  "packages/core/src/runtime/app.ts",
-  "packages/core/src/runtime/binding.ts",
-  "packages/core/src/runtime/body.ts",
-  "packages/core/src/runtime/events.ts",
-  "packages/core/src/runtime/health.ts",
-  "packages/core/src/runtime/params.ts",
-  "packages/core/src/runtime/pipeline.ts",
-  "packages/core/src/runtime/routing.ts",
-  "packages/core/src/runtime/security.ts",
-  "packages/core/src/runtime/validation.ts",
   "packages/openapi-diff/src/diff.ts",
   "packages/plugin-cors/mod.ts",
   "packages/plugin-csrf/mod.ts",
@@ -49,7 +37,8 @@ function isControl(node: ts.Node): boolean {
 }
 
 function isClosure(node: ts.Node): boolean {
-  if (ts.isArrowFunction(node)) return ts.isBlock(node.body);
+  // `(x) => x.name` and `() => {}` read as values, not as nested code.
+  if (ts.isArrowFunction(node)) return ts.isBlock(node.body) && node.body.statements.length > 0;
   return ts.isFunctionExpression(node) || ts.isMethodDeclaration(node) ||
     ts.isFunctionDeclaration(node) || ts.isGetAccessor(node) || ts.isSetAccessor(node);
 }
