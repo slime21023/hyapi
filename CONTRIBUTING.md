@@ -36,9 +36,24 @@ the CLI commands, flags, and output formats, and the wire behavior of problem re
 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the old API,
 and a design-changing decision is recorded in `_adr/`.
 
-The `v1.0.0-rc` candidates of the previous design were superseded before publication and will not be
-tagged. Versioning restarts with the new design; release automation is re-established when the first
-package is ready to publish.
+The `v1.0.0-rc` candidates of the previous design were withdrawn before publication. The new design
+starts at `0.1.0`. Before 1.0.0, minor versions may change the public API; the changelog lists every
+change.
+
+### Releasing
+
+All published packages share one version.
+
+1. Set the same `version` in every published package's `deno.json`, and add a
+   `## [<version>] - <date>` section to `CHANGELOG.md`.
+2. Run `deno task verify` and `deno task publish:check` on a clean checkout. The test
+   `tests/release/` also checks that the versions and the changelog agree.
+3. Tag the commit `v<version>` and push the tag. `.github/workflows/publish.yml` runs
+   `scripts/check_release.ts` against the tag, repeats `deno task verify`, and publishes every
+   package to JSR. JSR authenticates the workflow through OIDC, so no token is stored.
+
+A request-path benchmark regression of more than 20% on the same hardware must be explained in the
+pull request; see [`_adr/baselines/request-path.md`](_adr/baselines/request-path.md).
 
 Architecture decisions, the roadmap, and release gates are maintained in [`_adr/`](_adr/). Report
 security issues privately as described in [SECURITY.md](SECURITY.md).

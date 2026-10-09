@@ -1,0 +1,25 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  # JSR authenticates GitHub Actions through OIDC; no token is stored.
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.x
+      - name: Check that the tag matches every package version and the changelog
+        run: deno run --allow-read scripts/check_release.ts "${GITHUB_REF_NAME#v}"
+      - run: deno task verify
+      - run: deno publish

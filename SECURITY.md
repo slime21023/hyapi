@@ -2,8 +2,13 @@
 
 ## Supported versions
 
-HyAPI is being redesigned and has no published release. The superseded `1.0.0-rc.x` candidates are
-not supported. This table will list supported versions once the first version is published.
+| Version                  | Supported |
+| ------------------------ | --------- |
+| Latest `0.x` release     | Yes       |
+| Older `0.x` releases     | No        |
+| `1.0.0-rc.x` (withdrawn) | No        |
+
+Before 1.0.0, fixes are released only for the latest `0.x` version.
 
 ## Reporting a vulnerability
 
@@ -14,11 +19,49 @@ vulnerability**. Do not open a public issue for a suspected vulnerability.
 The maintainer replies within 7 days, confirms whether the report is accepted, and coordinates a fix
 and disclosure date with the reporter.
 
-## Security baseline
+## Security defaults
 
-The security defaults of the new design are specified in
-[ADR 0001](_adr/0001-contract-first-api-library.md) and in the component specifications under
-[`_adr/components/`](_adr/components/README.md): security requirements declared in contracts and
-enforced by Core, mandatory request validation, stripping of undeclared response fields, request
-size limits and timeouts, and hidden internal error details outside development mode. This section
-will document the concrete defaults once they are implemented.
+HyAPI applies these defaults. The [user guide](docs/guide/runtime.md) describes every option.
+
+**Contracts and requests**
+
+- Security requirements are declared in the contract and enforced by the runtime, before any input
+  is validated. Every declared scheme needs a verifier, or the application does not start.
+- A verifier that throws (for example, because a key server is unreachable) produces a 500 response,
+  never an unauthenticated or authorized one.
+- Every request is validated against its contract. Request bodies are limited to 1 MiB
+  (`bodyLimitBytes`), checked against `Content-Length` and the bytes actually read. Requests time
+  out after 30 seconds (`requestTimeoutMs`).
+- Paths match exactly, and only declared operations are routed. Unknown `format` values and schema
+  constructs that JSON Schema cannot represent stop the application from starting.
+
+**Responses**
+
+- Undeclared response fields are always stripped, so returning a database record cannot leak extra
+  properties.
+- Outside development mode, error responses never include internal error messages or stack traces.
+- Every framework error is an RFC 9457 problem with a stable `code`.
+
+**Plugins**
+
+- `@hyapi/plugin-jwt` accepts exactly one configured algorithm, requires `exp`, rejects HS256
+  secrets shorter than 32 bytes, and fails at startup on unusable keys.
+- `@hyapi/plugin-oidc` accepts asymmetric algorithms only, requires an audience, checks that the
+  discovered issuer matches exactly, and treats key-server failures as errors, not invalid tokens.
+- `@hyapi/plugin-cors` has no permissive default: origins are listed explicitly, and `*` cannot be
+  combined with credentials.
+- `@hyapi/plugin-csrf` signs its tokens with HMAC-SHA-256 and uses a `__Host-` cookie with `Secure`
+  by default.
+- `@hyapi/plugin-rate-limit` counts per process only; use the edge for limits across instances.
+
+**Implementation**
+
+- HyAPI's own code never generates code at runtime. Validation uses TypeBox, which compiles
+  validators where dynamic evaluation is allowed and falls back to interpretation otherwise.
+- TLS, compression, security headers, and global rate limiting belong at the reverse proxy or edge.
+
+**Hosting**
+
+- Run with `--unstable-no-legacy-abort`, so that request signals report real client disconnects.
+- `serve()` drains in-flight requests on SIGINT and SIGTERM, then closes connections that remain
+  open after its shutdown budget.

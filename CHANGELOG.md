@@ -5,7 +5,9 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - Unreleased
+
+The first release of the contract-first redesign.
 
 ### Added
 
@@ -72,6 +74,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - `apps/example`, a library API that uses every v1 feature.
 
   `serve()` gains a `fetch` option for wrapped handlers.
+- Release readiness (roadmap M7c):
+  - every package is at `0.1.0`, with explicit types for JSR;
+  - `scripts/check_release.ts` and `tests/release/` check that versions and the changelog agree;
+  - a tag-triggered publish workflow uses JSR OIDC, and CI runs `deno task publish:check`; and
+  - `SECURITY.md` lists the concrete security defaults.
 - An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
   promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):

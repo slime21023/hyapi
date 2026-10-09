@@ -27,16 +27,16 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                              | Goal                                                 | Components        | Depends on | Status                      |
-| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | --------------------------- |
-| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08)           |
-| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08)           |
-| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08)           |
-| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08)           |
-| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08)           |
-| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08)           |
-| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08)           |
-| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | In progress (M7a, M7b done) |
+| Milestone                              | Goal                                                 | Components        | Depends on | Status            |
+| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ----------------- |
+| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08) |
+| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08) |
+| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08) |
+| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08) |
+| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08) |
+| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08) |
+| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08) |
+| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Done (2026-10-09) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -261,7 +261,7 @@ Comparing against an earlier release for release notes remains open.
 - **M7b:** the example application, the VitePress user documentation, and recipes. Done:
   `apps/example` passes `emit --check` in `verify`, CI runs its `hyapi diff`, and `verify` builds
   the documentation, which checks for dead links.
-- **M7c:** `SECURITY.md`, release automation, and the release-gate review.
+- **M7c:** `SECURITY.md`, release automation, and the release-gate review. Done.
 
 The first published version is `0.1.0`. The release gate below is the condition for `1.0.0`, after
 early users have tried 0.x.
@@ -278,3 +278,18 @@ early users have tried 0.x.
 
 - Whether pre-release versions (for example `0.x`) are published before M7, so that early users can
   try the contract and runtime after M3 or M5.
+
+## Release-gate review (2026-10-09)
+
+The gate below applies to `1.0.0`. This review records where the code stands at `0.1.0`.
+
+| Gate                                                           | Status                                                                                                                                                                 |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every milestone is complete                                    | Met: M0–M7 are done.                                                                                                                                                   |
+| No component specification has an open question that blocks v1 | Met: the remaining open questions are later goals, such as OpenAPI 3.0/3.2 input for `openapi-diff`, release-to-release changelogs, and non-JSON request bodies.       |
+| `deno task verify` and CI pass                                 | `verify` passes locally on Windows. CI has not run yet, because the branch has not been pushed; the Linux-only signal-shutdown test has therefore never run.           |
+| The type-performance and request-path baselines are current    | Met: the type-performance check was re-run on 2026-10-09 (200 operations: 1.56 s; editor feedback 170–190 ms). The request-path path is unchanged since the M5 re-run. |
+| The example passes `emit --check` and `hyapi diff`             | Met: `emit --check` runs in `verify`, and CI runs the example's `diff`.                                                                                                |
+
+Before tagging `v0.1.0`: push the branch, let CI pass on Linux, merge to `main`, and then follow the
+release steps in `CONTRIBUTING.md`.

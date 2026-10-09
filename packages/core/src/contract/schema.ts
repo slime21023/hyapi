@@ -1,4 +1,15 @@
-import Type, { type TSchema } from "typebox";
+import Type, {
+  type TBoolean,
+  type TInteger,
+  type TLiteral,
+  type TNumber,
+  type TObject,
+  type TOptional,
+  type TRecord,
+  type TSchema,
+  type TString,
+  type TUnion,
+} from "typebox";
 
 // A non-enumerable string key, like TypeBox's own `~kind` markers. TypeBox keeps such keys when
 // it derives schemas (T.Omit, T.Partial, ...), so nested named schemas keep their names, while
@@ -39,7 +50,28 @@ export function isSchema(value: unknown): value is TSchema & { readonly "~kind":
   return typeof value === "object" && value !== null && ("~kind" in value || "~unsafe" in value);
 }
 
-const HealthStatus = Type.Union([
+type THealthStatus = TUnion<[TLiteral<"healthy">, TLiteral<"degraded">, TLiteral<"unhealthy">]>;
+
+/** The type of the {@link HealthReport} schema. */
+export type THealthReport = TObject<{
+  status: THealthStatus;
+  draining: TBoolean;
+  checks: TRecord<
+    string,
+    TObject<{ status: THealthStatus; durationMs: TNumber; detail: TOptional<TString> }>
+  >;
+}>;
+
+/** The type of the {@link Problem} schema. */
+export type TProblem = TObject<{
+  type: TOptional<TString>;
+  title: TOptional<TString>;
+  status: TOptional<TInteger>;
+  detail: TOptional<TString>;
+  instance: TOptional<TString>;
+}>;
+
+const HealthStatus: THealthStatus = Type.Union([
   Type.Literal("healthy"),
   Type.Literal("degraded"),
   Type.Literal("unhealthy"),
@@ -49,7 +81,7 @@ const HealthStatus = Type.Union([
  * The report produced by the runtime's `createHealth`. Declare it as the response of a health
  * operation, for example `responses: { 200: HealthReport, 503: HealthReport }`.
  */
-export const HealthReport = defineSchema(
+export const HealthReport: THealthReport = defineSchema(
   "HealthReport",
   Type.Object({
     status: HealthStatus,
@@ -69,7 +101,7 @@ export const HealthReport = defineSchema(
  * The RFC 9457 problem details schema. A response whose body is `Problem` is served as
  * `application/problem+json`.
  */
-export const Problem = defineSchema(
+export const Problem: TProblem = defineSchema(
   "Problem",
   Type.Object({
     type: Type.Optional(Type.String({ format: "uri-reference" })),

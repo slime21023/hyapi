@@ -105,6 +105,15 @@ contract-level default security and parameter-default inference. It remains well
 targets: 200 operations check in 1.54 s against a 5 s target, and editor feedback takes 150–170 ms,
 or 330 ms for a 100-operation contract, against a 1 s target.
 
+## Re-run before 0.1.0 (2026-10-09)
+
+| Shape | Operations | `deno check` median | Edit contract | Edit schema | Edit handler |
+| ----- | ---------: | ------------------: | ------------: | ----------: | -----------: |
+| split |        200 |              1.56 s |        187 ms |      175 ms |       171 ms |
+| wide  |        100 |              1.15 s |        356 ms |      288 ms |       328 ms |
+
+The results are unchanged within measurement noise since M1, and remain within the RFC 0001 targets.
+
 ## Re-running
 
 ```text
