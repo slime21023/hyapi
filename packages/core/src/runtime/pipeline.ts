@@ -184,6 +184,16 @@ function rejectOnAbort(signal: AbortSignal): Promise<never> {
   return aborted;
 }
 
+/**
+ * The abort reason of requests that the application cancels at shutdown. The application aborts
+ * each in-flight request's own controller with it; requests never listen to a signal that lives
+ * as long as the application, which would keep every request reachable until shutdown.
+ */
+export const SHUTTING_DOWN: DOMException = new DOMException(
+  "The server is shutting down.",
+  "AbortError",
+);
+
 /** Runs one matched request through the operation's contract. */
 export async function execute(
   plan: OperationPlan,
@@ -192,16 +202,19 @@ export async function execute(
   params: Readonly<Record<string, string>>,
   settings: PipelineSettings,
   security: SecurityEvaluator,
-  shutdown: AbortSignal,
+  controller: AbortController,
 ): Promise<Outcome> {
   // One signal for the whole request: client disconnect, the request timeout, and forced
-  // shutdown. The timeout covers verifiers, body reading, and the handler.
-  const timeout = new AbortController();
-  const signal = AbortSignal.any([request.signal, timeout.signal, shutdown]);
-  const timer = setTimeout(
-    () => timeout.abort(new DOMException("The request timed out.", "TimeoutError")),
-    plan.timeoutMs,
-  );
+  // shutdown, for which the application aborts `controller`. The timeout covers verifiers, body
+  // reading, and the handler. The request's own signal is collected with the request, so its
+  // listener needs no removal.
+  const { signal } = controller;
+  if (request.signal.aborted) controller.abort(request.signal.reason);
+  request.signal.addEventListener("abort", () => controller.abort(request.signal.reason), {
+    once: true,
+  });
+  const timeout = new DOMException("The request timed out.", "TimeoutError");
+  const timer = setTimeout(() => controller.abort(timeout), plan.timeoutMs);
   const aborted = rejectOnAbort(signal);
   const scope: RequestScope = {
     plan,
@@ -215,8 +228,7 @@ export async function execute(
   try {
     return await run(scope, security);
   } catch (error) {
-    return interrupted(error, timeout.signal, shutdown, plan) ??
-      thrown(error, plan.operation, settings);
+    return interrupted(error, timeout, plan) ?? thrown(error, plan.operation, settings);
   } finally {
     clearTimeout(timer);
   }
@@ -225,16 +237,15 @@ export async function execute(
 /** The answer when the request timed out or the server is shutting down; otherwise undefined. */
 function interrupted(
   error: unknown,
-  timeout: AbortSignal,
-  shutdown: AbortSignal,
+  timeout: DOMException,
   plan: OperationPlan,
 ): Outcome | undefined {
-  if (timeout.aborted && error === timeout.reason) {
+  if (error === timeout) {
     return fail(503, "REQUEST_TIMEOUT", {
       detail: `The request did not complete within ${plan.timeoutMs} ms.`,
     });
   }
-  if (shutdown.aborted && error === shutdown.reason) {
+  if (error === SHUTTING_DOWN) {
     return fail(503, "SHUTTING_DOWN", {
       detail: "The server is shutting down.",
       headers: { connection: "close" },

@@ -5,11 +5,26 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-10-09
+## [0.2.1] - 2026-10-09
 
-The first published release of the contract-first redesign. It contains everything listed under
-0.1.0, which was not published, together with the layered architecture (roadmap M8,
-[ADR 0003](_adr/0003-layered-architecture.md)) and correctness and safe defaults (roadmap M9, from
+The first published release of the contract-first redesign: 0.2.0 with a memory leak fixed. 0.2.0
+was prepared but not published, because of that leak.
+
+### Fixed
+
+- **Memory leak:** every request's signal stayed reachable from the application's shutdown signal
+  until shutdown, about 1 KB per request, so long-running servers grew without bound. The pipeline
+  combined the signals with `AbortSignal.any`, and Deno keeps such a signal reachable from its
+  sources. Each request now has its own controller, which the application aborts at forced shutdown,
+  and the server's heap stays flat under load. A regression test checks that requests leave no
+  listeners behind and that the request path does not use `AbortSignal.any`.
+
+## [0.2.0] - Not published
+
+Prepared on 2026-10-09 but not published: it has the memory leak fixed in 0.2.1. Its changes are
+first published in 0.2.1. It contains everything listed under 0.1.0, which was not published either,
+together with the layered architecture (roadmap M8, [ADR 0003](_adr/0003-layered-architecture.md))
+and correctness and safe defaults (roadmap M9, from
 [Review 0001](_adr/reviews/0001-component-and-production-readiness.md)).
 
 `1.0.0-rc.4` on JSR belongs to the superseded design and is unrelated to this release; see the note

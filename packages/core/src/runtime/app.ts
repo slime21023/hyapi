@@ -27,6 +27,7 @@ import {
   type Outcome,
   planOperation,
   type ResponseValidation,
+  SHUTTING_DOWN,
 } from "./pipeline.ts";
 import { describeError, problemResponse } from "./problem.ts";
 import { compileRoutes, type RouteMatch, type Router } from "./routing.ts";
@@ -193,29 +194,30 @@ function lifecycleEvent(failure: LifecycleFailure): AppEvent {
 
 /**
  * Passes a streamed body through, calling `done` once when it ends, fails, or is cancelled. When
- * `shutdown` aborts, the body is cancelled and the stream errors with the abort reason.
+ * the request's `signal` aborts, as it does at forced shutdown, the body is cancelled and the
+ * stream errors with the abort reason.
  */
 class TrackedBody implements UnderlyingDefaultSource<Uint8Array> {
   readonly #reader: ReadableStreamDefaultReader<Uint8Array>;
   readonly #done: () => void;
-  readonly #shutdown: AbortSignal;
+  readonly #signal: AbortSignal;
   #finished = false;
   #abort: (() => void) | undefined;
 
-  constructor(body: ReadableStream<Uint8Array>, done: () => void, shutdown: AbortSignal) {
+  constructor(body: ReadableStream<Uint8Array>, done: () => void, signal: AbortSignal) {
     this.#reader = body.getReader();
     this.#done = done;
-    this.#shutdown = shutdown;
+    this.#signal = signal;
   }
 
   start(controller: ReadableStreamDefaultController<Uint8Array>): void {
     this.#abort = () => {
-      void this.#reader.cancel(this.#shutdown.reason).catch(() => {});
-      controller.error(this.#shutdown.reason);
+      void this.#reader.cancel(this.#signal.reason).catch(() => {});
+      controller.error(this.#signal.reason);
       this.#finish();
     };
-    if (this.#shutdown.aborted) this.#abort();
-    else this.#shutdown.addEventListener("abort", this.#abort, { once: true });
+    if (this.#signal.aborted) this.#abort();
+    else this.#signal.addEventListener("abort", this.#abort, { once: true });
   }
 
   async pull(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
@@ -238,27 +240,35 @@ class TrackedBody implements UnderlyingDefaultSource<Uint8Array> {
   #finish(): void {
     if (this.#finished) return;
     this.#finished = true;
-    if (this.#abort !== undefined) this.#shutdown.removeEventListener("abort", this.#abort);
+    if (this.#abort !== undefined) this.#signal.removeEventListener("abort", this.#abort);
     this.#done();
   }
 }
 
-/** Counts in-flight requests and lets `close()` wait until they finish. */
+/**
+ * The controllers of in-flight requests. `close()` waits until there are none, and aborts the
+ * rest when the shutdown budget runs out.
+ */
 class InFlight {
-  #count = 0;
+  readonly #requests = new Set<AbortController>();
   #drained: (() => void) | undefined;
 
   get count(): number {
-    return this.#count;
+    return this.#requests.size;
   }
 
-  enter(): void {
-    this.#count++;
+  enter(request: AbortController): void {
+    this.#requests.add(request);
   }
 
-  leave(): void {
-    this.#count--;
-    if (this.#count === 0) this.#drained?.();
+  leave(request: AbortController): void {
+    this.#requests.delete(request);
+    if (this.#requests.size === 0) this.#drained?.();
+  }
+
+  /** Aborts every in-flight request with `reason`. */
+  abortAll(reason: unknown): void {
+    for (const request of this.#requests) request.abort(reason);
   }
 
   /** Resolves when no request is in flight, or after `ms`. */
@@ -267,7 +277,7 @@ class InFlight {
   }
 
   #whenDrained(resolve: () => void, ms: number): void {
-    if (this.#count === 0) return resolve();
+    if (this.#requests.size === 0) return resolve();
     const timer = setTimeout(resolve, ms);
     this.#drained = () => {
       clearTimeout(timer);
@@ -347,7 +357,6 @@ function unmatched(
 class RunningApp {
   readonly #runtime: Runtime;
   readonly #inFlight = new InFlight();
-  readonly #shutdown = new AbortController();
   #state: "running" | "closing" | "closed" = "running";
   #closing: Promise<void> | undefined;
 
@@ -357,14 +366,15 @@ class RunningApp {
 
   async fetch(request: Request): Promise<Response> {
     if (this.#state !== "running") return shuttingDown();
-    this.#inFlight.enter();
+    const controller = new AbortController();
+    this.#inFlight.enter(controller);
     // A streamed body keeps the request in flight until it ends, so close() waits for it and
     // lifecycle resources stop only after it.
     let streaming = false;
     try {
-      const handled = await this.#handle(request);
+      const handled = await this.#handle(request, controller);
       streaming = handled.streaming;
-      return streaming ? this.#track(handled.response) : handled.response;
+      return streaming ? this.#track(handled.response, controller) : handled.response;
     } catch (caught) {
       const { development } = this.#runtime.settings;
       return problemResponse(
@@ -373,7 +383,7 @@ class RunningApp {
         development ? { debug: describeError(caught) } : {},
       );
     } finally {
-      if (!streaming) this.#inFlight.leave();
+      if (!streaming) this.#inFlight.leave(controller);
     }
   }
 
@@ -388,7 +398,7 @@ class RunningApp {
     // Drain within the budget, then abort what is left and give it a moment to settle.
     await this.#inFlight.drained(settings.shutdownTimeoutMs);
     if (this.#inFlight.count > 0) {
-      this.#shutdown.abort(new DOMException("The server is shutting down.", "AbortError"));
+      this.#inFlight.abortAll(SHUTTING_DOWN);
       await this.#inFlight.drained(Math.min(1_000, settings.shutdownTimeoutMs));
     }
     const failures = await stopResources(lifecycle, settings.shutdownTimeoutMs);
@@ -402,11 +412,11 @@ class RunningApp {
     }
   }
 
-  #track(response: Response): Response {
+  #track(response: Response, controller: AbortController): Response {
     const source = new TrackedBody(
       response.body!,
-      () => this.#inFlight.leave(),
-      this.#shutdown.signal,
+      () => this.#inFlight.leave(controller),
+      controller.signal,
     );
     return new Response(new ReadableStream(source), {
       status: response.status,
@@ -415,7 +425,7 @@ class RunningApp {
     });
   }
 
-  async #handle(request: Request): Promise<Handled> {
+  async #handle(request: Request, controller: AbortController): Promise<Handled> {
     const { router, document } = this.#runtime;
     const url = new URL(request.url);
     if (document !== undefined && url.pathname === document.path) {
@@ -423,13 +433,14 @@ class RunningApp {
     }
     const match = router.match(request.method, url.pathname);
     if (match.kind !== "found") return buffered(unmatched(match, request.method, url.pathname));
-    return await this.#runOperation(request, url, match);
+    return await this.#runOperation(request, url, match, controller);
   }
 
   async #runOperation(
     request: Request,
     url: URL,
     match: Extract<RouteMatch, { kind: "found" }>,
+    controller: AbortController,
   ): Promise<Handled> {
     const { emit, plans, settings, security } = this.#runtime;
     const { operation } = match;
@@ -448,7 +459,7 @@ class RunningApp {
       match.params,
       settings,
       security,
-      this.#shutdown.signal,
+      controller,
     );
     this.#report(outcome, base, started);
     const { response } = outcome;
