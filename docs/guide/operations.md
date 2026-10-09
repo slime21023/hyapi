@@ -123,19 +123,37 @@ Trust incoming IDs only behind a proxy that sets or validates them.
 
 `operation.end` events of deprecated operations show who still calls them before you remove them.
 
-## Serving the document
+## Serving documents
 
 ```ts
-import document from "../openapi.json" with { type: "json" };
+import internalDocument from "../openapi.json" with { type: "json" };
+import publicDocument from "../openapi.public.json" with { type: "json" };
 
 const app = await createApp({
   api,
   implementations,
-  document: { path: "/openapi.json", content: document },
+  documents: [
+    { path: "/openapi.json", content: publicDocument },
+    { path: "/internal/openapi.json", content: internalDocument },
+  ],
 });
 ```
 
-The path must not collide with a declared route.
+Each document answers GET and HEAD at its path, which must not collide with a declared route or
+another document. Text content is served as given and other content as JSON; the content type
+follows the path (`.yaml` and `.yml` are YAML) unless `contentType` is given. Serve the emitted
+files, so that what clients read is what CI checked.
+
+## Several applications in one process
+
+`serve` closes the one application it serves. If you combine several applications behind one
+handler, close the others yourself when the server has stopped:
+
+```ts
+const server = serve(main, { fetch: route });
+await server.finished;
+await admin.close();
+```
 
 ## Behind a proxy
 

@@ -24,12 +24,13 @@ const USAGE = [
   "",
   "Commands:",
   "  new <dir> [--local <repository>]  Create a project; --local links an unpublished checkout.",
-  "  emit [--check]                    Write the OpenAPI document, or verify that it is current.",
-  "  doctor                            Check the contracts and the committed document.",
-  "  diff [--format text|markdown|json] [--allow-breaking]",
-  "                                    Compare the contracts with the document on main.",
+  "  emit [--check]                    Write the OpenAPI documents, or verify that they are current.",
+  "  doctor                            Check the contracts and the committed documents.",
+  "  diff [--format text|markdown|json] [--allow-breaking] [--base <ref>]",
+  "                                    Compare the contracts with the documents on main.",
   "",
-  "Options for emit and doctor:",
+  "Options for emit, doctor, and diff:",
+  '  --document <name>      One document of deno.json "hyapi.documents".',
   '  --api <module#export>  The defineApi module (default: deno.json "hyapi.api").',
   '  --out <file>           The OpenAPI document, .json/.yaml/.yml (default: "hyapi.openapi").',
   "",
@@ -70,7 +71,7 @@ function value(flag: string | true | undefined): string | undefined {
 /** Where a command runs, and the project flags shared by `emit`, `diff`, and `doctor`. */
 interface Invocation {
   readonly cwd: string;
-  readonly project: { readonly api?: string; readonly out?: string };
+  readonly project: { readonly api?: string; readonly out?: string; readonly document?: string };
   readonly io: Io;
 }
 
@@ -91,21 +92,22 @@ async function dispatch(
 ): Promise<number> {
   switch (command) {
     case "emit":
-      allowOnly(flags, ["api", "out", "check"]);
+      allowOnly(flags, ["api", "out", "document", "check"]);
       return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
     case "diff":
-      allowOnly(flags, ["api", "out", "format", "allow-breaking"]);
+      allowOnly(flags, ["api", "out", "document", "base", "format", "allow-breaking"]);
       return await diffCommand(
         cwd,
         {
           ...project,
+          ...(value(flags.base) === undefined ? {} : { base: value(flags.base)! }),
           format: diffFormat(value(flags.format)),
           allowBreaking: flags["allow-breaking"] === true,
         },
         io,
       );
     case "doctor":
-      allowOnly(flags, ["api", "out"]);
+      allowOnly(flags, ["api", "out", "document"]);
       return await doctorCommand(cwd, project, io);
     case "new":
       allowOnly(flags, ["local"]);
@@ -132,9 +134,11 @@ export async function run(args: readonly string[], options: RunOptions = {}): Pr
     }
     const api = value(flags.api);
     const out = value(flags.out);
+    const document = value(flags.document);
     const project = {
       ...(api === undefined ? {} : { api }),
       ...(out === undefined ? {} : { out }),
+      ...(document === undefined ? {} : { document }),
     };
     return await dispatch(command, rest, flags, { cwd, project, io });
   } catch (error) {

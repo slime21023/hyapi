@@ -7,7 +7,17 @@
     "diff": "deno run -A ../../packages/cli/mod.ts diff"
   },
   "hyapi": {
-    "api": "./contracts/api.ts#api",
-    "openapi": "./openapi.json"
+    "documents": [
+      {
+        "name": "internal",
+        "api": "./contracts/api.ts#api",
+        "openapi": "./openapi.json"
+      },
+      {
+        "name": "public",
+        "api": "./contracts/api.ts#publicApi",
+        "openapi": "./openapi.public.json"
+      }
+    ]
   }
 }

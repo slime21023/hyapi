@@ -62,6 +62,22 @@ Deno.test("the example serves its contract end to end", async () => {
   );
 });
 
+Deno.test("the example serves a public and an internal document, with request IDs", async () => {
+  const published = await call("GET", "/openapi.json");
+  const internal = await call("GET", "/internal/openapi.json");
+  const publicPaths = Object.keys((await published.json()).paths);
+  const internalPaths = Object.keys((await internal.json()).paths);
+  assertEquals(publicPaths.includes("/health"), false, "operational endpoints stay internal");
+  assertEquals(internalPaths.includes("/health"), true);
+  assertEquals(publicPaths.every((path) => internalPaths.includes(path)), true);
+
+  const anonymous = await call("POST", "/books", { body: "{}" });
+  const id = anonymous.headers.get("x-request-id");
+  await anonymous.body?.cancel();
+  const denied = events.find((event) => event.type === "security.denied" && event.requestId === id);
+  assertEquals(denied?.type === "security.denied" && denied.reason, "missing");
+});
+
 Deno.test("the example closes gracefully", async () => {
   await app.close();
   const health = await call("GET", "/health");

@@ -84,14 +84,28 @@ interface BaseOptions<A extends Api> {
    * long. Defaults to 10 000 ms.
    */
   readonly shutdownTimeoutMs?: number;
-  /** Serves an emitted OpenAPI document at an explicit path. Off unless set. */
-  readonly document?: { readonly path: string; readonly content: unknown };
+  /**
+   * Serves emitted OpenAPI documents, each at an explicit path. Off unless set. Text content is
+   * served as given; other content is served as JSON. The content type follows the path (`.yaml`
+   * and `.yml` are YAML) unless `contentType` is given.
+   */
+  readonly documents?: readonly DocumentOption[];
   /**
    * Gives every request an ID for events, handlers, and verifiers, and returns it in a response
    * header. Off unless set. `true` uses the `x-request-id` header and never trusts incoming IDs;
    * with `trustIncoming`, a well-formed incoming ID is reused.
    */
   readonly requestId?: boolean | { readonly header?: string; readonly trustIncoming?: boolean };
+}
+
+/** One document served by {@link createApp}. */
+export interface DocumentOption {
+  /** The path the document is served at, such as `/openapi.json`. */
+  readonly path: string;
+  /** The emitted document: text, or a value that is served as JSON. */
+  readonly content: unknown;
+  /** Overrides the content type that the path implies. */
+  readonly contentType?: string;
 }
 
 /** A running HyAPI application. */
@@ -185,29 +199,57 @@ function registerFormats(formats: readonly FormatModel[]): void {
   for (const { name, check } of formats) if (!Format.Has(name)) Format.Set(name, check);
 }
 
-/** The opt-in document endpoint; it must not shadow a declared route. */
-function documentEndpoint(
-  document: BaseOptions<Api>["document"],
+/** A document ready to serve. */
+interface ServedDocument {
+  readonly text: string;
+  readonly type: string;
+}
+
+/** Checks one document option; undefined when it cannot be served. */
+function servedDocument(
+  document: DocumentOption,
   router: Router,
   error: StartupReport,
-): { readonly path: string; readonly text: string; readonly type: string } | undefined {
-  if (document === undefined) return undefined;
-  if (typeof document.path !== "string" || !document.path.startsWith("/")) {
-    error("invalid-option", "document.path must start with '/'");
+): ServedDocument | undefined {
+  const { path, content, contentType } = document ?? {};
+  if (typeof path !== "string" || !path.startsWith("/")) {
+    error("invalid-option", "every document path must start with '/'");
     return undefined;
   }
-  if (router.match("GET", document.path).kind !== "not-found") {
-    error("document-route-conflict", `document.path '${document.path}' is a declared route`);
+  if (router.match("GET", path).kind !== "not-found") {
+    error("document-route-conflict", `document path '${path}' is a declared route`);
     return undefined;
   }
-  const yaml = /\.ya?ml$/i.test(document.path);
-  return typeof document.content === "string"
-    ? {
-      path: document.path,
-      text: document.content,
-      type: yaml ? "application/yaml" : "application/json",
+  const type = contentType ?? (/\.ya?ml$/i.test(path) ? "application/yaml" : "application/json");
+  if (typeof content !== "string" && type !== "application/json") {
+    error("invalid-option", `document '${path}' is ${type}, so its content must be text`);
+    return undefined;
+  }
+  return { text: typeof content === "string" ? content : JSON.stringify(content), type };
+}
+
+/** The opt-in document endpoints by path; none may shadow a declared route. */
+function documentEndpoints(
+  documents: BaseOptions<Api>["documents"],
+  router: Router,
+  error: StartupReport,
+): ReadonlyMap<string, ServedDocument> {
+  const served = new Map<string, ServedDocument>();
+  if (documents === undefined) return served;
+  if (!Array.isArray(documents)) {
+    error("invalid-option", "documents must be a list of { path, content }");
+    return served;
+  }
+  for (const document of documents) {
+    const endpoint = servedDocument(document, router, error);
+    if (endpoint === undefined) continue;
+    if (served.has(document.path)) {
+      error("invalid-option", `document path '${document.path}' is listed twice`);
+      continue;
     }
-    : { path: document.path, text: JSON.stringify(document.content), type: "application/json" };
+    served.set(document.path, endpoint);
+  }
+  return served;
 }
 
 function lifecycleEvent(failure: LifecycleFailure): AppEvent {
@@ -340,7 +382,6 @@ function notImplementedWarnings(bindings: readonly Binding[]): AppEvent[] {
 }
 
 type Settings = ReturnType<typeof readSettings>;
-type DocumentEndpoint = NonNullable<ReturnType<typeof documentEndpoint>>;
 
 /** Everything a started application needs, prepared by {@link createApp}. */
 interface Runtime {
@@ -350,7 +391,7 @@ interface Runtime {
   readonly plans: ReadonlyMap<string, OperationPlan>;
   readonly security: SecurityEvaluator;
   readonly lifecycle: readonly LifecycleResource[];
-  readonly document: DocumentEndpoint | undefined;
+  readonly documents: ReadonlyMap<string, ServedDocument>;
 }
 
 /** The fields shared by the events of one operation. */
@@ -376,8 +417,8 @@ const shuttingDown = () =>
     headers: { connection: "close" },
   });
 
-/** The opt-in document endpoint answers GET and HEAD. */
-function serveDocument(document: DocumentEndpoint, method: string): Response {
+/** A document endpoint answers GET and HEAD. */
+function serveDocument(document: ServedDocument, method: string): Response {
   if (method !== "GET" && method !== "HEAD") {
     return problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } });
   }
@@ -486,11 +527,10 @@ class RunningApp {
   }
 
   async #handle(request: Request, requestId: string | undefined): Promise<Handled> {
-    const { router, document, emit } = this.#runtime;
+    const { router, documents, emit } = this.#runtime;
     const url = new URL(request.url);
-    if (document !== undefined && url.pathname === document.path) {
-      return buffered(serveDocument(document, request.method));
-    }
+    const document = documents.get(url.pathname);
+    if (document !== undefined) return buffered(serveDocument(document, request.method));
     const match = router.match(request.method, url.pathname);
     if (match.kind === "found") {
       return await this.#runOperation({ request, url, params: match.params, requestId }, match);
@@ -606,7 +646,7 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
   checkVerifiers(model, verifiers, error);
   checkFormats(model.formats, error);
   const router = compileRoutes(model.operations);
-  const document = documentEndpoint(options.document, router, error);
+  const documents = documentEndpoints(options.documents, router, error);
 
   if (diagnostics.some((d) => d.severity === "error")) throw new StartupError(diagnostics);
   for (const d of diagnostics) {
@@ -656,7 +696,7 @@ export async function createApp<A extends Api>(options: AppOptions<A>): Promise<
     plans,
     security,
     lifecycle,
-    document,
+    documents,
   });
   return Object.freeze({
     fetch: (request: Request) => running.fetch(request),

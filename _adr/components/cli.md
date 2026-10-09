@@ -83,6 +83,22 @@ ADR 0001 §9, §10, §15, and the development workflow; ADR 0002 §1, §5.
 - **Starter.** The starter has a `diff` task and a GitHub Actions workflow that runs `verify` and
   then `diff`, with `fetch-depth: 0` so that `main` is available.
 
+## Resolved in M10b
+
+- **Several documents.** `hyapi.documents` lists `{ name, api, openapi }`, where `openapi` is one
+  file or several (for example JSON and YAML). `api` and `openapi` remain the one-document
+  shorthand; mixing both forms is a usage error. `--api` and `--out` describe one document directly,
+  and `--document <name>` selects one configured document.
+- **Commands.**
+  - `emit` and `emit --check` handle every file of every document.
+  - `doctor` checks each document, labels its output with the document name, and fails when an
+    `operationId` names different routes in different documents.
+  - `diff` compares each document with its first file at the base. Text and markdown output have a
+    heading per document; JSON output becomes `{ documents: { name: result } }`. One document keeps
+    the previous output. Breaking changes of all documents count toward the exit code.
+- **Base.** `diff --base <ref>` compares with any branch, tag, or commit; without it, `main` or
+  `origin/main` is used as before.
+
 ## Open questions
 
 - The `diff` baseline (a previous tag, a published URL, or the main branch) and the acknowledgement
