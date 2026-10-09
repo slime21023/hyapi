@@ -29,8 +29,10 @@ Compiles the contracts into an OpenAPI 3.1 document. The output is deterministic
 
 `hyapi emit --check` fails when the committed document is missing or out of date. Run it in CI.
 
-Runtime and document come from the same interpretation of the contracts (`ContractModel`), so the
-document describes exactly what the runtime enforces.
+Runtime and document come from the same interpretation of the contracts, so the document describes
+exactly what the runtime enforces. To emit in code, call `emitOpenApi(api)` from
+`@hyapi/core/openapi`; it throws a `ContractError` with every diagnostic when the contracts have
+errors.
 
 ## `hyapi doctor`
 

@@ -1,6 +1,5 @@
 import { relative } from "jsr:@std/path@^1";
 import { parse as parseYaml } from "jsr:@std/yaml@^1.0.12";
-import { emitOpenApi } from "@hyapi/core/openapi";
 import { type DiffFormat, diffOpenApi, formatDiff } from "@hyapi/openapi-diff";
 import { UsageError } from "./config.ts";
 import { compileProject } from "./emit.ts";
@@ -57,7 +56,7 @@ export async function diffCommand(
 ): Promise<number> {
   const compiled = await compileProject(cwd, flags, io);
   if (compiled === undefined) return 1;
-  const head = emitOpenApi(compiled.model);
+  const head = compiled.document;
   const base = await readBase(cwd, compiled.documentPath);
   const baseDocument = base === null
     ? { openapi: head.openapi, info: head.info, paths: {} }

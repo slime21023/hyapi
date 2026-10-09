@@ -8,6 +8,7 @@ export {
   type Contract,
   defineApi,
   defineContract,
+  type FormatChecks,
   type HttpMethod,
   type OperationMap,
   type OperationSpec,
@@ -38,17 +39,5 @@ export {
   type SchemeSpec,
   type Security,
 } from "./security.ts";
-export { checkContracts, type CheckResult, type Diagnostic, type DiagnosticCode } from "./check.ts";
-export type {
-  BodyModel,
-  ContractModel,
-  HeaderModel,
-  NamedResponseModel,
-  NamedSchemaModel,
-  OperationModel,
-  ParameterLocation,
-  ParameterModel,
-  RequirementModel,
-  ResponseModel,
-  SecuritySchemeModel,
-} from "./model.ts";
+export { checkContracts, type CheckResult } from "./check.ts";
+export { ContractError, type Diagnostic, type DiagnosticCode } from "./diagnostics.ts";

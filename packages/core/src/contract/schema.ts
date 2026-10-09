@@ -1,5 +1,4 @@
 import Type, {
-  type TBoolean,
   type TInteger,
   type TLiteral,
   type TNumber,
@@ -55,7 +54,6 @@ type THealthStatus = TUnion<[TLiteral<"healthy">, TLiteral<"degraded">, TLiteral
 /** The type of the {@link HealthReport} schema. */
 export type THealthReport = TObject<{
   status: THealthStatus;
-  draining: TBoolean;
   checks: TRecord<
     string,
     TObject<{ status: THealthStatus; durationMs: TNumber; detail: TOptional<TString> }>
@@ -85,7 +83,6 @@ export const HealthReport: THealthReport = defineSchema(
   "HealthReport",
   Type.Object({
     status: HealthStatus,
-    draining: Type.Boolean(),
     checks: Type.Record(
       Type.String(),
       Type.Object({

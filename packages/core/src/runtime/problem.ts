@@ -2,22 +2,6 @@ import type { Static } from "typebox";
 import type { Problem } from "../contract/schema.ts";
 import { reasonPhrase } from "../contract/reason.ts";
 
-/** Stable codes for problems that HyAPI itself produces. */
-export type ProblemCode =
-  | "VALIDATION_FAILED"
-  | "MALFORMED_REQUEST"
-  | "NOT_FOUND"
-  | "METHOD_NOT_ALLOWED"
-  | "PAYLOAD_TOO_LARGE"
-  | "UNSUPPORTED_MEDIA_TYPE"
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_IMPLEMENTED"
-  | "REQUEST_TIMEOUT"
-  | "SHUTTING_DOWN"
-  | "RESPONSE_CONTRACT_VIOLATION"
-  | "INTERNAL_ERROR";
-
 /** One reason a request or response did not match its contract. */
 export interface Violation {
   /** Where the value came from: `path`, `query`, `header`, `cookie`, `body`, or `response`. */

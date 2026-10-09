@@ -323,6 +323,40 @@ API.
 - **A15. `serve` serves wrapped handlers.** `ServeOptions.fetch` replaces `app.fetch` as the served
   handler, which keeps graceful shutdown when outer `fetch` wrappers are applied.
 
+## 16. Amendments made for ADR 0003 (M8)
+
+[ADR 0003](../0003-layered-architecture.md) restructures Core into layers. These public changes
+follow from it. Where they conflict with an earlier amendment, they supersede it.
+
+- **A16. Custom formats are declared on the API.**
+  - `defineApi({ formats })` takes `{ [name]: (value: string) => boolean }`.
+  - `checkContracts` accepts the standard formats that TypeBox implements, the OpenAPI annotation
+    formats (`int32`, `int64`, `float`, `double`, `password`, `byte`, `binary`), and the declared
+    names; any other `format` is `unknown-format`.
+  - Redeclaring a standard or annotation format, or a check that is not a function, is
+    `invalid-format`.
+  - `createApp` registers declared formats with TypeBox after every other startup check passes.
+    TypeBox's registry is process-wide and cannot remove entries, so a name that is already
+    registered with a different function is the startup error `format-conflict`.
+- **A17. `checkContracts` returns diagnostics only.** Its result is `{ ok, diagnostics }`; this
+  supersedes A4. `ContractModel` and the other model types are no longer exported.
+- **A18. `emitOpenApi` takes the API.** `emitOpenApi(api)` normalizes the contracts itself and
+  throws `ContractError` when they have errors. `ContractError` is exported from
+  `@hyapi/core/contract` and carries `diagnostics`.
+- **A19. One diagnostic type.** `Diagnostic` becomes
+  `Diagnostic<Code extends string =
+  DiagnosticCode>`. `StartupError.diagnostics` is
+  `readonly Diagnostic<DiagnosticCode | StartupDiagnosticCode>[]`, and `StartupDiagnosticCode`
+  replaces the `StartupDiagnostic` interface.
+- **A20. Health has no draining state.** `HealthReport` and `HealthReportValue` drop `draining`, and
+  `createApp` drops the `health` option of A13. A closing application already answers 503 to every
+  new request, including the health operation.
+- **A21. `ProblemCode` is removed.** No public signature used it. The codes remain documented in the
+  user guide.
+- **A22. Not-implemented operations are reported as events.** In development mode, each
+  `notImplemented` operation emits `startup.warning` with code `not-implemented`, instead of a
+  direct `console.warn`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

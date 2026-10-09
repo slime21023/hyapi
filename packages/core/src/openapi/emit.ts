@@ -1,3 +1,6 @@
+import { compileContracts } from "../contract/check.ts";
+import type { Api } from "../contract/define.ts";
+import { ContractError } from "../contract/diagnostics.ts";
 import type {
   ContractModel,
   OperationModel,
@@ -5,6 +8,7 @@ import type {
   RequirementModel,
   ResponseModel,
 } from "../contract/model.ts";
+import { LOCATIONS } from "../contract/normalize_operation.ts";
 import { schemaName } from "../contract/schema.ts";
 
 /** The OpenAPI version HyAPI emits. */
@@ -29,14 +33,6 @@ export interface OpenApiDocument {
   };
   readonly [key: string]: JsonValue;
 }
-
-// OpenAPI's default style and explode per parameter location; only differences are emitted.
-const DEFAULT_STYLE: Readonly<Record<string, { style: string; explode: boolean }>> = {
-  path: { style: "simple", explode: false },
-  query: { style: "form", explode: true },
-  header: { style: "simple", explode: false },
-  cookie: { style: "form", explode: true },
-};
 
 type Json = Record<string, JsonValue>;
 
@@ -73,7 +69,8 @@ function parameter(model: ParameterModel): Json {
   if (typeof schema.description === "string") result.description = schema.description;
   if (model.required) result.required = true;
   if (schema.deprecated === true) result.deprecated = true;
-  const defaults = DEFAULT_STYLE[model.in]!;
+  // Only differences from OpenAPI's defaults for the location are emitted.
+  const defaults = LOCATIONS.find((location) => location.in === model.in)!;
   if (model.style !== defaults.style) result.style = model.style;
   if (model.explode !== defaults.explode) result.explode = model.explode;
   result.schema = toJsonSchema(model.schema);
@@ -125,10 +122,19 @@ function operation(model: OperationModel): Json {
 }
 
 /**
- * Compiles a {@link ContractModel} into an OpenAPI 3.1 document. The same model always produces
- * the same document, with keys in model order.
+ * Compiles an API's contracts into an OpenAPI 3.1 document. The same contracts always produce the
+ * same document, with keys in declaration order.
+ *
+ * @throws {ContractError} when the contracts have errors; `checkContracts` reports the same
+ * diagnostics without throwing.
  */
-export function emitOpenApi(model: ContractModel): OpenApiDocument {
+export function emitOpenApi(api: Api): OpenApiDocument {
+  const compiled = compileContracts(api);
+  if (!compiled.ok) throw new ContractError(compiled.diagnostics);
+  return emitModel(compiled.model);
+}
+
+function emitModel(model: ContractModel): OpenApiDocument {
   const document: Json = {
     openapi: OPENAPI_VERSION,
     info: JSON.parse(JSON.stringify(model.info)),

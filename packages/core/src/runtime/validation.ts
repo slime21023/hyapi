@@ -1,6 +1,7 @@
 import type { TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import * as Value from "typebox/value";
+import { cloneSchema } from "../contract/snapshot.ts";
 import type { Violation } from "./problem.ts";
 
 const INT32_MIN = -(2 ** 31);
@@ -18,19 +19,6 @@ export interface Validator {
   convert(value: unknown): unknown;
   /** Returns a copy without properties the schema does not declare, and the removed pointers. */
   clean(value: unknown, track: boolean): { value: unknown; removed: string[] };
-  /** True when TypeBox compiled the check with dynamic code instead of interpreting it. */
-  readonly accelerated: boolean;
-}
-
-/** Deep-copies a schema, keeping TypeBox's non-enumerable markers that Convert/Default/Clean need. */
-function cloneSchema<T>(node: T): T {
-  if (typeof node !== "object" || node === null) return node;
-  if (Array.isArray(node)) return node.map(cloneSchema) as T;
-  const descriptors = Object.getOwnPropertyDescriptors(node);
-  for (const descriptor of Object.values(descriptors)) {
-    if ("value" in descriptor) descriptor.value = cloneSchema(descriptor.value);
-  }
-  return Object.create(Object.getPrototypeOf(node), descriptors);
 }
 
 /**
@@ -85,7 +73,6 @@ export function createValidators() {
     if (cached !== undefined) return cached;
     const compiled = Compile(validationSchema(schema));
     const validator: Validator = {
-      accelerated: compiled.IsAccelerated(),
       check(value, location) {
         if (compiled.Check(value)) return [];
         const violations: Violation[] = [];

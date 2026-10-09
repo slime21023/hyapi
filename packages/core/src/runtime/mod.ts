@@ -4,7 +4,7 @@ export {
   type AppOptions,
   createApp,
   type OperationIdsOf,
-  type StartupDiagnostic,
+  type StartupDiagnosticCode,
   StartupError,
 } from "./app.ts";
 export type { AppEvent, EventListener } from "./events.ts";
@@ -30,7 +30,6 @@ export type { Verified, Verifier, VerifierContext, VerifierFor, Verifiers } from
 export {
   HttpError,
   problem,
-  type ProblemCode,
   problemResponse,
   type ProblemValue,
   type Violation,

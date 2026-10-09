@@ -9,10 +9,14 @@ deno task verify
 ```
 
 The command checks formatting, linting, and types, and runs every test under `tests/`. The tests
-include the architecture test (`tests/architecture/`), which enforces the dependency rules of
-[ADR 0002](_adr/0002-architecture-and-component-boundaries.md). CI runs the same command on every
-push to `main` and on every pull request. Text files use LF line endings through `.gitattributes`,
-including on Windows checkouts.
+include the architecture tests (`tests/architecture/`), which enforce the dependency rules of
+[ADR 0002](_adr/0002-architecture-and-component-boundaries.md) and the layer rules of
+[ADR 0003](_adr/0003-layered-architecture.md). CI runs the same command on every push to `main` and
+on every pull request. Text files use LF line endings through `.gitattributes`, including on Windows
+checkouts.
+
+CI also runs `hyapi diff` for the example application against `main`. A pull request that changes
+the example's API in a breaking way on purpose acknowledges it with the `breaking-api` label.
 
 ## Changes and issues
 

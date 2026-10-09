@@ -1,6 +1,4 @@
 import { withDeadline } from "./deadline.ts";
-import type { Emit } from "./events.ts";
-import { describeError } from "./problem.ts";
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -14,13 +12,19 @@ export interface LifecycleResource {
   readonly stop?: (signal: AbortSignal) => Awaitable<void>;
 }
 
-/** Stops resources in reverse order within a time budget; returns every failure. */
+/** A resource that failed to start or stop. */
+export interface LifecycleFailure {
+  readonly name: string;
+  readonly phase: "start" | "stop";
+  readonly error: unknown;
+}
+
+/** Stops resources in reverse order within one time budget; returns every failure. */
 export async function stopResources(
   resources: readonly LifecycleResource[],
   timeoutMs: number,
-  emit: Emit,
-): Promise<unknown[]> {
-  const errors: unknown[] = [];
+): Promise<LifecycleFailure[]> {
+  const failures: LifecycleFailure[] = [];
   // One budget for all resources; a slow resource leaves less time for the ones before it.
   const deadline = performance.now() + timeoutMs;
   for (const resource of [...resources].reverse()) {
@@ -29,44 +33,29 @@ export async function stopResources(
     try {
       await withDeadline(stop, deadline - performance.now());
     } catch (error) {
-      errors.push(error);
-      emit({
-        type: "lifecycle.error",
-        name: resource.name,
-        phase: "stop",
-        error: describeError(error),
-      });
+      failures.push({ name: resource.name, phase: "stop", error });
     }
   }
-  return errors;
+  return failures;
 }
 
 /**
- * Starts resources in order. If one fails, the started ones are stopped in reverse order and the
- * original error is thrown; rollback failures are added in an `AggregateError`.
+ * Starts resources in order. If one fails, the started ones are stopped in reverse order. Returns
+ * no failures when every resource started; otherwise the start failure, then any rollback failures.
  */
 export async function startResources(
   resources: readonly LifecycleResource[],
   timeoutMs: number,
-  emit: Emit,
-): Promise<void> {
+): Promise<LifecycleFailure[]> {
   const started: LifecycleResource[] = [];
   for (const resource of resources) {
     try {
       await resource.start?.();
       started.push(resource);
     } catch (error) {
-      emit({
-        type: "lifecycle.error",
-        name: resource.name,
-        phase: "start",
-        error: describeError(error),
-      });
-      const rollback = await stopResources(started, timeoutMs, emit);
-      if (rollback.length === 0) throw error;
-      throw new AggregateError([error, ...rollback], `'${resource.name}' failed to start`, {
-        cause: error,
-      });
+      const rollback = await stopResources(started, timeoutMs);
+      return [{ name: resource.name, phase: "start", error }, ...rollback];
     }
   }
+  return [];
 }

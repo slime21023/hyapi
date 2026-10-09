@@ -136,18 +136,29 @@ export interface TagSpec {
   readonly description?: string;
 }
 
+/** Checks for custom `format` values, keyed by format name. */
+export type FormatChecks = Readonly<Record<string, (value: string) => boolean>>;
+
 /** An API created by {@link defineApi}. */
 export interface Api<S extends Schemes = Schemes, Cs = readonly AnyContract[]> {
   readonly kind: "hyapi.api";
   readonly info: ApiInfo;
   readonly servers?: readonly ServerSpec[];
   readonly tags?: readonly TagSpec[];
+  readonly formats?: FormatChecks;
   readonly securitySchemes?: Security<S>;
   readonly security?: readonly Requirement<S>[];
   readonly contracts: Cs;
 }
 
-/** Declares an API: its metadata, security schemes, root security, and resource contracts. */
+/**
+ * Declares an API: its metadata, custom formats, security schemes, root security, and resource
+ * contracts.
+ *
+ * `formats` declares checks for `format` values beyond the standard ones, such as
+ * `{ isbn: (value) => isIsbn(value) }`. Format names are process-wide in TypeBox, so two APIs in
+ * one process that declare the same name must use the same check.
+ */
 export function defineApi<
   const Cs extends readonly AnyContract[],
   // deno-lint-ignore ban-types
@@ -156,6 +167,7 @@ export function defineApi<
   readonly info: ApiInfo;
   readonly servers?: readonly ServerSpec[];
   readonly tags?: readonly TagSpec[];
+  readonly formats?: FormatChecks;
   readonly securitySchemes?: Security<S>;
   readonly security?: readonly Requirement<S>[];
   readonly contracts: Cs;

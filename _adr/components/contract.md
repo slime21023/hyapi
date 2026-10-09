@@ -54,13 +54,15 @@ and never read raw declarations.
 ## Interface
 
 - `defineContract(declaration)` returns a contract value that carries both data and types.
-- `checkContracts(contracts)` returns the `ContractModel` (when there are no errors) and a list of
-  diagnostics. Each diagnostic has a severity, a stable code, the `operationId` or schema it
-  concerns, and a message.
-- `ContractModel` is an immutable, normalized description of the whole API. It is public as a type,
-  so that `runtime` and `openapi` can accept it. Its internal shape is not a compatibility promise
-  for user code.
+- `defineApi({ info, formats?, securitySchemes?, security?, contracts })` declares the API,
+  including checks for custom `format` values.
+- `checkContracts(api)` returns `{ ok, diagnostics }`. Each diagnostic has a severity, a stable
+  code, the `operationId` or location it concerns, and a message.
+- `ContractError` carries the diagnostics when `emitOpenApi` is given contracts with errors.
 - Contract, operation, and inference helper types.
+
+`ContractModel` is internal to `@hyapi/core` (ADR 0003 §7). The runtime and the emitter receive it
+from the internal `compileContracts`; applications and tools never see it.
 
 ## Dependencies
 
@@ -85,6 +87,18 @@ ADR 0001 §1–§3, §7, §8; ADR 0002 §2, §5; RFC 0001.
   `T.With` (RFC 0001 amendment A2).
 - No separate type-only entry point. `@hyapi/core/contract` depends only on TypeBox.
 
+## Resolved in M8
+
+- **Layer L1 (ADR 0003).** Normalization is split into pure steps that report to an explicit
+  collector: `inspect.ts` (schema inspection and named schemas), `normalize_security.ts`,
+  `normalize_operation.ts` (parameters, body, responses), and `check.ts`, which composes them.
+- **Frozen copy.** The model is a deep, frozen copy of the declarations (`snapshot.ts`). Shared
+  schemas stay shared, and TypeBox's non-enumerable markers are kept. Later changes to the
+  declarations cannot reach the model.
+- **Formats.** Accepted formats are TypeBox's standard formats, OpenAPI's annotation formats, and
+  the names in `defineApi({ formats })` (RFC 0001 A16). The result never depends on TypeBox's
+  process-wide registry. Redeclaring a standard format is `invalid-format`.
+
 ## Open questions
 
-- None for M1. Future questions are tracked in the [roadmap](../roadmap.md).
+- None. Future questions are tracked in the [roadmap](../roadmap.md).

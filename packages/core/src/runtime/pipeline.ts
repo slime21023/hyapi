@@ -1,10 +1,11 @@
 import Type from "typebox";
 import type { OperationModel, ParameterLocation, ResponseModel } from "../contract/model.ts";
+import { cloneSchema } from "../contract/snapshot.ts";
+import { encodeBody, isJsonMediaType, readBody } from "./body.ts";
+import { readParameters } from "./params.ts";
 import { describeError, HttpError, problemResponse, type Violation } from "./problem.ts";
-import type { Emit } from "./events.ts";
-import type { SecurityEvaluator } from "./security.ts";
+import type { Denial, SecurityEvaluator } from "./security.ts";
 import type { Validator, ValidatorFactory } from "./validation.ts";
-import { encodeBody, INPUT_KEYS, isJsonMediaType, readBody, readParameters } from "./wire.ts";
 
 /** How responses that do not match their schema are handled. */
 export type ResponseValidation = "off" | "log" | "enforce";
@@ -13,17 +14,37 @@ export interface PipelineSettings {
   readonly development: boolean;
   readonly responseValidation: ResponseValidation;
   readonly bodyLimitBytes: number;
-  readonly emit: Emit;
 }
 
-/** The response, and the error a handler or verifier threw when it became a 500. */
+/**
+ * The response of one request and the facts about how it was produced. The application turns
+ * the facts into events (ADR 0003 §9); the request flow emits nothing itself.
+ */
 export interface Outcome {
   readonly response: Response;
+  /** The problem `code` when HyAPI or an `HttpError` produced the response. */
+  readonly code?: string;
+  /** The error a handler or verifier threw when it became a 500. */
   readonly error?: unknown;
+  /** Why security denied the request. */
+  readonly denial?: Denial;
+  /** The handler's response did not match its contract. */
+  readonly violation?: { readonly status: number; readonly violations: readonly Violation[] };
+  /** Development only: undeclared response fields that were removed. */
+  readonly stripped?: { readonly status: number; readonly removed: readonly string[] };
 }
 
 // deno-lint-ignore no-explicit-any
 type AnyHandler = (input: any, ctx: any) => unknown;
+
+/** The input keys of a handler per parameter location, as in RFC 0001. */
+const INPUT_KEYS: Readonly<Record<ParameterLocation, "params" | "query" | "headers" | "cookies">> =
+  {
+    path: "params",
+    query: "query",
+    header: "headers",
+    cookie: "cookies",
+  };
 
 interface LocationPlan {
   readonly location: ParameterLocation;
@@ -56,9 +77,13 @@ export function planOperation(
     const parameters = operation.parameters.filter((parameter) => parameter.in === location);
     if (parameters.length === 0) continue;
     // Rebuild the location object from the model; the runtime never reads raw declarations.
+    // TypeBox's Optional redefines markers, so it works on a writable copy of the frozen model.
     const schema = Type.Object(
       Object.fromEntries(
-        parameters.map((p) => [p.name, p.required ? p.schema : Type.Optional(p.schema)]),
+        parameters.map((p) => {
+          const copy = cloneSchema(p.schema);
+          return [p.name, p.required ? copy : Type.Optional(copy)];
+        }),
       ),
     );
     locations.push({ location, key: INPUT_KEYS[location], validator: validators(schema) });
@@ -79,11 +104,36 @@ export function planOperation(
   };
 }
 
-function validationFailed(violations: readonly Violation[]): Response {
-  return problemResponse(400, "VALIDATION_FAILED", {
+/** A problem response that HyAPI produces, with its code recorded in the outcome. */
+function fail(
+  status: number,
+  code: string,
+  options: Parameters<typeof problemResponse>[2] = {},
+): Outcome {
+  return { response: problemResponse(status, code, options), code };
+}
+
+function validationFailed(violations: readonly Violation[]): Outcome {
+  return fail(400, "VALIDATION_FAILED", {
     detail: "The request does not match the operation's contract.",
     violations,
   });
+}
+
+function denied(denial: Denial): Outcome {
+  const headers = denial.challenges.length === 0
+    ? undefined
+    : { "www-authenticate": denial.challenges.join(", ") };
+  const outcome = denial.status === 403
+    ? fail(403, "FORBIDDEN", {
+      detail: "The credentials do not grant the scopes this operation requires.",
+      ...(headers === undefined ? {} : { headers }),
+    })
+    : fail(401, "UNAUTHORIZED", {
+      detail: "The request lacks valid credentials for this operation.",
+      ...(headers === undefined ? {} : { headers }),
+    });
+  return { ...outcome, denial };
 }
 
 /** Runs one matched request through the operation's contract. */
@@ -115,29 +165,25 @@ export async function execute(
     Promise.race([Promise.resolve(work), aborted]);
 
   try {
-    return { response: await run() };
+    return await run();
   } catch (error) {
     if (timeout.signal.aborted && error === timeout.signal.reason) {
-      return {
-        response: problemResponse(503, "REQUEST_TIMEOUT", {
-          detail: `The request did not complete within ${plan.timeoutMs} ms.`,
-        }),
-      };
+      return fail(503, "REQUEST_TIMEOUT", {
+        detail: `The request did not complete within ${plan.timeoutMs} ms.`,
+      });
     }
     if (shutdown.aborted && error === shutdown.reason) {
-      return {
-        response: problemResponse(503, "SHUTTING_DOWN", {
-          detail: "The server is shutting down.",
-          headers: { connection: "close" },
-        }),
-      };
+      return fail(503, "SHUTTING_DOWN", {
+        detail: "The server is shutting down.",
+        headers: { connection: "close" },
+      });
     }
     return thrown(error, operation, settings);
   } finally {
     clearTimeout(timer);
   }
 
-  async function run(): Promise<Response> {
+  async function run(): Promise<Outcome> {
     // Security runs first, so unauthenticated callers learn nothing about the schemas.
     let identities: Readonly<Record<string, unknown>> | undefined;
     if (operation.security.length > 0) {
@@ -148,7 +194,7 @@ export async function execute(
           operationId: operation.operationId,
         }),
       );
-      if (result.kind === "denied") return result.response;
+      if (result.kind === "denied") return denied(result.denial);
       identities = result.security;
     }
 
@@ -170,21 +216,23 @@ export async function execute(
 
     // Body.
     if (operation.body !== undefined) {
-      const result = await bounded(readBody(request, operation.body, settings.bodyLimitBytes));
+      const result = await bounded(
+        readBody(request, operation.body, settings.bodyLimitBytes, signal),
+      );
       switch (result.kind) {
         case "too-large":
-          return problemResponse(413, "PAYLOAD_TOO_LARGE", {
+          return fail(413, "PAYLOAD_TOO_LARGE", {
             detail: `The request body exceeds ${settings.bodyLimitBytes} bytes.`,
           });
         case "unsupported-media-type":
-          return problemResponse(415, "UNSUPPORTED_MEDIA_TYPE", {
+          return fail(415, "UNSUPPORTED_MEDIA_TYPE", {
             detail: `Expected ${operation.body.mediaType}, got ${
               result.mediaType ?? "no content type"
             }.`,
             headers: { "accept-post": operation.body.mediaType },
           });
         case "malformed":
-          return problemResponse(400, "MALFORMED_REQUEST", { detail: result.detail });
+          return fail(400, "MALFORMED_REQUEST", { detail: result.detail });
         case "absent":
           if (operation.body.required) {
             return validationFailed([{
@@ -205,7 +253,7 @@ export async function execute(
     }
 
     if (plan.handler === undefined) {
-      return problemResponse(501, "NOT_IMPLEMENTED", {
+      return fail(501, "NOT_IMPLEMENTED", {
         detail: `Operation '${operation.operationId}' is not implemented yet.`,
       });
     }
@@ -216,21 +264,19 @@ export async function execute(
 
 function thrown(error: unknown, operation: OperationModel, settings: PipelineSettings): Outcome {
   if (error instanceof HttpError) {
-    return {
-      response: problemResponse(error.status, error.code, {
-        title: error.message,
-        ...(error.detail === undefined ? {} : { detail: error.detail }),
-        headers: error.headers,
-      }),
-    };
+    return fail(error.status, error.code, {
+      title: error.message,
+      ...(error.detail === undefined ? {} : { detail: error.detail }),
+      headers: error.headers,
+    });
   }
-  const response = settings.development
-    ? problemResponse(500, "INTERNAL_ERROR", {
+  const outcome = settings.development
+    ? fail(500, "INTERNAL_ERROR", {
       detail: `Operation '${operation.operationId}' threw an error.`,
       debug: describeError(error),
     })
-    : problemResponse(500, "INTERNAL_ERROR");
-  return { response, error };
+    : fail(500, "INTERNAL_ERROR");
+  return { ...outcome, error };
 }
 
 function lookupHeader(headers: unknown, name: string): unknown {
@@ -241,24 +287,28 @@ function lookupHeader(headers: unknown, name: string): unknown {
 }
 
 /** Applies the response policy and serializes a handler result. */
-function respond(plan: OperationPlan, result: unknown, settings: PipelineSettings): Response {
+function respond(plan: OperationPlan, result: unknown, settings: PipelineSettings): Outcome {
   const { operation } = plan;
   const violations: Violation[] = [];
-  const contractViolation = (status: number, fallback: () => Response): Response => {
-    settings.emit({
-      type: "response.violation",
-      operationId: operation.operationId,
-      status,
-      violations: [...violations],
-    });
+  let stripped: Outcome["stripped"];
+  const contractViolation = (status: number, fallback: () => Response): Outcome => {
+    const violation = { status, violations: [...violations] };
     if (settings.responseValidation === "enforce") {
-      return problemResponse(500, "RESPONSE_CONTRACT_VIOLATION", {
-        detail:
-          `Operation '${operation.operationId}' returned a response that its contract does not allow.`,
-        ...(settings.development ? { violations } : {}),
-      });
+      return {
+        ...fail(500, "RESPONSE_CONTRACT_VIOLATION", {
+          detail:
+            `Operation '${operation.operationId}' returned a response that its contract does not allow.`,
+          ...(settings.development ? { violations } : {}),
+        }),
+        violation,
+        ...(stripped === undefined ? {} : { stripped }),
+      };
     }
-    return fallback();
+    return {
+      response: fallback(),
+      violation,
+      ...(stripped === undefined ? {} : { stripped }),
+    };
   };
 
   if (result instanceof Response) {
@@ -270,13 +320,13 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
       });
       return contractViolation(result.status, () => result);
     }
-    return result;
+    return { response: result };
   }
   if (
     typeof result !== "object" || result === null ||
     typeof (result as { status?: unknown }).status !== "number"
   ) {
-    return problemResponse(500, "RESPONSE_CONTRACT_VIOLATION", {
+    return fail(500, "RESPONSE_CONTRACT_VIOLATION", {
       detail:
         `Operation '${operation.operationId}' returned a value that is not a result object or Response.`,
     });
@@ -341,12 +391,7 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
       const cleaned = declared.body!.clean(value, settings.development);
       value = cleaned.value;
       if (settings.development && cleaned.removed.length > 0) {
-        settings.emit({
-          type: "response.stripped",
-          operationId: operation.operationId,
-          status,
-          removed: cleaned.removed,
-        });
+        stripped = { status, removed: cleaned.removed };
       }
     }
     if (settings.responseValidation !== "off" && !(value instanceof Uint8Array)) {
@@ -362,5 +407,6 @@ function respond(plan: OperationPlan, result: unknown, settings: PipelineSetting
   }
 
   const send = () => new Response(payload, { status, headers });
-  return violations.length > 0 ? contractViolation(status, send) : send();
+  if (violations.length > 0) return contractViolation(status, send);
+  return { response: send(), ...(stripped === undefined ? {} : { stripped }) };
 }

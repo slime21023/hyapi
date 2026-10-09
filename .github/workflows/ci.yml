@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    # labeled and unlabeled rerun the API check when "breaking-api" is added or removed.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -22,5 +24,8 @@ jobs:
       - run: deno task verify
       - run: deno task publish:check
       - name: Check the example's API changes against main
-        run: deno task diff
+        # A pull request acknowledges intended breaking changes with the "breaking-api" label.
+        run: >-
+          deno task diff
+          ${{ contains(github.event.pull_request.labels.*.name, 'breaking-api') && '--allow-breaking' || '' }}
         working-directory: apps/example

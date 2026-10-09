@@ -80,7 +80,6 @@ function build(options: {
         },
       }),
     ],
-    health,
     lifecycle: options.lifecycle ?? [],
     onEvent: options.onEvent ?? ((event) => void options.events?.push(event)),
     ...(options.shutdownTimeoutMs ? { shutdownTimeoutMs: options.shutdownTimeoutMs } : {}),
@@ -204,12 +203,12 @@ Deno.test("close aborts requests that outlive the shutdown budget", async () => 
 
 // --- Health --------------------------------------------------------------------------------------
 
-Deno.test("health aggregates checks and reports draining during shutdown", async () => {
+Deno.test("health aggregates checks into one report", async () => {
   let healthy = true;
   const app = await build({ healthy: () => healthy });
   const degraded = await get(app, "/health");
   const report = await degraded.json();
-  assertEquals([degraded.status, report.status, report.draining], [200, "degraded", false]);
+  assertEquals([degraded.status, report.status], [200, "degraded"]);
   assertEquals(report.checks.cache, {
     status: "degraded",
     durationMs: report.checks.cache.durationMs,
@@ -219,25 +218,28 @@ Deno.test("health aggregates checks and reports draining during shutdown", async
   const down = await get(app, "/health");
   assertEquals([down.status, (await down.json()).checks.database.detail], [503, "database down"]);
   healthy = true;
-  const health = createHealth({ ok: () => {} });
-  const app2 = await createApp({
-    api,
-    health,
-    implementations: [implement(contract, {
-      hello: () => ({ status: 200, body: { text: "hi" } }),
-      wait: () => ({ status: 200, body: { text: "" } }),
-      bad: () => ({ status: 200, body: { text: "" } }),
-      old: () => ({ status: 200, body: { text: "" } }),
-      health: async () => ({ status: 200, body: await health.check() }),
-    })],
-  });
-  assertEquals((await health.check()).status, "healthy");
-  await app2.close();
-  assertEquals(
-    await health.check().then((r: { status: string; draining: boolean }) => [r.status, r.draining]),
-    ["unhealthy", true],
-  );
   await app.close();
+});
+
+Deno.test("a closing app answers its health operation with 503, and health has no global state", async () => {
+  const health = createHealth({ ok: () => {} });
+  const handlers = {
+    hello: () => ({ status: 200 as const, body: { text: "hi" } }),
+    wait: () => ({ status: 200 as const, body: { text: "" } }),
+    bad: () => ({ status: 200 as const, body: { text: "" } }),
+    old: () => ({ status: 200 as const, body: { text: "" } }),
+    health: async () => ({ status: 200 as const, body: await health.check() }),
+  };
+  // Two applications share one aggregator; closing one must not affect the other.
+  const first = await createApp({ api, implementations: [implement(contract, handlers)] });
+  const second = await createApp({ api, implementations: [implement(contract, handlers)] });
+  await first.close();
+  const closed = await get(first, "/health");
+  assertEquals([closed.status, (await closed.json()).code], [503, "SHUTTING_DOWN"]);
+  const open = await get(second, "/health");
+  assertEquals([open.status, (await open.json()).status], [200, "healthy"]);
+  assertEquals(Object.keys(await health.check()).sort(), ["checks", "status"]);
+  await second.close();
 });
 
 Deno.test("health checks time out", async () => {

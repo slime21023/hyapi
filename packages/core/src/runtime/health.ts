@@ -25,16 +25,10 @@ export interface Health {
   check(): Promise<HealthReportValue>;
 }
 
-const draining = new WeakSet<Health>();
-
-/** Marks a health aggregator as draining: reports become unhealthy so traffic moves away. */
-export function markDraining(health: Health): void {
-  draining.add(health);
-}
-
 /**
- * Creates a health aggregator. The overall status is the worst check status. While the
- * application that owns it is shutting down, the status is `unhealthy` and `draining` is true.
+ * Creates a health aggregator. The overall status is the worst check status. A closing
+ * application answers every new request with 503, so the health operation needs no draining
+ * state of its own.
  *
  * @example
  * ```ts
@@ -57,7 +51,7 @@ export function createHealth(
       throw new TypeError(`health check '${name}' must be a function`);
     }
   }
-  const health: Health = {
+  return Object.freeze({
     async check() {
       const results = await Promise.all(
         Object.entries(checks).map(async ([name, check]) => {
@@ -81,14 +75,12 @@ export function createHealth(
         }),
       );
       const statuses = results.map(([, result]) => result.status);
-      const isDraining = draining.has(health);
-      const status: HealthStatus = isDraining || statuses.includes("unhealthy")
+      const status: HealthStatus = statuses.includes("unhealthy")
         ? "unhealthy"
         : statuses.includes("degraded")
         ? "degraded"
         : "healthy";
-      return { status, draining: isDraining, checks: Object.fromEntries(results) };
+      return { status, checks: Object.fromEntries(results) };
     },
-  };
-  return Object.freeze(health);
+  });
 }
