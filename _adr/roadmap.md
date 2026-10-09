@@ -5,7 +5,8 @@
 - Basis: [ADR 0001](0001-contract-first-api-library.md),
   [ADR 0002](0002-architecture-and-component-boundaries.md),
   [RFC 0001](rfcs/0001-contract-and-handler-api.md), and the
-  [component specifications](components/README.md)
+  [component specifications](components/README.md); M8–M10 are based on
+  [Review 0001](reviews/0001-component-and-production-readiness.md)
 
 ## v1 goal
 
@@ -27,24 +28,30 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                              | Goal                                                 | Components        | Depends on | Status            |
-| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ----------------- |
-| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08) |
-| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08) |
-| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08) |
-| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08) |
-| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08) |
-| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08) |
-| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08) |
-| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | Done (2026-10-09) |
+| Milestone                               | Goal                                                 | Components                        | Depends on | Status            |
+| --------------------------------------- | ---------------------------------------------------- | --------------------------------- | ---------- | ----------------- |
+| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                        | —          | Done (2026-10-08) |
+| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                          | M0         | Done (2026-10-08) |
+| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                           | M1         | Done (2026-10-08) |
+| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                      | M1         | Done (2026-10-08) |
+| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                  | M2         | Done (2026-10-08) |
+| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                    | M2         | Done (2026-10-08) |
+| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                 | M3         | Done (2026-10-08) |
+| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                      | M4, M5, M6 | Done (2026-10-09) |
+| [M8](#m8-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, serve, plugins | M7         | Planned           |
+| [M9](#m9-controllable-low-layers)       | Controllable low layers (0.3.0)                      | contract, runtime, serve          | M8         | Planned           |
+| [M10](#m10-production-features)         | Production features (0.4.0)                          | runtime, serve, cli, plugins      | M9         | Planned           |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
           │       └─► M5 ─┼─► M7
           └─► M3 ───► M6 ─┘
+
+M7 ─► M8 ─► M9 ─► M10 ─► 1.0.0
 ```
 
-M2 and M3 can proceed in parallel after M1.
+M2 and M3 can proceed in parallel after M1. M8–M10 run in order: M9's refactors make M10's events
+and documents simpler to add.
 
 Each milestone keeps the affected component specifications current. Each milestone resolves the open
 questions listed for it, either in the specification or, when the public API changes, in an RFC.
@@ -268,11 +275,86 @@ early users have tried 0.x.
 
 **Release gate:**
 
-- Every milestone is complete.
+- Every milestone is complete, including M8–M10.
+- No High finding of a review is open, and every other finding is resolved or explicitly deferred.
 - No component specification has an open question marked as blocking v1.
 - `deno task verify` and CI pass.
 - The type-performance and request-path baselines are current.
 - The example application's emitted document passes `emit --check` and `hyapi diff`.
+
+### M8: Correctness and safe defaults
+
+**Goal:** close the validation hole, the fail-open security default, and the shutdown and failure
+gaps that Review 0001 confirmed. Released as `0.2.0`, because applications that relied on the old
+behavior stop at startup.
+
+Findings: F1, F2.1, A3, A4, A5, A12, A14, F5.1, F5.6, F3.1–F3.3, F2.4, F2.5, F5.8.
+
+- **Request bodies (F1):** startup fails when a non-JSON, non-text media type declares a schema
+  other than a binary string, until form bodies are implemented.
+- **Implicit public operations (F2.1):** a startup diagnostic when security schemes exist and an
+  operation has no requirement at any level and no explicit `security: []`. Recorded as an RFC 0001
+  amendment.
+- **Immutable model (A3):** normalization deep-clones and deep-freezes schemas and metadata, keeping
+  TypeBox's hidden markers.
+- **Shutdown (A4, F5.1):** `serve().finished` never rejects unhandled; open response bodies count as
+  in flight, streams are aborted on shutdown, and resources stop after the listener drains.
+- **Response policy (A5):** header values are validated, and every response check follows
+  `responseValidation`.
+- **Smaller fixes:** cancel the body reader on timeout (A12); reserve the schema name `Problem`
+  (A14); document raw `Response` for streams (F5.6).
+- **Plugins and guides:** one canonical wrapper order, tested; CSRF skips preflight; `Vary: Origin`
+  always; `exposeHeaders` documented and the example fixed (F3.1–F3.3); `plugin-jwt` requires
+  `audience` (F2.5); the trust model for proxy headers and `x-forwarded-for` (F2.4, F5.8).
+
+**Exit criteria:** each finding has a public test that failed before the fix; the specifications and
+the guide describe the new behavior; `deno task verify` and CI pass.
+
+### M9: Controllable low layers
+
+**Goal:** make the lowest layers deterministic, explicitly owned, and testable in isolation, as
+Review 0001 requires.
+
+Findings: A1, A2, A6–A11, A13, A15, A16. The public changes (A1, A2, A9, A13) are specified in an
+RFC before implementation.
+
+- **No global inputs (A1):** custom formats are declared on the API and checked against that
+  declaration; `createApp` alone registers them.
+- **No module state (A2):** health draining becomes an explicit input; `markDraining` is deleted.
+- **Clear boundaries:** split `checkContracts` into pure steps (A6); the pipeline reports the
+  problem `code` (A7); the security evaluator returns a denial that the pipeline renders (A8); split
+  `createApp` and `wire.ts` (A11).
+- **Public surface:** decide whether `ContractModel` is a versioned interface or a narrower export
+  (A9); remove `ProblemCode`, merge `StartupDiagnostic` into `Diagnostic`, and route the remaining
+  `console.warn` through events (A13).
+- **Tests:** internal tests for `routing`, `wire`, `validation`, `deadline`, and `check` (A10); a
+  test that pins TypeBox's hidden-marker behavior (A15); specification drift fixed (A16).
+
+**Exit criteria:** no module-level mutable state in `packages/core/src/` (checked by a test); the
+same contract gives the same diagnostics in `checkContracts`, `createApp`, and `hyapi emit`; the
+request-path baseline does not regress by more than 5%.
+
+### M10: Production features
+
+**Goal:** the observability, authorization, and document features that production deployments need,
+specified in an RFC before implementation.
+
+Findings: F2.2, F2.3, F2.6, F2.7, F4, F5.2–F5.5, F5.7, F5.9.
+
+- **Authorization:** a read-only `security.denied` event (F2.2); `requirement` in `VerifierContext`
+  and documented `HttpError` from verifiers (F2.3); the apiKey challenge decided (F2.6); a recipe
+  for central policy as typed handler wrappers (F2.7).
+- **Observability:** opt-in request ID on events and responses, with an `AsyncLocalStorage` recipe
+  (F5.2); errors with stack and cause on events (F5.3); a `request.unmatched` event (F5.4).
+- **Several documents (F4):** `createApp({ documents })`; `serve` closes several apps or documents
+  how; `hyapi.documents` in the CLI configuration, with per-document `emit`, `emit --check`, `diff`,
+  and `doctor`, and `diff --document` and `--base`.
+- **Limits and deployment:** per-operation body limits (F5.5); a deployment guide for Deno Deploy
+  and containers, with liveness and readiness (F5.7); an HTTP load and memory baseline (F5.9).
+
+**Exit criteria:** the example application uses the request ID, a denial event, and two documents
+(public and internal); every new event is in the observability recipe; `deno task verify` and CI
+pass.
 
 ## Open roadmap questions
 
@@ -287,9 +369,14 @@ The gate below applies to `1.0.0`. This review records where the code stands at 
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every milestone is complete                                    | Met: M0–M7 are done.                                                                                                                                                   |
 | No component specification has an open question that blocks v1 | Met: the remaining open questions are later goals, such as OpenAPI 3.0/3.2 input for `openapi-diff`, release-to-release changelogs, and non-JSON request bodies.       |
-| `deno task verify` and CI pass                                 | `verify` passes locally on Windows. CI has not run yet, because the branch has not been pushed; the Linux-only signal-shutdown test has therefore never run.           |
+| `deno task verify` and CI pass                                 | Met: `verify` passes locally on Windows, and CI passed on Linux for PR #53 (175 tests, including the signal-shutdown test).                                            |
 | The type-performance and request-path baselines are current    | Met: the type-performance check was re-run on 2026-10-09 (200 operations: 1.56 s; editor feedback 170–190 ms). The request-path path is unchanged since the M5 re-run. |
 | The example passes `emit --check` and `hyapi diff`             | Met: `emit --check` runs in `verify`, and CI runs the example's `diff`.                                                                                                |
 
-Before tagging `v0.1.0`: push the branch, let CI pass on Linux, merge to `main`, and then follow the
-release steps in `CONTRIBUTING.md`.
+Before tagging `v0.1.0`: merge PR #53 to `main`, and then follow the release steps in
+`CONTRIBUTING.md`.
+
+[Review 0001](reviews/0001-component-and-production-readiness.md) (2026-10-09) found gaps that the
+gate above did not cover: a request-body validation hole, a fail-open security default, and
+process-global state in Core. They are scheduled as M8–M10, which the 1.0.0 gate now includes.
+`0.1.0` can still be published as an early preview; its release notes must name F1 and F2.1.
