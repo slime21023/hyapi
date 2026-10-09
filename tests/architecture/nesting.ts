@@ -12,21 +12,6 @@ export interface NestingViolation {
   readonly chain: string;
 }
 
-/**
- * Files not yet refactored to the rule. Each refactoring change removes its files; the test fails
- * when a listed file no longer needs the exemption.
- */
-export const PENDING: ReadonlySet<string> = new Set([
-  "packages/cli/src/config.ts",
-  "packages/cli/src/doctor.ts",
-  "packages/cli/src/run.ts",
-  "packages/plugin-cors/mod.ts",
-  "packages/plugin-csrf/mod.ts",
-  "packages/plugin-jwt/mod.ts",
-  "packages/plugin-oidc/mod.ts",
-  "packages/plugin-rate-limit/mod.ts",
-]);
-
 const MAX_DEPTH = 2;
 
 function isControl(node: ts.Node): boolean {

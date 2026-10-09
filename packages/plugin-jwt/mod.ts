@@ -27,6 +27,7 @@ import {
   type JWK,
   type JWTPayload,
   jwtVerify,
+  type JWTVerifyOptions,
 } from "jsr:@panva/jose@^6";
 import type { Verified, VerifierContext } from "@hyapi/core";
 
@@ -140,14 +141,23 @@ export async function jwtBearer<Identity = JWTPayload>(
   };
 
   return async (token) => {
-    let claims: JWTPayload;
-    try {
-      ({ payload: claims } = await jwtVerify(token, key, verifyOptions));
-    } catch (error) {
-      if (error instanceof errors.JOSEError) return null;
-      throw error;
-    }
+    const claims = await verifiedClaims(token, key, verifyOptions);
+    if (claims === null) return null;
     const identity = identityOf(claims);
     return identity === null ? null : { identity, scopes: scopesOf(claims) };
   };
+}
+
+/** The claims of a valid token; null when the token is invalid. Other errors are thrown. */
+async function verifiedClaims(
+  token: string,
+  key: CryptoKey | Uint8Array,
+  options: JWTVerifyOptions,
+): Promise<JWTPayload | null> {
+  try {
+    return (await jwtVerify(token, key, options)).payload;
+  } catch (error) {
+    if (error instanceof errors.JOSEError) return null;
+    throw error;
+  }
 }

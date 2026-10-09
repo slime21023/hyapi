@@ -45,6 +45,16 @@ function positiveInteger(value: number, name: string): void {
   }
 }
 
+/** Makes room for a new window: expired windows go first, then the oldest ones. */
+function evict(windows: Map<string, Window>, maxKeys: number, now: number): void {
+  for (const [stored, window] of windows) if (window.resetAt <= now) windows.delete(stored);
+  // Map keeps insertion order, so the first keys are the oldest windows.
+  for (const stored of windows.keys()) {
+    if (windows.size < maxKeys) return;
+    windows.delete(stored);
+  }
+}
+
 /**
  * Wraps a handler with a fixed-window rate limit per key. Every limited response carries
  * `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`; a rejected request gets 429 with
@@ -61,14 +71,7 @@ export function withRateLimit(handler: FetchHandler, options: RateLimitOptions):
     const existing = windows.get(key);
     if (existing !== undefined && existing.resetAt > now) return existing;
     windows.delete(key);
-    if (windows.size >= maxKeys) {
-      for (const [stored, window] of windows) if (window.resetAt <= now) windows.delete(stored);
-      // Still full: drop the oldest windows (Map keeps insertion order).
-      for (const stored of windows.keys()) {
-        if (windows.size < maxKeys) break;
-        windows.delete(stored);
-      }
-    }
+    if (windows.size >= maxKeys) evict(windows, maxKeys, now);
     const created = { count: 0, resetAt: now + options.windowMs };
     windows.set(key, created);
     return created;

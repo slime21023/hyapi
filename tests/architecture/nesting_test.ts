@@ -1,5 +1,5 @@
 import { assertEquals } from "@std/assert";
-import { checkNesting, checkRepositoryNesting, PENDING } from "./nesting.ts";
+import { checkNesting, checkRepositoryNesting } from "./nesting.ts";
 
 const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
   .replace(/\/$/, "");
@@ -8,18 +8,9 @@ function chains(source: string): string[] {
   return checkNesting("x.ts", source).map((violation) => violation.chain);
 }
 
-Deno.test("packages nest at most two levels, except files still pending refactoring", async () => {
+Deno.test("packages nest at most two levels", async () => {
   const violations = await checkRepositoryNesting(root);
-  assertEquals(
-    violations.filter((v) => !PENDING.has(v.file)).map((v) => `${v.file}:${v.line} ${v.chain}`),
-    [],
-  );
-  const stillNeeded = new Set(violations.map((v) => v.file));
-  assertEquals(
-    [...PENDING].filter((file) => !stillNeeded.has(file)),
-    [],
-    "remove refactored files from PENDING",
-  );
+  assertEquals(violations.map((v) => `${v.file}:${v.line} ${v.within}: ${v.chain}`), []);
 });
 
 Deno.test("control blocks and closures each add a level", () => {

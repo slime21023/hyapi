@@ -27,6 +27,7 @@ import {
   errors,
   type JWTPayload,
   jwtVerify,
+  type JWTVerifyOptions,
 } from "jsr:@panva/jose@^6";
 import type { Verified, VerifierContext } from "@hyapi/core";
 
@@ -142,19 +143,29 @@ export async function oidcBearer<Identity = JWTPayload>(
   };
 
   return async (token) => {
-    let claims: JWTPayload;
-    try {
-      ({ payload: claims } = await jwtVerify(token, keys, verifyOptions));
-    } catch (error) {
-      // Key-server failures are internal errors, never "invalid token".
-      if (
-        error instanceof KeyServerError || error instanceof errors.JWKSTimeout ||
-        error instanceof errors.JWKSInvalid
-      ) throw error;
-      if (error instanceof errors.JOSEError) return null;
-      throw error;
-    }
+    const claims = await verifiedClaims(token, keys, verifyOptions);
+    if (claims === null) return null;
     const identity = identityOf(claims);
     return identity === null ? null : { identity, scopes: scopesOf(claims) };
   };
+}
+
+/** Errors from fetching or reading the key set: internal errors, never "invalid token". */
+function isKeyServerFailure(error: unknown): boolean {
+  return error instanceof KeyServerError || error instanceof errors.JWKSTimeout ||
+    error instanceof errors.JWKSInvalid;
+}
+
+/** The claims of a valid token; null when the token is invalid. Other errors are thrown. */
+async function verifiedClaims(
+  token: string,
+  keys: ReturnType<typeof createRemoteJWKSet>,
+  options: JWTVerifyOptions,
+): Promise<JWTPayload | null> {
+  try {
+    return (await jwtVerify(token, keys, options)).payload;
+  } catch (error) {
+    if (!isKeyServerFailure(error) && error instanceof errors.JOSEError) return null;
+    throw error;
+  }
 }
