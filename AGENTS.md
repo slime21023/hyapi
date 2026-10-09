@@ -3,7 +3,8 @@
 ## Current status
 
 HyAPI is a contract-first API library, built to [ADR 0001](_adr/0001-contract-first-api-library.md),
-[ADR 0002](_adr/0002-architecture-and-component-boundaries.md), and
+[ADR 0002](_adr/0002-architecture-and-component-boundaries.md),
+[ADR 0003](_adr/0003-layered-architecture.md), and
 [RFC 0001](_adr/rfcs/0001-contract-and-handler-api.md). Progress is tracked in
 [`_adr/roadmap.md`](_adr/roadmap.md), and each component's current behavior is specified in
 `_adr/components/`. The superseded `v1.0.0-rc.5` design remains only in git history; do not restore
@@ -82,9 +83,12 @@ Data stores, caches, queues, and business integrations remain application depend
   [ADR 0002](_adr/0002-architecture-and-component-boundaries.md): `@hyapi/core/contract`,
   `@hyapi/core/openapi`, `@hyapi/core`, and `@hyapi/core/deno`. Treat `packages/core/src/` as
   private.
-- Contracts are interpreted only once, in the contract component's `ContractModel`. The runtime and
-  the OpenAPI emitter consume that model, never raw declarations, and never import each other. The
-  contract component never imports runtime, OpenAPI, or Deno host code.
+- Respect the layers of ADR 0003: a module never imports a higher layer, only the application layer
+  (`runtime/app.ts`) owns mutable state and emits events, and no module in `packages/core/src/`
+  keeps mutable state at module scope.
+- Contracts are interpreted only once, in the contract component's internal `ContractModel`. The
+  runtime and the OpenAPI emitter consume that model, never raw declarations, and never import each
+  other. The contract component never imports runtime, OpenAPI, or Deno host code.
 - Place user-facing documentation in `docs/`. Keep ADRs, RFCs, migrations, baselines, and roadmap
   material in `_adr/`, numbered sequentially. Keep component specifications in `_adr/components/`
   and update them in the same change as the code they describe.

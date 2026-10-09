@@ -6,7 +6,8 @@
   [ADR 0002](0002-architecture-and-component-boundaries.md),
   [RFC 0001](rfcs/0001-contract-and-handler-api.md), and the
   [component specifications](components/README.md); M8–M10 are based on
-  [Review 0001](reviews/0001-component-and-production-readiness.md)
+  [Review 0001](reviews/0001-component-and-production-readiness.md) and
+  [ADR 0003](0003-layered-architecture.md)
 
 ## v1 goal
 
@@ -28,19 +29,19 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                               | Goal                                                 | Components                        | Depends on | Status            |
-| --------------------------------------- | ---------------------------------------------------- | --------------------------------- | ---------- | ----------------- |
-| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                        | —          | Done (2026-10-08) |
-| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                          | M0         | Done (2026-10-08) |
-| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                           | M1         | Done (2026-10-08) |
-| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                      | M1         | Done (2026-10-08) |
-| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                  | M2         | Done (2026-10-08) |
-| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                    | M2         | Done (2026-10-08) |
-| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                 | M3         | Done (2026-10-08) |
-| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                      | M4, M5, M6 | Done (2026-10-09) |
-| [M8](#m8-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, serve, plugins | M7         | Planned           |
-| [M9](#m9-controllable-low-layers)       | Controllable low layers (0.3.0)                      | contract, runtime, serve          | M8         | Planned           |
-| [M10](#m10-production-features)         | Production features (0.4.0)                          | runtime, serve, cli, plugins      | M9         | Planned           |
+| Milestone                               | Goal                                                 | Components                             | Depends on | Status            |
+| --------------------------------------- | ---------------------------------------------------- | -------------------------------------- | ---------- | ----------------- |
+| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                             | —          | Done (2026-10-08) |
+| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                               | M0         | Done (2026-10-08) |
+| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                                | M1         | Done (2026-10-08) |
+| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                           | M1         | Done (2026-10-08) |
+| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                       | M2         | Done (2026-10-08) |
+| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08) |
+| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08) |
+| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
+| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Planned           |
+| [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Planned           |
+| [M10](#m10-production-features)         | Production features (0.3.0)                          | runtime, serve, cli, plugins           | M9         | Planned           |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -50,8 +51,8 @@ M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
 M7 ─► M8 ─► M9 ─► M10 ─► 1.0.0
 ```
 
-M2 and M3 can proceed in parallel after M1. M8–M10 run in order: M9's refactors make M10's events
-and documents simpler to add.
+M2 and M3 can proceed in parallel after M1. M8–M10 run in order: M8 settles the layers of ADR 0003,
+so that each fix in M9 and each feature in M10 lands in the layer that owns it.
 
 Each milestone keeps the affected component specifications current. Each milestone resolves the open
 questions listed for it, either in the specification or, when the public API changes, in an RFC.
@@ -282,27 +283,54 @@ early users have tried 0.x.
 - The type-performance and request-path baselines are current.
 - The example application's emitted document passes `emit --check` and `hyapi diff`.
 
-### M8: Correctness and safe defaults
+### M8: Layered architecture
 
-**Goal:** close the validation hole, the fail-open security default, and the shutdown and failure
-gaps that Review 0001 confirmed. Released as `0.2.0`, because applications that relied on the old
-behavior stop at startup.
+**Goal:** restructure Core to the layers of [ADR 0003](0003-layered-architecture.md) and enforce
+them, before any fix or feature is added. Not released on its own; M8 and M9 together are `0.2.0`.
 
-Findings: F1, F2.1, A3, A4, A5, A12, A14, F5.1, F5.6, F3.1–F3.3, F2.4, F2.5, F5.8.
+Findings: A1–A4, A6–A13, A15, A16.
+
+- **L1 Contract:** custom formats declared in `defineApi({ formats })` and checked against the
+  standard list (A1); the model deep-cloned and deep-frozen (A3); `checkContracts` split into pure
+  steps (A6) and returning `{ ok, diagnostics }`; the model no longer exported (A9).
+- **L2 Mechanisms:** `wire.ts` split into `params.ts` and `body.ts`, with a cancellable body reader
+  (A11, A12); security returns a denial instead of a response (A8); lifecycle returns failures
+  instead of emitting them; health becomes a pure aggregator without draining (A2).
+- **L3 Request flow:** the pipeline returns an `Outcome` with every fact an event needs and emits
+  nothing (A7).
+- **L4 Application:** the only emitter of events and owner of state; registers formats with
+  collision detection; `createApp` split into binding, plans, and drain tracking (A11); dead and
+  duplicated surface removed (A13).
+- **L5 Host:** `serve().finished` never rejects unhandled (A4).
+- **Openapi and CLI:** `emitOpenApi(api)` with `ContractError`; the CLI and `doctor` use public
+  functions and the emitted document.
+- **Enforcement:** the architecture test checks the layer edges and the no-module-state rule;
+  internal tests cover L2 modules (A10); a test pins TypeBox's hidden-marker behavior (A15);
+  specifications updated (A16).
+
+**Exit criteria:** the architecture test enforces ADR 0003 §4 and §5; RFC 0001 records the public
+changes as amendments; the request-path baseline does not regress by more than 5%;
+`deno task
+verify` and CI pass.
+
+### M9: Correctness and safe defaults
+
+**Goal:** close the validation hole, the fail-open security default, and the remaining shutdown and
+response gaps that Review 0001 confirmed. Released with M8 as `0.2.0`, because applications that
+relied on the old behavior stop at startup.
+
+Findings: F1, F2.1, A5, A14, F5.1, F5.6, F3.1–F3.3, F2.4, F2.5, F5.8.
 
 - **Request bodies (F1):** startup fails when a non-JSON, non-text media type declares a schema
   other than a binary string, until form bodies are implemented.
 - **Implicit public operations (F2.1):** a startup diagnostic when security schemes exist and an
   operation has no requirement at any level and no explicit `security: []`. Recorded as an RFC 0001
   amendment.
-- **Immutable model (A3):** normalization deep-clones and deep-freezes schemas and metadata, keeping
-  TypeBox's hidden markers.
-- **Shutdown (A4, F5.1):** `serve().finished` never rejects unhandled; open response bodies count as
-  in flight, streams are aborted on shutdown, and resources stop after the listener drains.
+- **Streaming shutdown (F5.1):** open response bodies count as in flight, streams are aborted on
+  shutdown, and resources stop after the listener drains. Raw `Response` is documented for streams
+  (F5.6).
 - **Response policy (A5):** header values are validated, and every response check follows
-  `responseValidation`.
-- **Smaller fixes:** cancel the body reader on timeout (A12); reserve the schema name `Problem`
-  (A14); document raw `Response` for streams (F5.6).
+  `responseValidation`. The schema name `Problem` is reserved (A14).
 - **Plugins and guides:** one canonical wrapper order, tested; CSRF skips preflight; `Vary: Origin`
   always; `exposeHeaders` documented and the example fixed (F3.1–F3.3); `plugin-jwt` requires
   `audience` (F2.5); the trust model for proxy headers and `x-forwarded-for` (F2.4, F5.8).
@@ -310,34 +338,10 @@ Findings: F1, F2.1, A3, A4, A5, A12, A14, F5.1, F5.6, F3.1–F3.3, F2.4, F2.5, F
 **Exit criteria:** each finding has a public test that failed before the fix; the specifications and
 the guide describe the new behavior; `deno task verify` and CI pass.
 
-### M9: Controllable low layers
-
-**Goal:** make the lowest layers deterministic, explicitly owned, and testable in isolation, as
-Review 0001 requires.
-
-Findings: A1, A2, A6–A11, A13, A15, A16. The public changes (A1, A2, A9, A13) are specified in an
-RFC before implementation.
-
-- **No global inputs (A1):** custom formats are declared on the API and checked against that
-  declaration; `createApp` alone registers them.
-- **No module state (A2):** health draining becomes an explicit input; `markDraining` is deleted.
-- **Clear boundaries:** split `checkContracts` into pure steps (A6); the pipeline reports the
-  problem `code` (A7); the security evaluator returns a denial that the pipeline renders (A8); split
-  `createApp` and `wire.ts` (A11).
-- **Public surface:** decide whether `ContractModel` is a versioned interface or a narrower export
-  (A9); remove `ProblemCode`, merge `StartupDiagnostic` into `Diagnostic`, and route the remaining
-  `console.warn` through events (A13).
-- **Tests:** internal tests for `routing`, `wire`, `validation`, `deadline`, and `check` (A10); a
-  test that pins TypeBox's hidden-marker behavior (A15); specification drift fixed (A16).
-
-**Exit criteria:** no module-level mutable state in `packages/core/src/` (checked by a test); the
-same contract gives the same diagnostics in `checkContracts`, `createApp`, and `hyapi emit`; the
-request-path baseline does not regress by more than 5%.
-
 ### M10: Production features
 
 **Goal:** the observability, authorization, and document features that production deployments need,
-specified in an RFC before implementation.
+specified in an RFC before implementation. Released as `0.3.0`.
 
 Findings: F2.2, F2.3, F2.6, F2.7, F4, F5.2–F5.5, F5.7, F5.9.
 
@@ -378,5 +382,6 @@ Before tagging `v0.1.0`: merge PR #53 to `main`, and then follow the release ste
 
 [Review 0001](reviews/0001-component-and-production-readiness.md) (2026-10-09) found gaps that the
 gate above did not cover: a request-body validation hole, a fail-open security default, and
-process-global state in Core. They are scheduled as M8–M10, which the 1.0.0 gate now includes.
-`0.1.0` can still be published as an early preview; its release notes must name F1 and F2.1.
+process-global state in Core. ADR 0003 settles the layers first; the findings are scheduled as
+M8–M10, which the 1.0.0 gate now includes. `0.1.0` can still be published as an early preview; its
+release notes must name F1 and F2.1.

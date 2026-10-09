@@ -1,6 +1,7 @@
 # Review 0001: Component design and production readiness
 
-- Status: Accepted. Findings are scheduled in [the roadmap](../roadmap.md) as M8–M10.
+- Status: Accepted. [ADR 0003](../0003-layered-architecture.md) settles the layering, and the
+  findings are scheduled in [the roadmap](../roadmap.md) as M8–M10.
 - Date: 2026-10-09
 - Scope: `docs/contract-first-redesign` at `ad13a9a` (0.1.0 candidate, PR #53)
 - Method: two independent read-only reviews, each confirmed by probe scripts run against the public
