@@ -1,100 +1,83 @@
 # HyAPI development guide
 
-## Current status
+HyAPI is a contract-first API library for Deno. Contracts are TypeScript (TypeBox), handlers are
+type-checked against them, and they compile into an OpenAPI 3.1 document. The decisions behind this
+guide are in [`_adr/`](_adr/): ADR 0001 (product), ADR 0002 (components), ADR 0003 (layers), and RFC
+0001 (public API).
 
-HyAPI is a contract-first API library, built to [ADR 0001](_adr/0001-contract-first-api-library.md),
-[ADR 0002](_adr/0002-architecture-and-component-boundaries.md),
-[ADR 0003](_adr/0003-layered-architecture.md), and
-[RFC 0001](_adr/rfcs/0001-contract-and-handler-api.md). Progress is tracked in
-[`_adr/roadmap.md`](_adr/roadmap.md), and each component's current behavior is specified in
-`_adr/components/`. The superseded `v1.0.0-rc.5` design remains only in git history; do not restore
-or port it.
+## Design principles
 
-## Product boundary
+- **The contract is the single source of truth.** Handler types are inferred from it, the runtime
+  enforces it, and the document is compiled from it. Contracts are interpreted once, into the
+  internal `ContractModel`; nothing else reads raw declarations.
+- **Lower layers own less.** Contract (L1) → mechanisms (L2) → request flow (L3) → application (L4)
+  → host (L5) → plugins (L6). A module never imports a higher layer. Only `runtime/app.ts` holds
+  mutable state and emits events; lower layers return results. No module keeps state at module
+  scope.
+- **Fail at startup, all at once.** Report every diagnostic together instead of ignoring an
+  unsupported keyword, style, handler, or scheme. Security fails closed.
+- **Explicit over automatic.** Options and dependencies are passed in, by closure. No global state,
+  hidden defaults, or behavior that changes network or security policy on its own.
+- **Web standards first.** Core uses only Web APIs and TypeBox. Deno-specific code stays in
+  `@hyapi/core/deno`. No `eval` or `new Function` in HyAPI code.
+- **Direct before abstract.** Write the plain implementation first. Add an interface, factory, or
+  layer only for a second real implementation; delete indirection with one caller.
 
-HyAPI contracts are written in TypeScript, agreed before implementation, and compiled into OpenAPI
-3.1 documents of delivery quality. Keep `@hyapi/core` limited to:
+## Boundaries
 
-- declaring contracts (`operationId`-keyed operations with TypeBox schemas) and binding their
-  implementations by `operationId`;
-- routing, parameter deserialization, request validation, response shaping and validation, and RFC
-  9457 problem+json errors;
-- evaluating the contract's security requirements through application-supplied verifiers;
-- compiling contracts into a deterministic OpenAPI 3.1 document; and
-- cancellation, timeouts, lifecycle, health-check aggregation, and read-only operation events.
+Core (`@hyapi/core`) does only this:
 
-The contract is the only source of truth, and handler types are inferred from it. Do not add YAML or
-JSON documents as input, code generation of types or handlers, schema libraries other than TypeBox,
-contract constructs that cannot be represented in JSON Schema, handler resolution from strings or
-module paths, or routes the contracts do not declare except through explicit opt-in options.
-Contract tooling such as `emit` and `doctor` belongs in `@hyapi/cli`; OpenAPI change classification
-belongs in `@hyapi/openapi-diff`, which depends on no HyAPI package.
+- declare contracts and bind implementations by `operationId`;
+- route, decode, validate, shape responses, and answer RFC 9457 problems;
+- evaluate declared security through application-supplied verifiers;
+- emit a deterministic OpenAPI 3.1 document; and
+- handle cancellation, timeouts, lifecycle, health aggregation, and read-only events.
 
-Do not add an ORM, database, cache, message queue, service discovery, default retry policy, global
-rate limiter, or other infrastructure product to Core. These are application, host, or ecosystem
-concerns—not unfinished framework features.
+It never gets:
 
-Keep TLS, CORS, WAF, compression, security headers, and global rate limiting at the reverse
-proxy/edge or in an outer `fetch` wrapper. Do not introduce a general middleware system, mutable
-request/response hooks, or a Core plugin interface.
+- YAML or JSON documents as input, code generation, schema libraries other than TypeBox, or
+  constructs JSON Schema cannot represent;
+- routes the contracts do not declare, except through explicit opt-in options;
+- middleware, mutable hooks, or a plugin interface; or
+- infrastructure: databases, caches, queues, retries, service discovery, or global rate limits.
 
-## Design rules
+TLS, compression, security headers, and global limits belong at the edge. Contract tooling belongs
+in `@hyapi/cli`, and change classification belongs in `@hyapi/openapi-diff`, which depends on no
+HyAPI package.
 
-- Prefer Deno and Web Platform APIs before adding a dependency or wrapper. Core uses only
-  Web-standard APIs; Deno-specific helpers such as `serve()` stay thin and separate.
-- Do not generate code at runtime with `eval` or `new Function` in HyAPI's own code. Validation
-  relies on TypeBox, which compiles where evaluation is allowed and falls back otherwise.
-- Fail at startup, with every diagnostic reported together, rather than silently ignoring an
-  unsupported keyword, parameter style, handler, or security scheme.
-- Make the direct implementation clear before introducing an interface, factory, registry, or layer.
-  Delete indirection that has only one implementation or caller.
-- Give each module one reason to change. Keep low-level modules small and policy-free; keep
-  application orchestration in `app.ts` and application code.
-- Depend on public contracts at boundaries. Do not expose or import Core internals to solve an
-  extension problem.
-- Use SOLID to clarify ownership and substitution, never as a reason to create speculative
-  abstractions.
-- Prefer explicit options and dependency injection by closure. Avoid global state, hidden defaults,
-  and automatic behavior that changes network or security policy.
+A plugin is either a **verifier** for a declared scheme, or an **outer wrapper**
+`(fetch, options) => fetch`. It uses only public entry points, exposes one small factory with typed
+options, and stays removable. Prefer a recipe with an existing package before a new plugin.
 
-## Optional integrations
+## Code conventions
 
-Provide a recipe using an established ecosystem package before creating an official plugin. Add a
-plugin package only for a repeated, well-defined integration that the public Core API can already
-support. An official plugin takes one of two shapes:
-
-- a **security verifier** that the application registers under a `securitySchemes` name, such as JWT
-  or OIDC/JWKS verification; or
-- an **outer `fetch` wrapper** of the form `(fetch, options) => fetch`, such as CORS, CSRF, or
-  single-instance rate limiting.
-
-An optional plugin must:
-
-- depend on `@hyapi/core` only through its public entry points;
-- expose a small explicit factory and typed options, with no global singleton;
-- own its dependencies, tests, documentation, release cadence, and compatibility policy; and
-- remain removable: Core and applications that do not select it must have no dependency on it.
-
-Data stores, caches, queues, and business integrations remain application dependencies.
+- **One reason to change per module.** Name files in `snake_case` after what they do. Split a
+  function when it mixes steps that could be tested apart.
+- **Names say what, comments say why.** Every export has a doc comment. Inside functions, comment
+  only intent, constraints, and non-obvious trade-offs, never what the next line does.
+- **Results for expected failures, exceptions for bugs.** Return a tagged union (`{ kind: ... }`)
+  for outcomes a caller handles, such as a malformed body or a denied request. Throw only for
+  programmer errors and broken invariants.
+- **Readonly by default.** Mark public fields `readonly`, return frozen objects, and never mutate an
+  argument. Copy before changing.
+- **Plain control flow.** Prefer early returns, small named helpers, and `for` loops over clever
+  expressions. Avoid `any`; when unavoidable, add `deno-lint-ignore` next to it.
+- **At most two levels of nesting.** When blocks (`if`, loops, `try`, `switch`) or closures nest
+  three levels deep or more, simplify: return early, invert conditions, or extract a named function
+  that takes what it needs as parameters instead of capturing it.
+- **Stable identifiers.** Diagnostic codes are `kebab-case`; problem codes are
+  `SCREAMING_SNAKE_CASE`. Messages start lowercase and say how to fix the problem.
+- **Tests read as specifications.** Name tests as sentences about behavior. Public tests in
+  `tests/*/public/` import only package entry points; tests of private modules go in `internal/`.
 
 ## Repository rules
 
-- The public Core boundary is the four entry points defined in
-  [ADR 0002](_adr/0002-architecture-and-component-boundaries.md): `@hyapi/core/contract`,
-  `@hyapi/core/openapi`, `@hyapi/core`, and `@hyapi/core/deno`. Treat `packages/core/src/` as
-  private.
-- Respect the layers of ADR 0003: a module never imports a higher layer, only the application layer
-  (`runtime/app.ts`) owns mutable state and emits events, and no module in `packages/core/src/`
-  keeps mutable state at module scope.
-- Contracts are interpreted only once, in the contract component's internal `ContractModel`. The
-  runtime and the OpenAPI emitter consume that model, never raw declarations, and never import each
-  other. The contract component never imports runtime, OpenAPI, or Deno host code.
-- Place user-facing documentation in `docs/`. Keep ADRs, RFCs, migrations, baselines, and roadmap
-  material in `_adr/`, numbered sequentially. Keep component specifications in `_adr/components/`
-  and update them in the same change as the code they describe.
-- Keep public contract tests under `tests/core/public/` and `tests/cli/public/`; they must import
-  package facades, not private source files. Internal behavior tests belong under `internal/`.
-- Keep benchmarks in `bench/` and examples in `apps/example/`; neither defines the public API.
-
-Run the smallest relevant check while changing code, and run `deno task verify` before declaring a
-cross-cutting change complete.
+- The public surface is the four Core entry points (`@hyapi/core/contract`, `@hyapi/core/openapi`,
+  `@hyapi/core`, `@hyapi/core/deno`) and each package's `mod.ts`. `packages/core/src/` is private.
+- A public API change updates RFC 0001, the component specification in `_adr/components/`, the guide
+  in `docs/`, and `CHANGELOG.md` in the same change.
+- Record design decisions, RFCs, reviews, and baselines in `_adr/`, numbered sequentially; user
+  documentation goes in `docs/`.
+- Benchmarks live in `bench/` and the example in `apps/example/`; neither defines the public API.
+- Run the smallest relevant check while working, and `deno task verify` before calling a change
+  done. The architecture tests enforce the component and layer rules.
