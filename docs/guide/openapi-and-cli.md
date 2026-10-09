@@ -15,7 +15,38 @@ The CLI reads the `hyapi` section of `deno.json`:
 ```
 
 `--api <module#export>` and `--out <file>` override it. The document's extension chooses the format:
-`.json`, `.yaml`, or `.yml`.
+`.json`, `.yaml`, or `.yml`; `openapi` may also list several files, such as a JSON and a YAML copy.
+
+### Several documents
+
+To publish different documents for different readers, such as a public one for clients and a
+complete one for operators, declare each as its own API. The APIs share contract values, so the
+documents always agree:
+
+```ts
+export const api = defineApi({ info, securitySchemes: security, contracts: [books, admin] });
+export const publicApi = defineApi({ info, securitySchemes: security, contracts: [books] });
+```
+
+```json
+{
+  "hyapi": {
+    "documents": [
+      { "name": "internal", "api": "./contracts/api.ts#api", "openapi": "./openapi.json" },
+      {
+        "name": "public",
+        "api": "./contracts/api.ts#publicApi",
+        "openapi": ["./openapi.public.json", "./openapi.public.yaml"]
+      }
+    ]
+  }
+}
+```
+
+`emit`, `doctor`, and `diff` then work on every document, and `--document <name>` selects one. The
+application is built from the complete API, and can serve each document (see
+[Serving documents](./operations#serving-documents)). A document is not an access control: an
+operation left out of the public document is still served. Protect it with security.
 
 ## `hyapi emit`
 
@@ -36,9 +67,10 @@ errors.
 
 ## `hyapi doctor`
 
-Checks the contracts and the committed document without starting a server. It also lists the
+Checks the contracts and the committed documents without starting a server. It also lists the
 statuses the runtime can produce that operations do not declare, such as 400 for invalid input or
-503 for timeouts, so you can decide whether to document them.
+503 for timeouts, so you can decide whether to document them. With several documents, it checks that
+an `operationId` names the same route in every document.
 
 ## `hyapi diff`
 
@@ -49,7 +81,11 @@ Compares the API compiled from the current contracts with the document committed
 hyapi diff                     # text; breaking changes exit with 1
 hyapi diff --format markdown   # for pull request comments and release notes
 hyapi diff --allow-breaking    # acknowledge intended breaking changes
+hyapi diff --base v1.4.0       # compare with a tag, branch, or commit instead of main
 ```
+
+With several documents, each is compared on its own, under its name, and the breaking changes of all
+documents count toward the exit code. The JSON format then has a `documents` object keyed by name.
 
 Each change has a stable rule and a severity. The rules depend on direction: for what consumers
 send, stricter is breaking; for what they receive, looser is breaking. Some examples:

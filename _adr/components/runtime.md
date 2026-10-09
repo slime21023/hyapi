@@ -238,6 +238,14 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
 - **Unmatched requests (A32).** The application emits `request.unmatched` for 404, 405, and
   malformed paths, but not for the document endpoint or for refusals during shutdown.
 
+## Resolved in M10b
+
+- **Several documents (RFC 0001 A33).** `createApp({ documents })` serves each emitted document at
+  its own path, keyed by path in a map that `#handle` consults before routing. Core still never
+  imports the emitter: documents are passed in as content.
+- **Several applications.** `serve` closes one application; the guide shows how to close others
+  after `finished`. No API was added.
+
 ## Open questions
 
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and

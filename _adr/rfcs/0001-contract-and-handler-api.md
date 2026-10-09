@@ -405,6 +405,19 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   operation, with `method`, `path`, `status` (404, 405, or 400 for malformed paths), and the problem
   `code`. Requests for the document endpoint and requests refused during shutdown are not reported.
 
+## 19. Amendments made for M10b (several documents)
+
+- **A33. Several documents.** `createApp({ documents })` replaces the `document` option of A13. It
+  takes a list of `DocumentOption`: `{ path, content, contentType? }`.
+  - Text content is served as given; other content is served as JSON.
+  - The content type follows the path (`.yaml` and `.yml` are `application/yaml`) unless
+    `contentType` is given. Non-text content for a type other than JSON is `invalid-option`.
+  - Paths start with `/`, are unique, and do not collide with a declared route
+    (`document-route-conflict`).
+
+  Each document is its own `defineApi` sharing contract values; the application is built from the
+  complete API. Documents are not access control: Core cannot see what a document leaves out.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

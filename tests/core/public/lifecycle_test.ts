@@ -4,6 +4,7 @@ import {
   type AppEvent,
   createApp,
   createHealth,
+  type DocumentOption,
   implement,
   type LifecycleResource,
   StartupError,
@@ -51,7 +52,7 @@ function build(options: {
   requestTimeoutMs?: number;
   timeouts?: { wait?: number };
   healthy?: () => boolean;
-  document?: { path: string; content: unknown };
+  documents?: DocumentOption[];
 } = {}) {
   const health = createHealth({
     database: () => {
@@ -85,7 +86,7 @@ function build(options: {
     ...(options.shutdownTimeoutMs ? { shutdownTimeoutMs: options.shutdownTimeoutMs } : {}),
     ...(options.requestTimeoutMs ? { requestTimeoutMs: options.requestTimeoutMs } : {}),
     ...(options.timeouts ? { timeouts: options.timeouts } : {}),
-    ...(options.document ? { document: options.document } : {}),
+    ...(options.documents ? { documents: options.documents } : {}),
   });
 }
 
@@ -311,19 +312,51 @@ Deno.test("per-operation timeouts override the request timeout", async () => {
   await app.close();
 });
 
-Deno.test("the opt-in document endpoint serves the emitted document", async () => {
+Deno.test("document endpoints serve emitted documents", async () => {
   const content = { openapi: "3.1.1", info: { title: "Lifecycle", version: "1" }, paths: {} };
-  const app = await build({ document: { path: "/openapi.json", content } });
-  const response = await get(app, "/openapi.json");
-  assertEquals(response.headers.get("content-type"), "application/json");
-  assertEquals(await response.json(), content);
+  const app = await build({
+    documents: [
+      { path: "/openapi.json", content },
+      { path: "/internal/openapi.yaml", content: "openapi: 3.1.1\n" },
+      { path: "/spec", content: "{}", contentType: "application/vnd.oai.openapi+json" },
+    ],
+  });
+  const json = await get(app, "/openapi.json");
+  assertEquals(json.headers.get("content-type"), "application/json");
+  assertEquals(await json.json(), content);
+  const yaml = await get(app, "/internal/openapi.yaml");
+  assertEquals(
+    [yaml.headers.get("content-type"), await yaml.text()],
+    ["application/yaml", "openapi: 3.1.1\n"],
+  );
+  const custom = await get(app, "/spec");
+  assertEquals(custom.headers.get("content-type"), "application/vnd.oai.openapi+json");
+  await custom.body?.cancel();
   const post = await app.fetch(new Request("http://test/openapi.json", { method: "POST" }));
   assertEquals(post.status, 405);
   await post.body?.cancel();
   await app.close();
+});
+
+Deno.test("document endpoints are checked at startup", async () => {
+  const content = { openapi: "3.1.1" };
   const error = await assertRejects(
-    () => build({ document: { path: "/hello", content } }),
+    () =>
+      build({
+        documents: [
+          { path: "/hello", content },
+          { path: "/a.json", content },
+          { path: "/a.json", content },
+          { path: "/b.yaml", content },
+          { path: "relative.json", content },
+        ],
+      }),
     StartupError,
   );
-  assertEquals(error.diagnostics.map((d) => d.code), ["document-route-conflict"]);
+  assertEquals(error.diagnostics.map((d) => [d.code, d.message]), [
+    ["document-route-conflict", "document path '/hello' is a declared route"],
+    ["invalid-option", "document path '/a.json' is listed twice"],
+    ["invalid-option", "document '/b.yaml' is application/yaml, so its content must be text"],
+    ["invalid-option", "every document path must start with '/'"],
+  ]);
 });

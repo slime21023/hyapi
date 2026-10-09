@@ -7,7 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
-Observability and authorization (roadmap M10a).
+Observability and authorization (roadmap M10a), and several documents (roadmap M10b).
+
+### Several documents
+
+- `createApp({ documents })` serves several emitted documents, each at its own path, with an
+  optional `contentType`. It **replaces** the `document` option: write
+  `documents: [{ path, content }]`.
+- `hyapi.documents` in `deno.json` lists `{ name, api, openapi }`, where `openapi` may list several
+  files. `emit`, `emit --check`, `doctor`, and `diff` work on every document. `--document <name>`
+  selects one.
+- `hyapi doctor` fails when an `operationId` names different routes in different documents.
+- `hyapi diff --base <ref>` compares with any branch, tag, or commit.
+- The example serves a public document (the catalog) and an internal one (with the operational
+  endpoints), and turns on request IDs.
 
 ### Added
 

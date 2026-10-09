@@ -3,6 +3,8 @@ import { withCors } from "@hyapi/plugin-cors";
 import { jwtBearer } from "@hyapi/plugin-jwt";
 import { withRateLimit } from "@hyapi/plugin-rate-limit";
 import { api } from "../contracts/api.ts";
+import internalDocument from "../openapi.json" with { type: "json" };
+import publicDocument from "../openapi.public.json" with { type: "json" };
 import { system } from "../contracts/system.ts";
 import { booksImplementation } from "./books.ts";
 import { BookRepository } from "./repository.ts";
@@ -36,6 +38,12 @@ export async function buildExample(config: ExampleConfig): Promise<{
 
   const app = await createApp({
     api,
+    // Clients get the catalog; operators also see the operational endpoints.
+    documents: [
+      { path: "/openapi.json", content: publicDocument },
+      { path: "/internal/openapi.json", content: internalDocument },
+    ],
+    requestId: true,
     implementations: [
       booksImplementation(repository),
       implement(system, {

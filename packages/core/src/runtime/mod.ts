@@ -3,6 +3,7 @@ export {
   type App,
   type AppOptions,
   createApp,
+  type DocumentOption,
   type OperationIdsOf,
   type StartupDiagnosticCode,
   StartupError,

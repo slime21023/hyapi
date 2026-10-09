@@ -21,7 +21,7 @@
     "docs:dev": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress dev docs",
     "docs:build": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress build docs",
     "docs:preview": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress preview docs",
-    "example:check": "deno run -A packages/cli/mod.ts emit --check --api apps/example/contracts/api.ts#api --out apps/example/openapi.json",
+    "example:check": "deno task --cwd apps/example emit --check",
     "publish:check": "deno publish --dry-run --allow-dirty"
   },
   "fmt": {

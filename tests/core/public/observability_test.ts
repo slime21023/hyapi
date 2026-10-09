@@ -212,7 +212,7 @@ Deno.test("error events carry the stack and the cause", async () => {
 
 Deno.test("unmatched requests are events with status and code", async () => {
   const events: AppEvent[] = [];
-  const app = await build({ events, document: { path: "/openapi.json", content: {} } });
+  const app = await build({ events, documents: [{ path: "/openapi.json", content: {} }] });
   const requests: [string, string][] = [["GET", "/nowhere"], ["POST", "/open"], [
     "GET",
     "/items/%E0%A4%A",
