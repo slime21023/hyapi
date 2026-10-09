@@ -2,11 +2,12 @@
 
 ## Current status
 
-HyAPI is being redesigned as a contract-first API library. The accepted direction is
-[ADR 0001](_adr/0001-contract-first-api-library.md). The superseded `v1.0.0-rc.5` implementation,
-tests, example, benchmarks, documentation site, and CI workflows have been removed; they remain in
-git history. Build new code from the ADRs and the component specifications in `_adr/components/`; do
-not restore or port the superseded API.
+HyAPI is a contract-first API library, built to [ADR 0001](_adr/0001-contract-first-api-library.md),
+[ADR 0002](_adr/0002-architecture-and-component-boundaries.md), and
+[RFC 0001](_adr/rfcs/0001-contract-and-handler-api.md). Progress is tracked in
+[`_adr/roadmap.md`](_adr/roadmap.md), and each component's current behavior is specified in
+`_adr/components/`. The superseded `v1.0.0-rc.5` design remains only in git history; do not restore
+or port it.
 
 ## Product boundary
 

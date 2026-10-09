@@ -44,12 +44,15 @@ ADR 0001 §12; ADR 0002 §3, §4.
 
 ## Resolved in M5
 
-- **Interface.** `serve(app, { port, hostname, signals, signal, shutdownTimeoutMs, onListen })`
-  returns `{ addr, finished, shutdown() }`.
+- **Interface.**
+  `serve(app, { port, hostname, signals, signal, shutdownTimeoutMs, onListen, fetch })` returns
+  `{ addr, finished, shutdown() }`.
   - `signals` default to SIGINT and SIGTERM, or SIGINT and SIGBREAK on Windows, where SIGTERM cannot
     be observed.
   - An `AbortSignal` can also trigger the shutdown.
   - Signal handlers are installed only after the listener starts, and removed on shutdown.
+- **Wrapped handlers (M7b).** `fetch` replaces `app.fetch` as the served handler, so outer wrappers
+  such as CORS can be served while `serve` still closes `app` on shutdown.
 - **Shutdown sequence.**
   - `app.close()` (draining, aborting, and stopping resources) and `server.shutdown()` (stopping
     accepting connections and waiting for open responses) run concurrently.

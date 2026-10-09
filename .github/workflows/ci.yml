@@ -13,7 +13,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # hyapi diff compares the example's contracts with the document on main.
+          fetch-depth: 0
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.9.x
       - run: deno task verify
+      - name: Check the example's API changes against main
+        run: deno task diff
+        working-directory: apps/example

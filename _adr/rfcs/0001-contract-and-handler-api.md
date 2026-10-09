@@ -320,6 +320,9 @@ API.
   wrappers use it so that their errors match the runtime's problem shape (`type: "about:blank"`, the
   reason phrase as `title`, `status`, and a stable `code`).
 
+- **A15. `serve` serves wrapped handlers.** `ServeOptions.fetch` replaces `app.fetch` as the served
+  handler, which keeps graceful shutdown when outer `fetch` wrappers are applied.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

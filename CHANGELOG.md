@@ -66,6 +66,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - `@hyapi/plugin-csrf` (`withCsrf`), a signed double-submit check; and
   - `@hyapi/plugin-rate-limit` (`withRateLimit`), a fixed window per key, in memory.
 - `problemResponse` is public in `@hyapi/core`.
+- Documentation and the example (roadmap M7b):
+  - the VitePress user guide (`deno task docs:dev`) and recipes for testing, typed clients, mocking,
+    and observability; and
+  - `apps/example`, a library API that uses every v1 feature.
+
+  `serve()` gains a `fetch` option for wrapped handlers.
 - An abort after the response is sent, such as a client disconnect, no longer leaves an unhandled
   promise rejection.
 - OpenAPI emission and the contract CLI (roadmap M3):

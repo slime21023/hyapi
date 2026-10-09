@@ -27,16 +27,16 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                              | Goal                                                 | Components        | Depends on | Status                 |
-| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | ---------------------- |
-| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08)      |
-| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08)      |
-| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08)      |
-| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08)      |
-| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08)      |
-| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08)      |
-| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08)      |
-| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | In progress (M7a done) |
+| Milestone                              | Goal                                                 | Components        | Depends on | Status                      |
+| -------------------------------------- | ---------------------------------------------------- | ----------------- | ---------- | --------------------------- |
+| [M0](#m0-engineering-foundation)       | Engineering foundation                               | repository        | —          | Done (2026-10-08)           |
+| [M1](#m1-contract)                     | Contracts, inference, normalization, diagnostics     | contract          | M0         | Done (2026-10-08)           |
+| [M2](#m2-runtime-request-path)         | Runtime request path without security                | runtime           | M1         | Done (2026-10-08)           |
+| [M3](#m3-openapi-emission-and-cli)     | OpenAPI emission and the contract CLI                | openapi, cli      | M1         | Done (2026-10-08)           |
+| [M4](#m4-security)                     | Security evaluation and the JWT verifier             | runtime, plugins  | M2         | Done (2026-10-08)           |
+| [M5](#m5-lifecycle-hosting-and-events) | Lifecycle, hosting, health, and events               | runtime, serve    | M2         | Done (2026-10-08)           |
+| [M6](#m6-evolution-governance)         | Evolution governance                                 | openapi-diff, cli | M3         | Done (2026-10-08)           |
+| [M7](#m7-v1-release)                   | Remaining plugins, documentation, and the v1 release | plugins, all      | M4, M5, M6 | In progress (M7a, M7b done) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -258,7 +258,9 @@ Comparing against an earlier release for release notes remains open.
 **Plan:** M7 is delivered in three committed stages:
 
 - **M7a:** the four plugins. Done.
-- **M7b:** the example application, the VitePress user documentation, and recipes.
+- **M7b:** the example application, the VitePress user documentation, and recipes. Done:
+  `apps/example` passes `emit --check` in `verify`, CI runs its `hyapi diff`, and `verify` builds
+  the documentation, which checks for dead links.
 - **M7c:** `SECURITY.md`, release automation, and the release-gate review.
 
 The first published version is `0.1.0`. The release gate below is the condition for `1.0.0`, after
