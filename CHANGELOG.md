@@ -25,6 +25,20 @@ Observability and authorization (roadmap M10a), several documents (roadmap M10b)
   starter project uses it.
 - `deno task bench:http` measures throughput, latency, and memory over real HTTP.
 
+### Fewer generics
+
+- `AGENTS.md` prefers unions to generics, and requires named type parameters; an architecture test
+  rejects one- and two-letter names.
+- `Scheme<Identity, Credential>` is `Scheme<Identity>`; `httpBasic` returns a `BasicScheme`, and the
+  credential type follows from the scheme.
+- `Diagnostic` is no longer generic; `StartupError.diagnostics` is
+  `(Diagnostic | StartupDiagnostic)[]`.
+- `Implementation` is no longer generic.
+- `HandlerFor`, `VerifierFor`, `PathParams`, and `OperationMap` are no longer exported; use
+  `Handler` and `Verifier`.
+- Every type parameter in the packages has a descriptive name, and public generic types document
+  theirs.
+
 ### Several documents
 
 - `createApp({ documents })` serves several emitted documents, each at its own path, with an

@@ -32,8 +32,12 @@ export type BodySpec = TSchema | {
 /** A declared response: a schema (JSON body), the full form, or a named response. */
 export type ResponseValue = TSchema | ResponseSpec | NamedResponse;
 
-/** One operation of a contract. */
-export interface OperationSpec<S extends Schemes = Schemes> {
+/**
+ * One operation of a contract.
+ *
+ * @typeParam SchemeSet - The security schemes whose names `security` may use.
+ */
+export interface OperationSpec<SchemeSet extends Schemes = Schemes> {
   readonly method: HttpMethod;
   /** An OpenAPI path template such as `/users/{id}`. */
   readonly path: string;
@@ -45,7 +49,7 @@ export interface OperationSpec<S extends Schemes = Schemes> {
   readonly body?: BodySpec;
   readonly responses: { readonly [status: number]: ResponseValue };
   /** Alternatives (OR) of requirements (AND). `[]` marks a public operation. */
-  readonly security?: readonly Requirement<S>[];
+  readonly security?: readonly Requirement<SchemeSet>[];
   readonly summary?: string;
   readonly description?: string;
   readonly tags?: readonly string[];
@@ -53,19 +57,26 @@ export interface OperationSpec<S extends Schemes = Schemes> {
 }
 
 /** Operations keyed by `operationId`. */
-export type OperationMap<S extends Schemes = Schemes> = Readonly<Record<string, OperationSpec<S>>>;
+type OperationMap<SchemeSet extends Schemes> = Readonly<Record<string, OperationSpec<SchemeSet>>>;
 
-/** A resource contract created by {@link defineContract}. */
+/**
+ * A resource contract created by {@link defineContract}. It keeps the literal types of its
+ * declarations, so that `implement` can type each handler.
+ *
+ * @typeParam SchemeSet - The security schemes of the API, by name.
+ * @typeParam Operations - The operation declarations, keyed by `operationId`.
+ * @typeParam DefaultSecurity - The contract's default requirement, or `undefined`.
+ */
 export interface Contract<
-  S extends Schemes = Schemes,
-  Ops = OperationMap<S>,
-  Sec = undefined,
+  SchemeSet extends Schemes = Schemes,
+  Operations = OperationMap<SchemeSet>,
+  DefaultSecurity = undefined,
 > {
   readonly kind: "hyapi.contract";
-  readonly securitySchemes?: Security<S>;
-  readonly security?: Sec;
+  readonly securitySchemes?: Security<SchemeSet>;
+  readonly security?: DefaultSecurity;
   readonly tags?: readonly string[];
-  readonly operations: Ops;
+  readonly operations: Operations;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -74,22 +85,31 @@ export type AnyContract = Contract<any, any, any>;
 // --- Type-level path checks ----------------------------------------------------------------------
 
 /** Extracts `{name}` parameters from a path template. */
-export type PathParams<P extends string> = P extends `${string}{${infer Name}}${infer Rest}`
+type PathParams<Path extends string> = Path extends `${string}{${infer Name}}${infer Rest}`
   ? Name | PathParams<Rest>
   : never;
 
-type ParamKeys<Op> = Op extends { readonly params: TObject<infer Props> } ? keyof Props & string
+type ParamKeys<Operation> = Operation extends { readonly params: TObject<infer Properties> }
+  ? keyof Properties & string
   : never;
-type PathOf<Op> = Op extends { readonly path: infer P extends string } ? P : string;
-type Missing<Op> = Exclude<PathParams<PathOf<Op>>, ParamKeys<Op>>;
-type Extra<Op> = Exclude<ParamKeys<Op>, PathParams<PathOf<Op>>>;
+type PathOf<Operation> = Operation extends { readonly path: infer Path extends string } ? Path
+  : string;
+type Missing<Operation> = Exclude<PathParams<PathOf<Operation>>, ParamKeys<Operation>>;
+type Extra<Operation> = Exclude<ParamKeys<Operation>, PathParams<PathOf<Operation>>>;
 
-/** Adds an impossible required property that names the mismatch, so the editor reports it. */
-type CheckOperation<Op> = [Missing<Op>] extends [never] ? [Extra<Op>] extends [never] ? unknown
-  : { readonly [K in `params not in the path: ${Extra<Op>}`]: never }
-  : { readonly [K in `path parameters missing from params: ${Missing<Op>}`]: never };
+/**
+ * Adds an impossible required property that names the mismatch, so the editor reports it.
+ * `[Missing<Operation>] extends [never]` asks "is nothing missing?" without distributing over the
+ * union of names.
+ */
+type CheckOperation<Operation> = [Missing<Operation>] extends [never]
+  ? [Extra<Operation>] extends [never] ? unknown
+  : { readonly [Message in `params not in the path: ${Extra<Operation>}`]: never }
+  : { readonly [Message in `path parameters missing from params: ${Missing<Operation>}`]: never };
 
-type CheckedOperations<Ops> = { readonly [K in keyof Ops]: CheckOperation<Ops[K]> };
+type CheckedOperations<Operations> = {
+  readonly [OperationId in keyof Operations]: CheckOperation<Operations[OperationId]>;
+};
 
 /**
  * Declares the operations of one resource, keyed by `operationId`.
@@ -98,17 +118,21 @@ type CheckedOperations<Ops> = { readonly [K in keyof Ops]: CheckOperation<Ops[K]
  * API root requirement applies when neither does.
  */
 export function defineContract<
-  const Ops extends OperationMap<S>,
+  const Operations extends OperationMap<SchemeSet>,
   // deno-lint-ignore ban-types
-  S extends Schemes = {},
-  const Sec extends readonly Requirement<S>[] | undefined = undefined,
+  SchemeSet extends Schemes = {},
+  const DefaultSecurity extends readonly Requirement<SchemeSet>[] | undefined = undefined,
 >(contract: {
-  readonly securitySchemes?: Security<S>;
-  readonly security?: Sec;
+  readonly securitySchemes?: Security<SchemeSet>;
+  readonly security?: DefaultSecurity;
   readonly tags?: readonly string[];
-  readonly operations: Ops & CheckedOperations<Ops>;
-}): Contract<S, Ops, Sec> {
-  return Object.freeze({ kind: "hyapi.contract", ...contract }) as Contract<S, Ops, Sec>;
+  readonly operations: Operations & CheckedOperations<Operations>;
+}): Contract<SchemeSet, Operations, DefaultSecurity> {
+  return Object.freeze({ kind: "hyapi.contract", ...contract }) as Contract<
+    SchemeSet,
+    Operations,
+    DefaultSecurity
+  >;
 }
 
 // --- API -----------------------------------------------------------------------------------------
@@ -139,16 +163,21 @@ export interface TagSpec {
 /** Checks for custom `format` values, keyed by format name. */
 export type FormatChecks = Readonly<Record<string, (value: string) => boolean>>;
 
-/** An API created by {@link defineApi}. */
-export interface Api<S extends Schemes = Schemes, Cs = readonly AnyContract[]> {
+/**
+ * An API created by {@link defineApi}.
+ *
+ * @typeParam SchemeSet - The security schemes of the API, by name.
+ * @typeParam Contracts - The contracts of the API, so that options can be keyed by `operationId`.
+ */
+export interface Api<SchemeSet extends Schemes = Schemes, Contracts = readonly AnyContract[]> {
   readonly kind: "hyapi.api";
   readonly info: ApiInfo;
   readonly servers?: readonly ServerSpec[];
   readonly tags?: readonly TagSpec[];
   readonly formats?: FormatChecks;
-  readonly securitySchemes?: Security<S>;
-  readonly security?: readonly Requirement<S>[];
-  readonly contracts: Cs;
+  readonly securitySchemes?: Security<SchemeSet>;
+  readonly security?: readonly Requirement<SchemeSet>[];
+  readonly contracts: Contracts;
 }
 
 /**
@@ -160,17 +189,17 @@ export interface Api<S extends Schemes = Schemes, Cs = readonly AnyContract[]> {
  * one process that declare the same name must use the same check.
  */
 export function defineApi<
-  const Cs extends readonly AnyContract[],
+  const Contracts extends readonly AnyContract[],
   // deno-lint-ignore ban-types
-  S extends Schemes = {},
+  SchemeSet extends Schemes = {},
 >(api: {
   readonly info: ApiInfo;
   readonly servers?: readonly ServerSpec[];
   readonly tags?: readonly TagSpec[];
   readonly formats?: FormatChecks;
-  readonly securitySchemes?: Security<S>;
-  readonly security?: readonly Requirement<S>[];
-  readonly contracts: Cs;
-}): Api<S, Cs> {
+  readonly securitySchemes?: Security<SchemeSet>;
+  readonly security?: readonly Requirement<SchemeSet>[];
+  readonly contracts: Contracts;
+}): Api<SchemeSet, Contracts> {
   return Object.freeze({ kind: "hyapi.api", ...api });
 }

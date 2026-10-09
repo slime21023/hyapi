@@ -10,9 +10,7 @@ export {
   defineContract,
   type FormatChecks,
   type HttpMethod,
-  type OperationMap,
   type OperationSpec,
-  type PathParams,
   type ResponseValue,
   type ServerSpec,
   type StyleOverrides,
@@ -24,6 +22,8 @@ export { defineSchema, HealthReport, Problem } from "./schema.ts";
 export {
   apiKey,
   type BasicCredential,
+  type BasicScheme,
+  type BasicSpec,
   type CredentialOf,
   defineSecurity,
   httpBasic,

@@ -66,6 +66,15 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   three levels deep or more, simplify: return early, invert conditions, or extract a named function
   that takes what it needs as parameters instead of capturing it. An arrow function whose body is a
   single expression, or empty, does not count, and `else if` stays at its chain's level.
+- **Unions before generics.** Most code needs no generics. Describe a closed set of cases with a
+  string-literal union, a discriminated union, or an enum, which bounds the cases and keeps types
+  small. Use a generic only to carry a type that the caller chooses and that must reach another
+  place, such as a contract's operations reaching its handlers. Delete a type parameter that no
+  caller uses.
+- **Named type parameters.** Name every type parameter for what it holds, such as `Operations`,
+  `Identity`, or `Contracts`, never a single letter, and document each parameter of a public type
+  with `@typeParam`. Comment type-level tricks, such as `[K] extends [never]`, with why they are
+  needed.
 - **Stable identifiers.** Diagnostic codes are `kebab-case`; problem codes are
   `SCREAMING_SNAKE_CASE`. Messages start lowercase and say how to fix the problem.
 - **Tests read as specifications.** Name tests as sentences about behavior. Public tests in

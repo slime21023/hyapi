@@ -1,3 +1,4 @@
+import type { Diagnostic } from "../contract/diagnostics.ts";
 import type { AnyContract } from "../contract/define.ts";
 import type { ContractModel, OperationModel } from "../contract/model.ts";
 import type { Implementation } from "./handler.ts";
@@ -21,6 +22,11 @@ export type StartupDiagnosticCode =
   | "document-route-conflict"
   | "format-conflict"
   | "not-implemented";
+
+/** A problem that only `createApp` can find, such as a missing handler. */
+export interface StartupDiagnostic extends Omit<Diagnostic, "code"> {
+  readonly code: StartupDiagnosticCode;
+}
 
 /** Reports a startup error. */
 export type StartupReport = (

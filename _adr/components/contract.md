@@ -21,9 +21,10 @@ and never read raw declarations.
   TypeBox's own `~kind` markers. TypeBox keeps such keys when it derives schemas, so schemas nested
   in `T.Omit` or `T.Partial` results keep their names, while the derived top-level schema does not
   inherit one. Problem responses are recognized by the component name `Problem`.
-- **Scheme types.** `Scheme<Identity, Credential>` carries, in types only, the identity the scheme's
-  verifier returns and the credential it receives: `string` for every scheme, except
-  `BasicCredential` (`{ username, password }`) for `httpBasic`.
+- **Scheme types.** `Scheme<Identity>` carries, in types only, the identity the scheme's verifier
+  returns. The credential the verifier receives follows from the scheme's `spec`: `httpBasic`
+  returns a `BasicScheme`, whose credential is a `BasicCredential` (`{ username, password }`); every
+  other scheme receives a string.
 - **Type inference.** Helpers infer handler input, the per-operation response union, and verifier
   identity types directly from TypeBox `Static`, with no generation.
 - **Normalization into `ContractModel`.** Every interpretation decision is made here, once:

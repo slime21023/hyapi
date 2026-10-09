@@ -1,7 +1,7 @@
 import * as Format from "typebox/format";
 import { compileContracts } from "../contract/check.ts";
 import type { AnyContract, Api, Contract } from "../contract/define.ts";
-import { describeErrors, type Diagnostic, type DiagnosticCode } from "../contract/diagnostics.ts";
+import { describeErrors, type Diagnostic } from "../contract/diagnostics.ts";
 import type { FormatModel } from "../contract/model.ts";
 import type { Schemes } from "../contract/security.ts";
 import {
@@ -10,6 +10,7 @@ import {
   checkLifecycle,
   checkVerifiers,
   positiveInteger,
+  type StartupDiagnostic,
   type StartupDiagnosticCode,
   type StartupReport,
 } from "./binding.ts";
@@ -36,28 +37,41 @@ import { createSecurity, type SecurityEvaluator, type Verifiers } from "./securi
 import { createValidators } from "./validation.ts";
 
 // deno-lint-ignore no-explicit-any
-type SchemesOf<A> = A extends Api<infer S, any> ? S : Schemes;
+type SchemesOf<Definition> = Definition extends Api<infer SchemeSet, any> ? SchemeSet : Schemes;
 
-/** The `operationId`s of every contract of an API. */
+/**
+ * The `operationId`s of every contract of an API, which key per-operation options.
+ *
+ * @typeParam Definition - The API, as `typeof api`.
+ */
 // deno-lint-ignore no-explicit-any
-export type OperationIdsOf<A> = A extends Api<any, infer Cs>
-  // deno-lint-ignore no-explicit-any
-  ? Cs extends readonly (infer C)[] ? C extends Contract<any, infer Ops, any> ? keyof Ops & string
-    : never
+export type OperationIdsOf<Definition> = Definition extends Api<any, infer Contracts>
+  ? Contracts extends readonly (infer Resource)[]
+    // deno-lint-ignore no-explicit-any
+    ? Resource extends Contract<any, infer Operations, any> ? keyof Operations & string : never
   : never
   : never;
 
-/** One verifier per security scheme, required when the API declares schemes. */
-type VerifierOption<A> = [keyof SchemesOf<A>] extends [never]
+/**
+ * One verifier per security scheme, required when the API declares schemes.
+ * `[keyof ...] extends [never]` asks "are there no schemes?" without distributing over names.
+ */
+type VerifierOption<Definition> = [keyof SchemesOf<Definition>] extends [never]
   ? { readonly verifiers?: Readonly<Record<string, never>> }
-  : { readonly verifiers: Verifiers<SchemesOf<A>> };
+  : { readonly verifiers: Verifiers<SchemesOf<Definition>> };
 
-/** Options for {@link createApp}. */
-export type AppOptions<A extends Api = Api> = BaseOptions<A> & VerifierOption<A>;
+/**
+ * Options for {@link createApp}.
+ *
+ * @typeParam Definition - The API, as `typeof api`; it types verifiers and per-operation options.
+ */
+export type AppOptions<Definition extends Api = Api> =
+  & BaseOptions<Definition>
+  & VerifierOption<Definition>;
 
-interface BaseOptions<A extends Api> {
+interface BaseOptions<Definition extends Api> {
   /** The API created by `defineApi`. */
-  readonly api: A;
+  readonly api: Definition;
   /** Exactly one implementation per contract of the API, created by `implement`. */
   readonly implementations: readonly Implementation[];
   /**
@@ -73,11 +87,11 @@ interface BaseOptions<A extends Api> {
   /** Time allowed per request before it fails with 503. Defaults to 30 000 ms. */
   readonly requestTimeoutMs?: number;
   /** Per-operation request timeouts that override `requestTimeoutMs`. */
-  readonly timeouts?: { readonly [K in OperationIdsOf<A>]?: number };
+  readonly timeouts?: { readonly [OperationId in OperationIdsOf<Definition>]?: number };
   /** Maximum request body size. Defaults to 1 MiB. */
   readonly bodyLimitBytes?: number;
   /** Per-operation body limits that override `bodyLimitBytes`, for operations with a body. */
-  readonly bodyLimits?: { readonly [K in OperationIdsOf<A>]?: number };
+  readonly bodyLimits?: { readonly [OperationId in OperationIdsOf<Definition>]?: number };
   /** Resources started in order before the app is returned, and stopped in reverse on close. */
   readonly lifecycle?: readonly LifecycleResource[];
   /** Receives read-only events. Without it, problem events are written with `console.warn`. */
@@ -123,13 +137,13 @@ export interface App {
   close(): Promise<void>;
 }
 
-export type { StartupDiagnosticCode };
+export type { StartupDiagnostic, StartupDiagnosticCode };
 
 /** Thrown by {@link createApp} with every diagnostic that prevents startup. */
 export class StartupError extends Error {
-  readonly diagnostics: readonly Diagnostic<DiagnosticCode | StartupDiagnosticCode>[];
+  readonly diagnostics: readonly (Diagnostic | StartupDiagnostic)[];
 
-  constructor(diagnostics: readonly Diagnostic<DiagnosticCode | StartupDiagnosticCode>[]) {
+  constructor(diagnostics: readonly (Diagnostic | StartupDiagnostic)[]) {
     const count = diagnostics.filter((d) => d.severity === "error").length;
     super(
       `The application cannot start (${count} error${count === 1 ? "" : "s"}):\n` +
@@ -637,9 +651,11 @@ class RunningApp {
  * and returns it. Every contract, implementation, and option problem is reported together in a
  * {@link StartupError}.
  */
-export async function createApp<A extends Api>(options: AppOptions<A>): Promise<App> {
+export async function createApp<Definition extends Api>(
+  options: AppOptions<Definition>,
+): Promise<App> {
   const emit = createEmitter(options.onEvent);
-  const diagnostics: Diagnostic<DiagnosticCode | StartupDiagnosticCode>[] = [];
+  const diagnostics: (Diagnostic | StartupDiagnostic)[] = [];
   const error: StartupReport = (code, message, operationId) =>
     diagnostics.push({ severity: "error", code, message, ...(operationId ? { operationId } : {}) });
 

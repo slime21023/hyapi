@@ -1,0 +1,21 @@
+import { assertEquals } from "@std/assert";
+import { checkRepositoryTypeParameters, checkTypeParameters } from "./generics.ts";
+
+const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
+  .replace(/\/$/, "");
+
+const names = (source: string) => checkTypeParameters("x.ts", source).map((v) => v.name);
+
+Deno.test("packages name every type parameter for what it holds", async () => {
+  const violations = await checkRepositoryTypeParameters(root);
+  assertEquals(violations.map((v) => `${v.file}:${v.line} ${v.name}`), []);
+});
+
+Deno.test("short names are reported in declarations, infer, and mapped types", () => {
+  assertEquals(names("type Box<T> = { value: T };"), ["T"]);
+  assertEquals(names("type First<List> = List extends [infer H, ...unknown[]] ? H : never;"), [
+    "H",
+  ]);
+  assertEquals(names("type Flags<Keys extends string> = { [K in Keys]: boolean };"), ["K"]);
+  assertEquals(names("function identity<Value>(value: Value): Value { return value; }"), []);
+});

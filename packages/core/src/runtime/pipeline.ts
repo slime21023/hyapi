@@ -183,7 +183,7 @@ interface RequestScope extends Incoming {
   /** Aborts on client disconnect, the request timeout, and forced shutdown. */
   readonly signal: AbortSignal;
   /** Races work against `signal`, rejecting with its reason. */
-  readonly bounded: <T>(work: Promise<T> | T) => Promise<T>;
+  readonly bounded: <Result>(work: Promise<Result> | Result) => Promise<Result>;
 }
 
 /**

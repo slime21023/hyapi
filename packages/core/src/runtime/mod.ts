@@ -5,6 +5,7 @@ export {
   createApp,
   type DocumentOption,
   type OperationIdsOf,
+  type StartupDiagnostic,
   type StartupDiagnosticCode,
   StartupError,
 } from "./app.ts";
@@ -12,7 +13,6 @@ export type { AppEvent, EventListener } from "./events.ts";
 export {
   type Context,
   type Handler,
-  type HandlerFor,
   implement,
   type Implementation,
   type NotImplemented,
@@ -27,7 +27,7 @@ export {
 } from "./health.ts";
 export type { LifecycleResource } from "./lifecycle.ts";
 export type { ResponseValidation } from "./pipeline.ts";
-export type { Verified, Verifier, VerifierContext, VerifierFor, Verifiers } from "./security.ts";
+export type { Verified, Verifier, VerifierContext, Verifiers } from "./security.ts";
 export {
   type ErrorInfo,
   HttpError,

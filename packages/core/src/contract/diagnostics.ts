@@ -37,10 +37,10 @@ export type DiagnosticCode =
   | "unsupported-body-schema"
   | "reserved-schema-name";
 
-/** One problem found in an API's contracts, or, with a wider `Code`, at application startup. */
-export interface Diagnostic<Code extends string = DiagnosticCode> {
+/** One problem found in an API's contracts. */
+export interface Diagnostic {
   readonly severity: "error" | "warning";
-  readonly code: Code;
+  readonly code: DiagnosticCode;
   readonly message: string;
   readonly operationId?: string;
   /** A slash-separated path to the offending declaration, such as `getUser/responses/200/body`. */
@@ -83,7 +83,9 @@ export function createReporter(): Reporter {
 }
 
 /** Formats the error diagnostics of a list as one indented message. */
-export function describeErrors(diagnostics: readonly Diagnostic<string>[]): string {
+export function describeErrors(
+  diagnostics: readonly (Omit<Diagnostic, "code"> & { readonly code: string })[],
+): string {
   return diagnostics
     .filter((d) => d.severity === "error")
     .map((d) => `- [${d.code}]${d.operationId ? ` ${d.operationId}:` : ""} ${d.message}`)

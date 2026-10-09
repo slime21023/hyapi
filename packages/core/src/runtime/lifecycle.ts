@@ -1,15 +1,13 @@
 import { withDeadline } from "./deadline.ts";
 
-type Awaitable<T> = T | Promise<T>;
-
 /** A resource the application starts before serving and stops when it closes. */
 export interface LifecycleResource {
   /** Names the resource in errors and events. */
   readonly name: string;
   /** Called in declaration order before the application is returned. */
-  readonly start?: () => Awaitable<void>;
+  readonly start?: () => void | Promise<void>;
   /** Called in reverse order on close, or to roll back a failed startup. Bounded by a signal. */
-  readonly stop?: (signal: AbortSignal) => Awaitable<void>;
+  readonly stop?: (signal: AbortSignal) => void | Promise<void>;
 }
 
 /** A resource that failed to start or stop. */

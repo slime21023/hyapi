@@ -2,8 +2,6 @@ import type { Static } from "typebox";
 import type { HealthReport } from "../contract/schema.ts";
 import { withDeadline } from "./deadline.ts";
 
-type Awaitable<T> = T | Promise<T>;
-
 /** The status of one check, or of the whole report. */
 export type HealthStatus = "healthy" | "degraded" | "unhealthy";
 
@@ -14,7 +12,10 @@ export type HealthStatus = "healthy" | "degraded" | "unhealthy";
  */
 export type HealthCheck = (
   signal: AbortSignal,
-) => Awaitable<void | { readonly status: "healthy" | "degraded"; readonly detail?: string }>;
+) => CheckResult | Promise<CheckResult>;
+
+/** What a check returns: nothing when healthy, or an explicit status. */
+type CheckResult = void | { readonly status: "healthy" | "degraded"; readonly detail?: string };
 
 /** A health report; its schema is `HealthReport` in `@hyapi/core/contract`. */
 export type HealthReportValue = Static<typeof HealthReport>;

@@ -25,11 +25,11 @@ const NAME = "~hyapi.name";
  * export const User = defineSchema("User", T.Object({ id: T.String(), name: T.String() }));
  * ```
  */
-export function defineSchema<S extends TSchema>(name: string, schema: S): S {
+export function defineSchema<Schema extends TSchema>(name: string, schema: Schema): Schema {
   const named = Object.create(
     Object.getPrototypeOf(schema),
     Object.getOwnPropertyDescriptors(schema),
-  ) as S;
+  ) as Schema;
   Object.defineProperty(named, NAME, { value: name, enumerable: false });
   return named;
 }

@@ -425,6 +425,27 @@ follow from it. Where they conflict with an earlier amendment, they supersede it
   declares no request body, is `unknown-body-limit-target`; a value that is not a positive integer
   is `invalid-option`.
 
+## 21. Amendments for fewer and named generics
+
+`AGENTS.md` now prefers unions to generics, and requires every type parameter to be named for what
+it holds. These public types change accordingly:
+
+- **A35. Unions instead of generic parameters.**
+  - `Scheme<Identity, Credential>` becomes `Scheme<Identity>`. `httpBasic` returns a
+    `BasicScheme<Identity>` whose `spec` is a `BasicSpec`, and `CredentialOf` derives the credential
+    from that: a `BasicCredential` for HTTP basic, a string otherwise.
+  - `Diagnostic<Code>` becomes `Diagnostic`, whose code is a `DiagnosticCode`.
+    `StartupError.diagnostics` is `(Diagnostic | StartupDiagnostic)[]`, where `StartupDiagnostic`
+    has a `StartupDiagnosticCode`. This supersedes A19.
+  - `Implementation<Contract>` becomes `Implementation`: nothing read its parameter.
+- **A36. Fewer exports.** `HandlerFor` and `VerifierFor` (superseding part of A11), `PathParams`,
+  and `OperationMap` are no longer exported; `Handler<Resource, OperationId>` and
+  `Verifier<Module, SchemeName>` are the public forms.
+- **A37. Named type parameters.** Every public generic names and documents its parameters, for
+  example `Contract<SchemeSet, Operations, DefaultSecurity>`, `Handler<Resource, OperationId>`, and
+  `AppOptions<Definition>`. Arguments are passed by position, so code that uses these types is
+  unaffected.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object
