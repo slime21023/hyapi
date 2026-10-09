@@ -5,11 +5,15 @@ All notable changes to HyAPI are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-09
 
-Layered architecture (roadmap M8, [ADR 0003](_adr/0003-layered-architecture.md)), and correctness
-and safe defaults (roadmap M9, from
-[Review 0001](_adr/reviews/0001-component-and-production-readiness.md)). To be released as `0.2.0`.
+The first published release of the contract-first redesign. It contains everything listed under
+0.1.0, which was not published, together with the layered architecture (roadmap M8,
+[ADR 0003](_adr/0003-layered-architecture.md)) and correctness and safe defaults (roadmap M9, from
+[Review 0001](_adr/reviews/0001-component-and-production-readiness.md)).
+
+`1.0.0-rc.4` on JSR belongs to the superseded design and is unrelated to this release; see the note
+before [1.0.0-rc.5](#100-rc5---superseded).
 
 ### Security
 
@@ -55,6 +59,9 @@ and safe defaults (roadmap M9, from
 - The request body reader is cancelled when the request's signal aborts.
 - `responseValidation: "off"` runs no response check and emits no `response.violation` event.
 - `@hyapi/plugin-csrf` lets CORS preflight requests through without setting its cookie.
+- Every module nests control blocks and closures at most two levels deep, a rule in `AGENTS.md` that
+  an architecture test enforces. This changed no public API or behavior; the request-path benchmark
+  is unchanged.
 
 ### Removed
 
@@ -68,9 +75,10 @@ and safe defaults (roadmap M9, from
 - `serve().finished` no longer rejects when a lifecycle resource fails to stop, which crashed the
   process with an unhandled rejection.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - Not published
 
-The first release of the contract-first redesign.
+The first version of the contract-first redesign. It was prepared but never published; its changes
+were first published in 0.2.0.
 
 ### Added
 
@@ -167,6 +175,11 @@ The first release of the contract-first redesign.
 - The `_design/` records (RFCs 0001–0008, the earlier ADR 0001, migration notes, roadmap,
   performance baseline, and quality rule). They remain in git history at commit `c52c0be`;
   historical links below refer to that history.
+
+> **The entries below belong to the superseded design.** It was replaced by the contract-first
+> redesign above and shares no code with it. Its `1.0.0-rc.4` was published to JSR for
+> `@hyapi/core`, `@hyapi/cli`, and four plugins; its `0.x` versions were never published there. The
+> numbers `0.1.0` and `0.2.0` below therefore name different software than the releases above.
 
 ## [1.0.0-rc.5] - Superseded
 
