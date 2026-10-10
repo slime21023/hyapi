@@ -1,6 +1,7 @@
 // The contract compiler's entry point: the only place where contracts are interpreted (ADR 0002
 // §2). The other modules in compile/ are private to it (ADR 0004 §3).
-import { isRecord, snapshot } from "../../base/typebox.ts";
+import { isRecord } from "../../base/record.ts";
+import { snapshot } from "../../base/typebox.ts";
 import type { Api } from "../declare/api.ts";
 import type { ContractModel } from "../model.ts";
 import { checkInfo, normalizeContracts, normalizeFormats } from "./api.ts";
@@ -18,7 +19,7 @@ export interface CheckResult {
 }
 
 /** The normalized model with its diagnostics; internal to `@hyapi/core`. */
-export type Compiled =
+type Compiled =
   | {
     readonly ok: true;
     readonly model: ContractModel;

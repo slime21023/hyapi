@@ -15,9 +15,11 @@ share. It is layer L0 of [ADR 0003](../0003-layered-architecture.md), as decided
 - **HTTP (`http.ts`).** `HttpMethod`, the JSON and problem media types, `isMediaType`,
   `isJsonMediaType`, `isTextMediaType`, and `reasonPhrase`.
 - **TypeBox (`typebox.ts`).** Everything that knows TypeBox's internals: `isSchema`, reading and
-  writing the component-name marker, `hasCodec` and `hasRefinement`, `objectSchema`, `isRecord`,
-  `snapshot` and `cloneSchema` (copies that keep TypeBox's markers), and the standard and annotation
-  format lists. A TypeBox upgrade is audited here.
+  writing the component-name marker, `hasCodec` and `hasRefinement`, `objectSchema`, `snapshot` and
+  `cloneSchema` (copies that keep TypeBox's markers), and the standard and annotation format lists.
+  A TypeBox upgrade is audited here.
+- **Untrusted values (`record.ts`).** `Dict` and `isRecord`, for reading declarations and options
+  whose shape is not checked yet.
 
 ## Boundary
 

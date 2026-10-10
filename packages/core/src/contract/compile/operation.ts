@@ -1,6 +1,6 @@
 // One operation: its method and path, and the parts normalized by the other compile modules.
 import type { HttpMethod } from "../../base/http.ts";
-import { isRecord } from "../../base/typebox.ts";
+import { isRecord } from "../../base/record.ts";
 import type { AnyContract, OperationSpec } from "../declare/contract.ts";
 import type { OperationModel, RequirementModel } from "../model.ts";
 import { normalizeBody } from "./body.ts";

@@ -12,12 +12,12 @@ The command checks formatting, linting, and types, and runs every test under `te
 include the architecture tests (`tests/architecture/`), which enforce the dependency rules of
 [ADR 0002](_adr/0002-architecture-and-component-boundaries.md), the layer rules of
 [ADR 0003](_adr/0003-layered-architecture.md), the contract boundaries of
-[ADR 0004](_adr/0004-contract-structure-and-base.md), an acyclic import graph, and the naming and
-nesting rules of `AGENTS.md`. A public API snapshot test compares every entry point's symbols with
-`tests/architecture/public_api.snapshot.txt`; after a deliberate public API change, run
-`deno task api:update` and commit the updated snapshot. CI runs the same command on every push to
-`main` and on every pull request. Text files use LF line endings through `.gitattributes`, including
-on Windows checkouts.
+[ADR 0004](_adr/0004-contract-structure-and-base.md), an acyclic import graph, no unused internal
+exports, and the naming and nesting rules of `AGENTS.md`. A public API snapshot test compares every
+entry point's symbols with `tests/architecture/public_api.snapshot.txt`; after a deliberate public
+API change, run `deno task api:update` and commit the updated snapshot. CI runs the same command on
+every push to `main` and on every pull request. Text files use LF line endings through
+`.gitattributes`, including on Windows checkouts.
 
 CI also runs `hyapi diff` for the example application against `main`. A pull request that changes
 the example's API in a breaking way on purpose acknowledges it with the `breaking-api` label.

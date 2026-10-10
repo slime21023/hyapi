@@ -1,6 +1,7 @@
 // Responses: bodies, headers, named responses, and the status codes they are declared under.
 import { isMediaType, JSON_MEDIA_TYPE, PROBLEM_MEDIA_TYPE, reasonPhrase } from "../../base/http.ts";
-import { isRecord, isSchema, objectSchema, schemaName } from "../../base/typebox.ts";
+import { isRecord } from "../../base/record.ts";
+import { isSchema, objectSchema, schemaName } from "../../base/typebox.ts";
 import type { OperationSpec } from "../declare/contract.ts";
 import { isNamedResponse, type NamedResponse, type ResponseSpec } from "../declare/response.ts";
 import type { HeaderModel, ResponseModel } from "../model.ts";

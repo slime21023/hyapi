@@ -1,130 +1,28 @@
 import * as Format from "typebox/format";
-import { compileContracts } from "../contract/compile/compile.ts";
-import { describeErrors, type Diagnostic } from "../contract/compile/diagnostics.ts";
 import type { Api } from "../contract/declare/api.ts";
-import type { AnyContract, Contract } from "../contract/declare/contract.ts";
-import type { Schemes } from "../contract/declare/security.ts";
 import type { FormatModel } from "../contract/model.ts";
-import {
-  type Binding,
-  bindOperations,
-  checkLifecycle,
-  checkVerifiers,
-  positiveInteger,
-  type StartupDiagnostic,
-  type StartupDiagnosticCode,
-  type StartupReport,
-} from "./binding.ts";
-import { type AppEvent, createEmitter, type Emit, type EventListener } from "./events.ts";
-import type { Implementation } from "./handler.ts";
+import { type ServedDocument, serveDocument } from "./documents.ts";
+import { type AppEvent, createEmitter, type Emit } from "./events.ts";
 import {
   type LifecycleFailure,
   type LifecycleResource,
   startResources,
   stopResources,
 } from "./lifecycle.ts";
+import { type AppOptions, requestIdOf, type Settings } from "./options.ts";
 import {
   execute,
   type Incoming,
   type OperationPlan,
-  type Outcome,
   planOperation,
-  type ResponseValidation,
   SHUTTING_DOWN,
 } from "./pipeline.ts";
 import { describeError, problemResponse } from "./problem.ts";
-import { compileRoutes, type RouteMatch, type Router } from "./routing.ts";
-import { createSecurity, type SecurityEvaluator, type Verifiers } from "./security.ts";
+import { type Outcome, shuttingDown, unmatched, UNMATCHED_CODES } from "./respond.ts";
+import type { RouteMatch, Router } from "./routing.ts";
+import { createSecurity, type SecurityEvaluator } from "./security.ts";
+import { type Binding, checkStartup } from "./startup.ts";
 import { createValidators } from "./validation.ts";
-
-// deno-lint-ignore no-explicit-any
-type SchemesOf<Definition> = Definition extends Api<infer SchemeSet, any> ? SchemeSet : Schemes;
-
-/**
- * The `operationId`s of every contract of an API, which key per-operation options.
- *
- * @typeParam Definition - The API, as `typeof api`.
- */
-// deno-lint-ignore no-explicit-any
-type OperationIdsOf<Definition> = Definition extends Api<any, infer Contracts>
-  ? Contracts extends readonly (infer Resource)[]
-    // deno-lint-ignore no-explicit-any
-    ? Resource extends Contract<any, infer Operations, any> ? keyof Operations & string : never
-  : never
-  : never;
-
-/**
- * One verifier per security scheme, required when the API declares schemes.
- * `[keyof ...] extends [never]` asks "are there no schemes?" without distributing over names.
- */
-type VerifierOption<Definition> = [keyof SchemesOf<Definition>] extends [never]
-  ? { readonly verifiers?: Readonly<Record<string, never>> }
-  : { readonly verifiers: Verifiers<SchemesOf<Definition>> };
-
-/**
- * Options for {@link createApp}.
- *
- * @typeParam Definition - The API, as `typeof api`; it types verifiers and per-operation options.
- */
-export type AppOptions<Definition extends Api = Api> =
-  & BaseOptions<Definition>
-  & VerifierOption<Definition>;
-
-interface BaseOptions<Definition extends Api> {
-  /** The API created by `defineApi`. */
-  readonly api: Definition;
-  /** Exactly one implementation per contract of the API, created by `implement`. */
-  readonly implementations: readonly Implementation[];
-  /**
-   * Development mode adds diagnostic details to error responses and reports stripped response
-   * fields. Defaults to `false`.
-   */
-  readonly development?: boolean;
-  /**
-   * What happens when a response does not match its schema after undeclared fields are stripped.
-   * Defaults to `"enforce"` in development and `"log"` otherwise.
-   */
-  readonly responseValidation?: ResponseValidation;
-  /** Time allowed per request before it fails with 503. Defaults to 30 000 ms. */
-  readonly requestTimeoutMs?: number;
-  /** Per-operation request timeouts that override `requestTimeoutMs`. */
-  readonly timeouts?: { readonly [OperationId in OperationIdsOf<Definition>]?: number };
-  /** Maximum request body size. Defaults to 1 MiB. */
-  readonly bodyLimitBytes?: number;
-  /** Per-operation body limits that override `bodyLimitBytes`, for operations with a body. */
-  readonly bodyLimits?: { readonly [OperationId in OperationIdsOf<Definition>]?: number };
-  /** Resources started in order before the app is returned, and stopped in reverse on close. */
-  readonly lifecycle?: readonly LifecycleResource[];
-  /** Receives read-only events. Without it, problem events are written with `console.warn`. */
-  readonly onEvent?: EventListener;
-  /**
-   * Budget for `close()`: draining requests, then stopping lifecycle resources, each gets this
-   * long. Defaults to 10 000 ms.
-   */
-  readonly shutdownTimeoutMs?: number;
-  /**
-   * Serves emitted OpenAPI documents, each at an explicit path. Off unless set. Text content is
-   * served as given; other content is served as JSON. The content type follows the path (`.yaml`
-   * and `.yml` are YAML) unless `contentType` is given.
-   */
-  readonly documents?: readonly DocumentOption[];
-  /**
-   * Gives every request an ID for events, handlers, and verifiers, and returns it in a response
-   * header. Off unless set. `true` uses the `x-request-id` header and never trusts incoming IDs;
-   * with `trustIncoming`, a well-formed incoming ID is reused.
-   */
-  readonly requestId?: boolean | { readonly header?: string; readonly trustIncoming?: boolean };
-}
-
-/** One document served by {@link createApp}. */
-export interface DocumentOption {
-  /** The path the document is served at, such as `/openapi.json`. */
-  readonly path: string;
-  /** The emitted document: text, or a value that is served as JSON. */
-  readonly content: unknown;
-  /** Overrides the content type that the path implies. */
-  readonly contentType?: string;
-}
 
 /** A running HyAPI application. */
 export interface App {
@@ -138,136 +36,8 @@ export interface App {
   close(): Promise<void>;
 }
 
-export type { StartupDiagnostic, StartupDiagnosticCode };
-
-/** Thrown by {@link createApp} with every diagnostic that prevents startup. */
-export class StartupError extends Error {
-  readonly diagnostics: readonly (Diagnostic | StartupDiagnostic)[];
-
-  constructor(diagnostics: readonly (Diagnostic | StartupDiagnostic)[]) {
-    const count = diagnostics.filter((d) => d.severity === "error").length;
-    super(
-      `The application cannot start (${count} error${count === 1 ? "" : "s"}):\n` +
-        describeErrors(diagnostics),
-    );
-    this.name = "StartupError";
-    this.diagnostics = diagnostics;
-  }
-}
-
-const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
-/** Incoming IDs that are reused: short, and safe to log and to echo in a header. */
-const INCOMING_ID = /^[A-Za-z0-9._:-]{1,128}$/;
-
-interface RequestIdSettings {
-  readonly header: string;
-  readonly trustIncoming: boolean;
-}
-
-function readRequestId(
-  option: BaseOptions<Api>["requestId"],
-  error: StartupReport,
-): RequestIdSettings | undefined {
-  if (option === undefined || option === false) return undefined;
-  const { header = "x-request-id", trustIncoming = false } = option === true ? {} : option;
-  if (typeof header !== "string" || !HEADER_NAME.test(header)) {
-    error("invalid-option", "requestId.header must be an HTTP header name");
-  }
-  return { header: String(header).toLowerCase(), trustIncoming: trustIncoming === true };
-}
-
-function readSettings(options: BaseOptions<Api>, error: StartupReport) {
-  const development = options.development ?? false;
-  const settings = {
-    development,
-    responseValidation: options.responseValidation ?? (development ? "enforce" : "log"),
-    bodyLimitBytes: options.bodyLimitBytes ?? 1_048_576,
-    requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
-    shutdownTimeoutMs: options.shutdownTimeoutMs ?? 10_000,
-    requestId: readRequestId(options.requestId, error),
-  } as const;
-  if (!["off", "log", "enforce"].includes(settings.responseValidation)) {
-    error("invalid-option", "responseValidation must be 'off', 'log', or 'enforce'");
-  }
-  for (const name of ["requestTimeoutMs", "bodyLimitBytes", "shutdownTimeoutMs"] as const) {
-    if (!positiveInteger(settings[name])) {
-      error("invalid-option", `${name} must be a positive integer`);
-    }
-  }
-  return settings;
-}
-
-/**
- * TypeBox's format registry is process-wide and cannot remove entries (ADR 0003 §5), so a name
- * registered with a different check by anything else is a conflict.
- */
-function checkFormats(formats: readonly FormatModel[], error: StartupReport): void {
-  for (const { name, check } of formats) {
-    const registered = Format.Get(name);
-    if (registered !== undefined && registered !== check) {
-      error(
-        "format-conflict",
-        `format '${name}' is already registered in this process with a different check`,
-      );
-    }
-  }
-}
-
 function registerFormats(formats: readonly FormatModel[]): void {
   for (const { name, check } of formats) if (!Format.Has(name)) Format.Set(name, check);
-}
-
-/** A document ready to serve. */
-interface ServedDocument {
-  readonly text: string;
-  readonly type: string;
-}
-
-/** Checks one document option; undefined when it cannot be served. */
-function servedDocument(
-  document: DocumentOption,
-  router: Router,
-  error: StartupReport,
-): ServedDocument | undefined {
-  const { path, content, contentType } = document ?? {};
-  if (typeof path !== "string" || !path.startsWith("/")) {
-    error("invalid-option", "every document path must start with '/'");
-    return undefined;
-  }
-  if (router.match("GET", path).kind !== "not-found") {
-    error("document-route-conflict", `document path '${path}' is a declared route`);
-    return undefined;
-  }
-  const type = contentType ?? (/\.ya?ml$/i.test(path) ? "application/yaml" : "application/json");
-  if (typeof content !== "string" && type !== "application/json") {
-    error("invalid-option", `document '${path}' is ${type}, so its content must be text`);
-    return undefined;
-  }
-  return { text: typeof content === "string" ? content : JSON.stringify(content), type };
-}
-
-/** The opt-in document endpoints by path; none may shadow a declared route. */
-function documentEndpoints(
-  documents: BaseOptions<Api>["documents"],
-  router: Router,
-  error: StartupReport,
-): ReadonlyMap<string, ServedDocument> {
-  const served = new Map<string, ServedDocument>();
-  if (documents === undefined) return served;
-  if (!Array.isArray(documents)) {
-    error("invalid-option", "documents must be a list of { path, content }");
-    return served;
-  }
-  for (const document of documents) {
-    const endpoint = servedDocument(document, router, error);
-    if (endpoint === undefined) continue;
-    if (served.has(document.path)) {
-      error("invalid-option", `document path '${document.path}' is listed twice`);
-      continue;
-    }
-    served.set(document.path, endpoint);
-  }
-  return served;
 }
 
 function lifecycleEvent(failure: LifecycleFailure): AppEvent {
@@ -277,12 +47,6 @@ function lifecycleEvent(failure: LifecycleFailure): AppEvent {
     phase: failure.phase,
     error: describeError(failure.error),
   };
-}
-
-/** The ID of one request: a trusted, well-formed incoming one, or a new UUID. */
-function requestIdOf(request: Request, settings: RequestIdSettings): string {
-  const incoming = settings.trustIncoming ? request.headers.get(settings.header) : null;
-  return incoming !== null && INCOMING_ID.test(incoming) ? incoming : crypto.randomUUID();
 }
 
 /** The `requestId` field of events: present only when request IDs are on. */
@@ -298,12 +62,6 @@ function withHeader(response: Response, name: string, value: string): Response {
     headers,
   });
 }
-
-const UNMATCHED_CODES = {
-  "not-found": "NOT_FOUND",
-  "method-not-allowed": "METHOD_NOT_ALLOWED",
-  "malformed-path": "MALFORMED_REQUEST",
-} as const;
 
 /**
  * Passes a streamed body through, calling `done` once when it ends, fails, or is cancelled. When
@@ -408,8 +166,6 @@ function notImplementedWarnings(bindings: readonly Binding[]): AppEvent[] {
   }));
 }
 
-type Settings = ReturnType<typeof readSettings>;
-
 /** Everything a started application needs, prepared by {@link createApp}. */
 interface Runtime {
   readonly settings: Settings;
@@ -437,42 +193,6 @@ interface Handled {
 }
 
 const buffered = (response: Response): Handled => ({ response, streaming: false });
-
-const shuttingDown = () =>
-  problemResponse(503, "SHUTTING_DOWN", {
-    detail: "The server is shutting down.",
-    headers: { connection: "close" },
-  });
-
-/** A document endpoint answers GET and HEAD. */
-function serveDocument(document: ServedDocument, method: string): Response {
-  if (method !== "GET" && method !== "HEAD") {
-    return problemResponse(405, "METHOD_NOT_ALLOWED", { headers: { allow: "GET, HEAD" } });
-  }
-  return new Response(method === "HEAD" ? null : document.text, {
-    headers: { "content-type": document.type },
-  });
-}
-
-/** The problem response for a request that matches no operation. */
-function unmatched(
-  match: Exclude<RouteMatch, { kind: "found" }>,
-  method: string,
-  pathname: string,
-): Response {
-  switch (match.kind) {
-    case "malformed-path":
-      return problemResponse(400, "MALFORMED_REQUEST", {
-        detail: "The path is not valid percent-encoding.",
-      });
-    case "not-found":
-      return problemResponse(404, "NOT_FOUND", { detail: `No operation matches ${pathname}.` });
-  }
-  return problemResponse(405, "METHOD_NOT_ALLOWED", {
-    detail: `${method} is not declared for ${pathname}.`,
-    headers: { allow: match.allow.join(", ") },
-  });
-}
 
 /** A started application: the only owner of mutable state in Core (ADR 0003 §2). */
 class RunningApp {
@@ -656,39 +376,9 @@ export async function createApp<Definition extends Api>(
   options: AppOptions<Definition>,
 ): Promise<App> {
   const emit = createEmitter(options.onEvent);
-  const diagnostics: (Diagnostic | StartupDiagnostic)[] = [];
-  const error: StartupReport = (code, message, operationId) =>
-    diagnostics.push({ severity: "error", code, message, ...(operationId ? { operationId } : {}) });
-
-  const settings = readSettings(options, error);
-  const lifecycle = options.lifecycle ?? [];
-  checkLifecycle(lifecycle, error);
-
-  const compiled = compileContracts(options.api);
-  diagnostics.push(...compiled.diagnostics);
-  if (!compiled.ok) throw new StartupError(diagnostics);
-  const { model } = compiled;
-
-  const bindings = bindOperations(
-    model,
-    options.api.contracts as readonly AnyContract[],
-    options.implementations,
-    {
-      requestTimeoutMs: settings.requestTimeoutMs,
-      bodyLimitBytes: settings.bodyLimitBytes,
-      timeouts: (options.timeouts ?? {}) as Readonly<Record<string, unknown>>,
-      bodyLimits: (options.bodyLimits ?? {}) as Readonly<Record<string, unknown>>,
-    },
-    error,
-  );
-  const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
-  checkVerifiers(model, verifiers, error);
-  checkFormats(model.formats, error);
-  const router = compileRoutes(model.operations);
-  const documents = documentEndpoints(options.documents, router, error);
-
-  if (diagnostics.some((d) => d.severity === "error")) throw new StartupError(diagnostics);
-  for (const d of diagnostics) {
+  const { settings, model, bindings, verifiers, lifecycle, router, documents, warnings } =
+    checkStartup(options);
+  for (const d of warnings) {
     emit({
       type: "startup.warning",
       code: d.code,

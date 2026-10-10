@@ -172,7 +172,7 @@ export interface OperationModel {
   readonly contract: number;
 }
 
-export interface NamedSchemaModel {
+interface NamedSchemaModel {
   readonly name: string;
   readonly schema: TSchema;
 }

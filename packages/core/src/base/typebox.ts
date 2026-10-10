@@ -2,14 +2,7 @@
 // the formats it checks, and how to copy schemas without losing either. A TypeBox upgrade is
 // audited here. Mechanisms only: no diagnostics, no policy, and no state.
 import type { TSchema } from "typebox";
-
-/** A plain object, read without trusting its shape. */
-export type Dict = Readonly<Record<string, unknown>>;
-
-/** Returns true for a non-null object that is not an array. */
-export function isRecord(value: unknown): value is Dict {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { type Dict, isRecord } from "./record.ts";
 
 /** What TypeBox marks every schema with, as a type. */
 export type SchemaLike = { readonly "~kind": unknown };

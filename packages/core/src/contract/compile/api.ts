@@ -1,6 +1,7 @@
 // The API as a whole: its metadata, custom formats, and the contracts it merges, with the conflicts
 // that only appear across contracts.
-import { ANNOTATION_FORMATS, isRecord, STANDARD_FORMATS } from "../../base/typebox.ts";
+import { isRecord } from "../../base/record.ts";
+import { ANNOTATION_FORMATS, STANDARD_FORMATS } from "../../base/typebox.ts";
 import type { Api } from "../declare/api.ts";
 import type { AnyContract, OperationSpec } from "../declare/contract.ts";
 import type { FormatModel, OperationModel } from "../model.ts";

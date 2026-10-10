@@ -45,7 +45,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M9](#m9-correctness-and-safe-defaults)        | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
 | [M10](#m10-production-features)                | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
 | [M11](#m11-contract-structure-and-base)        | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
-| [M12](#m12-narrow-interfaces-and-deep-modules) | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | Planned           |
+| [M12](#m12-narrow-interfaces-and-deep-modules) | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | In progress       |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -413,7 +413,10 @@ modules that each have one reason to change, as decided in
   move the stateless parts of `runtime/app.ts` to `runtime/settings.ts` and `runtime/documents.ts`;
   move the response half of `runtime/pipeline.ts` to `runtime/respond.ts`; rename
   `runtime/binding.ts` to `runtime/startup.ts`, move `isRecord` and `Dict` out of `base/typebox.ts`,
-  and rename `cli/src/document.ts` to `serialize.ts`. No public API change.
+  and rename `cli/src/document.ts` to `serialize.ts`. No public API change. Done: `settings.ts`
+  became `options.ts`, and reaching about 350 lines also moved every startup check into `startup.ts`
+  (`checkStartup`) and the startup diagnostics into `runtime/diagnostics.ts`; the internal-export
+  test found three more unused exports than the review.
 - **M12b: public interfaces** (I1, I3). Add the export rule to `AGENTS.md`; stop exporting the
   declaration shapes of I1; export one `FetchHandler` from `@hyapi/core`, used by `App.fetch` and
   the wrapper plugins; declare the JWT and OIDC verifier return types inline; remove `problem()`.
