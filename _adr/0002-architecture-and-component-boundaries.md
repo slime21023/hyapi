@@ -1,6 +1,7 @@
 # ADR 0002: Architecture and component boundaries
 
-- Status: Accepted; §1, §2, and §4 amended by [ADR 0003](0003-layered-architecture.md)
+- Status: Accepted; §1, §2, and §4 amended by [ADR 0003](0003-layered-architecture.md); §1 and §3
+  amended by [ADR 0004](0004-contract-structure-and-base.md)
 - Date: 2026-10-08
 - Scope: components, dependency rules, package entry points, public surface, and component
   specifications for the design in [ADR 0001](0001-contract-first-api-library.md)

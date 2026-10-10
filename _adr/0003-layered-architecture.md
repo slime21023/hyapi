@@ -1,6 +1,6 @@
 # ADR 0003: Layered architecture
 
-- Status: Accepted
+- Status: Accepted; §1, §3, and §4 amended by [ADR 0004](0004-contract-structure-and-base.md)
 - Date: 2026-10-09
 - Amends: [ADR 0002](0002-architecture-and-component-boundaries.md) §1 (runtime internals), §2 (the
   model's visibility), and §4 (public surface)
