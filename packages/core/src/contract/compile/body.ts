@@ -4,7 +4,7 @@ import { isJsonMediaType, isMediaType, isTextMediaType, JSON_MEDIA_TYPE } from "
 import { type Dict, isSchema } from "../../base/typebox.ts";
 import type { OperationSpec } from "../declare/contract.ts";
 import type { BodyModel } from "../model.ts";
-import type { OperationContext } from "./operation.ts";
+import type { OperationContext } from "./context.ts";
 
 /** Normalizes the request body of an operation. */
 export function normalizeBody(

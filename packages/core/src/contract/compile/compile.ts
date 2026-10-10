@@ -6,7 +6,7 @@ import type { ContractModel } from "../model.ts";
 import { checkInfo, normalizeContracts, normalizeFormats } from "./api.ts";
 import { createComponents } from "./components.ts";
 import { createReporter, type Diagnostic } from "./diagnostics.ts";
-import type { OperationContext } from "./operation.ts";
+import type { OperationContext } from "./context.ts";
 import { createInspector } from "./schema_rules.ts";
 import { normalizeRequirements, normalizeSchemes } from "./security.ts";
 

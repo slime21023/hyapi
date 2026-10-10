@@ -20,6 +20,9 @@ No public API or behavior changes; the public API snapshot and the emitted docum
 - New architecture tests: the runtime and the emitter import only the contract model, the compiler's
   entry point and diagnostics, and declaration types; dependencies inside `contract` point one way;
   and a public API snapshot (`deno task api:update`) makes every public change deliberate.
+- The import graph of `packages/` is acyclic, and a test keeps it so. Two kinds of cycles, both
+  through type-only imports, were removed: `OperationContext` moved from `compile/operation.ts` to
+  `compile/context.ts`, and the CLI's `Io` moved from `run.ts` to `report.ts`.
 
 ## [0.2.5] - 2026-10-10
 

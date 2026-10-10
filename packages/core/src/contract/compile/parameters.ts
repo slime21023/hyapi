@@ -5,7 +5,7 @@ import { type Dict, isRecord, objectSchema } from "../../base/typebox.ts";
 import type { OperationSpec } from "../declare/contract.ts";
 import { PARAMETER_DEFAULTS, type ParameterLocation, type ParameterModel } from "../model.ts";
 import type { Reporter } from "./diagnostics.ts";
-import type { OperationContext } from "./operation.ts";
+import type { OperationContext } from "./context.ts";
 
 const RESERVED_HEADERS: ReadonlySet<string> = new Set(["accept", "content-type", "authorization"]);
 

@@ -4,7 +4,7 @@ import { isRecord, isSchema, objectSchema, schemaName } from "../../base/typebox
 import type { OperationSpec } from "../declare/contract.ts";
 import { isNamedResponse, type NamedResponse, type ResponseSpec } from "../declare/response.ts";
 import type { HeaderModel, ResponseModel } from "../model.ts";
-import type { OperationContext } from "./operation.ts";
+import type { OperationContext } from "./context.ts";
 
 /** Normalizes the body of a response declaration. */
 function normalizeResponseBody(

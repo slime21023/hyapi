@@ -89,9 +89,11 @@ same change. The modules of `base/` (L0) and `contract/` (L1) are listed in ADR 
 - L3 imports L0–L2.
 - L4 imports L0–L3. Only L4 imports `events.ts`.
 - L5 and L6 import only public entry points.
+- The file-level import graph of `packages/` is acyclic, counting type-only imports, re-exports, and
+  dynamic imports. When two modules need the same type, it moves to a module that both import.
 
 The architecture test checks these edges for `packages/core/src/`, as it already checks the edges of
-ADR 0002 §3.
+ADR 0002 §3, and a second test checks that the import graph of `packages/` has no cycles.
 
 ### 5. No module-level mutable state
 

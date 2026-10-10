@@ -66,6 +66,9 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   three levels deep or more, simplify: return early, invert conditions, or extract a named function
   that takes what it needs as parameters instead of capturing it. An arrow function whose body is a
   single expression, or empty, does not count, and `else if` stays at its chain's level.
+- **No import cycles.** Imports form a directed acyclic graph at every granularity, type-only
+  imports included; prefer a tree where nothing is shared. When a module and the modules it calls
+  need the same type, move the type to a module that all of them import, never back to the caller.
 - **Unions before generics.** Most code needs no generics. Describe a closed set of cases with a
   string-literal union, a discriminated union, or an enum, which bounds the cases and keeps types
   small. Use a generic only to carry a type that the caller chooses and that must reach another
@@ -95,5 +98,5 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   documentation goes in `docs/`.
 - Benchmarks live in `bench/` and the example in `apps/example/`; neither defines the public API.
 - Run the smallest relevant check while working, and `deno task verify` before calling a change
-  done. The architecture tests enforce the component, layer, contract-boundary, naming, and nesting
-  rules, and the public API snapshot.
+  done. The architecture tests enforce the component, layer, contract-boundary, acyclic-import,
+  naming, and nesting rules, and the public API snapshot.
