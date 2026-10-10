@@ -2,13 +2,11 @@
 import type { HttpMethod } from "../../base/http.ts";
 import { isRecord } from "../../base/typebox.ts";
 import type { AnyContract, OperationSpec } from "../declare/contract.ts";
-import type { OperationModel, RequirementModel, SchemeSpec } from "../model.ts";
+import type { OperationModel, RequirementModel } from "../model.ts";
 import { normalizeBody } from "./body.ts";
-import type { Components } from "./components.ts";
-import type { Reporter } from "./diagnostics.ts";
+import type { OperationContext } from "./context.ts";
 import { normalizeParameters } from "./parameters.ts";
 import { normalizeResponses } from "./responses.ts";
-import type { Inspector } from "./schema_rules.ts";
 import { effectiveSecurity } from "./security.ts";
 
 const METHODS: ReadonlySet<string> = new Set<HttpMethod>([
@@ -23,15 +21,6 @@ const METHODS: ReadonlySet<string> = new Set<HttpMethod>([
 ]);
 
 const PARAMETER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** Everything an operation is normalized against. */
-export interface OperationContext {
-  readonly report: Reporter;
-  readonly inspector: Inspector;
-  readonly schemes: ReadonlyMap<string, SchemeSpec>;
-  readonly components: Components;
-  readonly rootSecurity: RequirementModel[] | undefined;
-}
 
 /** Parses a path template into its parameter names. */
 function parsePath(path: unknown): { params: string[] } | { error: string } {

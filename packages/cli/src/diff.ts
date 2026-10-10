@@ -3,7 +3,7 @@ import { parse as parseYaml } from "jsr:@std/yaml@^1.0.12";
 import { type DiffFormat, diffOpenApi, type DiffResult, formatDiff } from "@hyapi/openapi-diff";
 import { UsageError } from "./config.ts";
 import { type Compiled, compileProject } from "./emit.ts";
-import type { Io } from "./run.ts";
+import type { Io } from "./report.ts";
 
 /** The branches compared against when `--base` is not given. */
 const BASE_BRANCHES = ["main", "origin/main"] as const;

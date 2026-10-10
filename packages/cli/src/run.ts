@@ -4,12 +4,7 @@ import { diffCommand } from "./diff.ts";
 import { doctorCommand } from "./doctor.ts";
 import { emitCommand } from "./emit.ts";
 import { newCommand } from "./new.ts";
-
-/** Output channels, so commands can be tested without a terminal. */
-export interface Io {
-  out(line: string): void;
-  err(line: string): void;
-}
+import type { Io } from "./report.ts";
 
 /** Options for {@link run}. */
 export interface RunOptions {

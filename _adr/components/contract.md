@@ -49,12 +49,12 @@ and never read raw declarations.
 
 The component is organized by reader ([ADR 0004](../0004-contract-structure-and-base.md)):
 
-| Part       | Reader                      | Contents                                                                                                                                                                                                                     |
-| ---------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `declare/` | applications                | `defineApi`, `defineContract` and the type-level path checks, `defineSecurity` and scheme constructors, `defineResponse`, `defineSchema`, `Problem`, `HealthReport`                                                          |
-| `infer.ts` | handlers and verifiers      | `InputOf`, `ResultOf`, and the security result types                                                                                                                                                                         |
-| `model.ts` | the runtime and the emitter | `ContractModel`, the OpenAPI vocabulary it shares with the declarations (`ApiInfo`, `ServerSpec`, `TagSpec`, `SchemeSpec`, OAuth flows), and `PARAMETER_DEFAULTS`                                                            |
-| `compile/` | Core only                   | `compile.ts` (`compileContracts`, `checkContracts`), `api.ts`, `operation.ts`, `parameters.ts`, `body.ts`, `responses.ts`, `security.ts`, `components.ts` (named schemas and responses), `schema_rules.ts`, `diagnostics.ts` |
+| Part       | Reader                      | Contents                                                                                                                                                                                                                                                        |
+| ---------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `declare/` | applications                | `defineApi`, `defineContract` and the type-level path checks, `defineSecurity` and scheme constructors, `defineResponse`, `defineSchema`, `Problem`, `HealthReport`                                                                                             |
+| `infer.ts` | handlers and verifiers      | `InputOf`, `ResultOf`, and the security result types                                                                                                                                                                                                            |
+| `model.ts` | the runtime and the emitter | `ContractModel`, the OpenAPI vocabulary it shares with the declarations (`ApiInfo`, `ServerSpec`, `TagSpec`, `SchemeSpec`, OAuth flows), and `PARAMETER_DEFAULTS`                                                                                               |
+| `compile/` | Core only                   | `compile.ts` (`compileContracts`, `checkContracts`), `api.ts`, `operation.ts`, `context.ts` (`OperationContext`), `parameters.ts`, `body.ts`, `responses.ts`, `security.ts`, `components.ts` (named schemas and responses), `schema_rules.ts`, `diagnostics.ts` |
 
 Dependencies point one way: `model.ts` imports only [base](base.md); `declare/` imports `model.ts`
 and base; `infer.ts` imports `declare/`; `compile/` imports all of them. The runtime and the emitter

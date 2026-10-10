@@ -1,7 +1,7 @@
 import { relative } from "jsr:@std/path@^1";
 import type { OpenApiDocument } from "@hyapi/core/openapi";
 import { type Compiled, compileProject, labelFor, readDocument } from "./emit.ts";
-import type { Io } from "./run.ts";
+import type { Io } from "./report.ts";
 
 const METHODS = ["get", "head", "post", "put", "patch", "delete", "options", "trace"];
 

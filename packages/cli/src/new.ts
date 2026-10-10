@@ -1,7 +1,7 @@
 import { basename, join, toFileUrl } from "jsr:@std/path@^1";
 import packageConfig from "../deno.json" with { type: "json" };
 import { UsageError } from "./config.ts";
-import type { Io } from "./run.ts";
+import type { Io } from "./report.ts";
 
 const TYPEBOX = "npm:typebox@~1.3.34";
 

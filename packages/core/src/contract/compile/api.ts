@@ -5,7 +5,8 @@ import type { Api } from "../declare/api.ts";
 import type { AnyContract, OperationSpec } from "../declare/contract.ts";
 import type { FormatModel, OperationModel } from "../model.ts";
 import type { Reporter } from "./diagnostics.ts";
-import { normalizeOperation, type OperationContext } from "./operation.ts";
+import type { OperationContext } from "./context.ts";
+import { normalizeOperation } from "./operation.ts";
 import { normalizeRequirements } from "./security.ts";
 
 /** Reports API metadata that OpenAPI requires. */
