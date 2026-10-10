@@ -15,7 +15,7 @@ import {
 export const OPENAPI_VERSION = "3.1.1";
 
 /** A JSON value in an emitted document. */
-export type JsonValue =
+type JsonValue =
   | null
   | boolean
   | number

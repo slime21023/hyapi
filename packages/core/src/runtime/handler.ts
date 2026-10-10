@@ -45,7 +45,7 @@ export type Handler<
   : never;
 
 /** Marks an operation that has no handler yet. It answers with a 501 problem response. */
-export interface NotImplemented {
+interface NotImplemented {
   readonly kind: "hyapi.not-implemented";
 }
 

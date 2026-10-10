@@ -5,7 +5,7 @@ import type { NamedResponse, ResponseSpec } from "./response.ts";
 import type { Requirement, Schemes, Security } from "./security.ts";
 
 /** Serialization of one parameter. Only the v1 subset of OpenAPI styles is accepted. */
-export interface StyleOverrides {
+interface StyleOverrides {
   readonly params?: Readonly<
     Record<string, { readonly style?: "simple"; readonly explode?: boolean }>
   >;
@@ -21,7 +21,7 @@ export interface StyleOverrides {
 }
 
 /** A request body: a schema (required JSON), or the full form. */
-export type BodySpec = TSchema | {
+type BodySpec = TSchema | {
   readonly schema: TSchema;
   readonly mediaType?: string;
   readonly required?: boolean;
@@ -29,7 +29,7 @@ export type BodySpec = TSchema | {
 };
 
 /** A declared response: a schema (JSON body), the full form, or a named response. */
-export type ResponseValue = TSchema | ResponseSpec | NamedResponse;
+type ResponseValue = TSchema | ResponseSpec | NamedResponse;
 
 /**
  * One operation of a contract.

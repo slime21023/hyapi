@@ -3,7 +3,7 @@
 Handlers implement the operations of one contract. Their types come from the contract.
 
 ```ts
-import { implement, notImplemented, problem } from "@hyapi/core";
+import { implement, notImplemented } from "@hyapi/core";
 import { books } from "../contracts/books.ts";
 
 export function booksImplementation(repository: BookRepository) {
@@ -12,7 +12,7 @@ export function booksImplementation(repository: BookRepository) {
       const book = repository.get(params.id);
       return book
         ? { status: 200, body: book }
-        : { status: 404, body: problem({ title: "Book not found", detail: params.id }) };
+        : { status: 404, body: { title: "Book not found", detail: params.id } };
     },
     createBook: async ({ body }, ctx) => {
       const book = await repository.create(body, { signal: ctx.signal });

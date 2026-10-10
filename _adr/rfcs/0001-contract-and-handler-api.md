@@ -458,6 +458,36 @@ it holds. These public types change accordingly:
   `AppOptions<Definition>`. Arguments are passed by position, so code that uses these types is
   unaffected.
 
+## 22. Amendments for narrow public interfaces (M12b)
+
+[Review 0002](../reviews/0002-interfaces-and-module-depth.md) found that 48 of 111 public symbols
+were referenced by no document, example, test, or other package. `AGENTS.md` now exports a public
+type only when applications must write its name: a callback they implement, an argument they build
+apart from the call, or a result they inspect. The public API has 86 symbols after these changes.
+
+- **A38. Declaration shapes are not exported.** `@hyapi/core/contract` no longer exports `ApiInfo`,
+  `ServerSpec`, `TagSpec`, `OAuthFlow`, `OAuthFlows`, `SchemeSpec`, `BasicSpec`, `BasicScheme`,
+  `BodySpec`, `StyleOverrides`, `ResponseValue`, `ResponseSpec`, `OperationSpec`, `NamedResponse`,
+  `HttpMethod`, `AnyContract`, and `Requirement`. Applications write these shapes only as literals
+  in `defineApi`, `defineContract`, `defineResponse`, `defineSecurity`, and the scheme constructors,
+  which infer them. `@hyapi/core` no longer exports `Implementation` and `NotImplemented`, and
+  `@hyapi/core/openapi` no longer exports `JsonValue`. This supersedes the exports of these names in
+  earlier amendments, including A35's `BasicScheme` and `BasicSpec`.
+- **A39. One `FetchHandler`.** `@hyapi/core` exports
+  `type FetchHandler = (request: Request) => Response | Promise<Response>`. `App.fetch` is a
+  `FetchHandler`, so its declared return type widens from `Promise<Response>` to
+  `Response | Promise<Response>`; `await app.fetch(request)` is unchanged, while code that requires
+  a `Promise` awaits the result first. `@hyapi/plugin-cors`, `@hyapi/plugin-csrf`, and
+  `@hyapi/plugin-rate-limit` take and return this type and no longer export their own
+  `FetchHandler`.
+- **A40. Verifier types are inline.** `jwtBearer` and `oidcBearer` return
+  `Promise<(token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>>`;
+  `JwtVerifier` and `OidcVerifier` are no longer exported. The plugins keep their options and
+  algorithm types and the `JWTPayload` re-export.
+- **A41. `problem()` is removed.** A handler writes a problem body as a literal, such as
+  `{ status: 404, body: { title: "Not found", detail: id } }`, which the contract checks against the
+  `Problem` schema; the runtime still fills in `status`. `title` is no longer required by the type.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

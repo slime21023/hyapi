@@ -5,6 +5,7 @@ import {
   createApp,
   createHealth,
   type DocumentOption,
+  type FetchHandler,
   implement,
   type LifecycleResource,
   StartupError,
@@ -90,8 +91,8 @@ function build(options: {
   });
 }
 
-const get = (app: { fetch(r: Request): Promise<Response> }, path: string) =>
-  app.fetch(new Request(`http://test${path}`));
+const get = async (app: { readonly fetch: FetchHandler }, path: string) =>
+  await app.fetch(new Request(`http://test${path}`));
 
 // --- Lifecycle -----------------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-import { implement, problem } from "@hyapi/core";
+import { implement } from "@hyapi/core";
 import { books } from "../contracts/books.ts";
 import type { BookRepository } from "./repository.ts";
 
@@ -26,7 +26,7 @@ export function booksImplementation(repository: BookRepository) {
       const book = repository.get(params.id);
       return book
         ? { status: 200, body: book }
-        : { status: 404, body: problem({ title: "Book not found", detail: params.id }) };
+        : { status: 404, body: { title: "Book not found", detail: params.id } };
     },
 
     createBook: ({ body }, ctx) => {
@@ -34,7 +34,7 @@ export function booksImplementation(repository: BookRepository) {
       if (book === undefined) {
         return {
           status: 409,
-          body: problem({ title: "Duplicate book", detail: `${body.title} by ${body.author}` }),
+          body: { title: "Duplicate book", detail: `${body.title} by ${body.author}` },
         };
       }
       console.log(`book ${book.id} added by ${ctx.security.bearer.subject}`);
@@ -45,13 +45,13 @@ export function booksImplementation(repository: BookRepository) {
       const book = repository.update(params.id, body);
       return book
         ? { status: 200, body: book }
-        : { status: 404, body: problem({ title: "Book not found", detail: params.id }) };
+        : { status: 404, body: { title: "Book not found", detail: params.id } };
     },
 
     deleteBook: ({ params }) =>
       repository.delete(params.id)
         ? { status: 204 }
-        : { status: 404, body: problem({ title: "Book not found", detail: params.id }) },
+        : { status: 404, body: { title: "Book not found", detail: params.id } },
 
     exportBooks: () => {
       const { items } = repository.list({}, 0, Number.MAX_SAFE_INTEGER);

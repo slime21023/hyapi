@@ -48,7 +48,7 @@ export interface TagSpec {
 }
 
 /** An OAuth 2 flow as declared in OpenAPI. */
-export interface OAuthFlow {
+interface OAuthFlow {
   readonly authorizationUrl?: string;
   readonly tokenUrl?: string;
   readonly refreshUrl?: string;

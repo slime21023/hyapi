@@ -6,7 +6,6 @@ import {
   HttpError,
   implement,
   notImplemented,
-  problem,
   StartupError,
 } from "@hyapi/core";
 import {
@@ -104,7 +103,7 @@ function handlers() {
     getItem: ({ params }) =>
       params.id === stored.id
         ? { status: 200, body: stored }
-        : { status: 404, body: problem({ title: "Item not found", detail: params.id }) },
+        : { status: 404, body: { title: "Item not found", detail: params.id } },
     getMine: () => ({ status: 200, body: { ...stored, id: "mine" } }),
     deleteItem: () => ({ status: 204 }),
     createItem: ({ body }) => ({
