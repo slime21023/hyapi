@@ -80,6 +80,15 @@ ADR 0001 §10; ADR 0002 §1, §3, §4.
 
   The rules cover the same ground as oasdiff's common checks, but the identifiers are HyAPI's own.
 
+## Resolved in M12
+
+- **Modules (Review 0002 D3).** The 715-line `diff.ts` is split by area: `change.ts` (the public
+  `Change`, `RuleId`, `Severity`, and `DiffResult` types, and how changes are collected),
+  `document.ts` (validation, `$ref` resolution, and operations by method and path template),
+  `schema.ts` (enums, types, constraints, properties, and items), `operations.ts` (operations,
+  security, parameters, bodies, responses, headers, and media types), and `diff.ts`, the entry
+  point. The comparison is a set of functions over an explicit context instead of a class.
+
 ## Open questions
 
 - Accepting OpenAPI 3.0 or 3.2, and bundling external references, for projects other than HyAPI.

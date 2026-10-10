@@ -1,6 +1,6 @@
 # Review 0002: Interfaces and module depth
 
-- Status: Accepted. The decisions below are scheduled in [the roadmap](../roadmap.md) as M12.
+- Status: Accepted, and implemented in [roadmap](../roadmap.md) M12 (2026-10-10).
 - Date: 2026-10-10
 - Scope: `main` at `6cdcef4`, after M11 ([ADR 0004](../0004-contract-structure-and-base.md)) and the
   removal of import cycles (PR #72)

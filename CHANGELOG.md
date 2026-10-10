@@ -40,6 +40,8 @@ No public API or behavior changes; the public API snapshot is unchanged.
   HyAPI chooses moved to `respond.ts`.
 - `isRecord` and `Dict` moved from `base/typebox.ts` to `base/record.ts`, and the CLI's
   `document.ts` is now `serialize.ts`.
+- `@hyapi/openapi-diff`'s 715-line `diff.ts` is split by area into `change.ts`, `document.ts`,
+  `schema.ts`, `operations.ts`, and a 25-line entry point (roadmap M12c). Results are unchanged.
 
 ### Internal structure (ADR 0004, roadmap M11)
 

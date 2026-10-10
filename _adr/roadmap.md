@@ -45,7 +45,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M9](#m9-correctness-and-safe-defaults)        | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
 | [M10](#m10-production-features)                | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
 | [M11](#m11-contract-structure-and-base)        | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
-| [M12](#m12-narrow-interfaces-and-deep-modules) | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | In progress       |
+| [M12](#m12-narrow-interfaces-and-deep-modules) | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | Done (2026-10-10) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -422,7 +422,8 @@ modules that each have one reason to change, as decided in
   the wrapper plugins; declare the JWT and OIDC verifier return types inline; remove `problem()`.
   Breaking; recorded as RFC 0001 amendments, with the public API snapshot, documentation, and
   example updated. Done: RFC 0001 A38–A41; the public API is 86 symbols instead of 111.
-- **M12c: openapi-diff** (D3). Split `diff.ts` by area. No public API change.
+- **M12c: openapi-diff** (D3). Split `diff.ts` by area. No public API change. Done: `change.ts`,
+  `document.ts`, `schema.ts`, `operations.ts`, and a 25-line `diff.ts` entry point.
 
 **Exit criteria:** the internal-export test passes; no runtime module exceeds about 350 lines; every
 public symbol in the snapshot meets the export rule; the example and documentation use no removed
