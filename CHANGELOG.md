@@ -7,6 +7,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-10
+
+Narrower interfaces and deeper modules (roadmap M11 and M12, ADR 0004, Review 0002). The public API
+is 80 symbols instead of 111, so some types and `problem()` are removed or changed; see "Narrow
+public interfaces" for each change and how to migrate. Runtime behavior, diagnostics, and emitted
+documents are unchanged.
+
 ### Narrow public interfaces (Review 0002, roadmap M12b) — breaking
 
 The public API is 80 symbols instead of 111. A public type is exported only when applications must
