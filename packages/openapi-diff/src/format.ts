@@ -1,4 +1,4 @@
-import type { Change, DiffResult } from "./diff.ts";
+import type { Change, DiffResult } from "./change.ts";
 
 /** Output formats for {@link formatDiff}. */
 export type DiffFormat = "text" | "markdown" | "json";

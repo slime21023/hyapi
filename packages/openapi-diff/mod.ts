@@ -17,11 +17,6 @@
  *
  * @module
  */
-export {
-  type Change,
-  diffOpenApi,
-  type DiffResult,
-  type RuleId,
-  type Severity,
-} from "./src/diff.ts";
+export type { Change, DiffResult, RuleId, Severity } from "./src/change.ts";
+export { diffOpenApi } from "./src/diff.ts";
 export { type DiffFormat, formatDiff } from "./src/format.ts";
