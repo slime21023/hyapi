@@ -7,7 +7,8 @@
   [RFC 0001](rfcs/0001-contract-and-handler-api.md), and the
   [component specifications](components/README.md); M8–M10 are based on
   [Review 0001](reviews/0001-component-and-production-readiness.md) and
-  [ADR 0003](0003-layered-architecture.md)
+  [ADR 0003](0003-layered-architecture.md); M11 is based on
+  [ADR 0004](0004-contract-structure-and-base.md)
 
 ## v1 goal
 
@@ -41,14 +42,15 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
 | [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
 | [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
-| [M10](#m10-production-features)         | Production features (0.3.0)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
+| [M10](#m10-production-features)         | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
+| [M11](#m11-contract-structure-and-base) | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Planned           |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
           │       └─► M5 ─┼─► M7
           └─► M3 ───► M6 ─┘
 
-M7 ─► M8 ─► M9 ─► M10 ─► 1.0.0
+M7 ─► M8 ─► M9 ─► M10 ─► M11 ─► 1.0.0
 ```
 
 M2 and M3 can proceed in parallel after M1. M8–M10 run in order: M8 settles the layers of ADR 0003,
@@ -341,7 +343,7 @@ the guide describe the new behavior; `deno task verify` and CI pass.
 ### M10: Production features
 
 **Goal:** the observability, authorization, and document features that production deployments need,
-specified in an RFC before implementation. Released as `0.3.0`.
+specified in an RFC before implementation. Planned as `0.3.0`; released as `0.2.5`.
 
 Findings: F2.2, F2.3, F2.6, F2.7, F4, F5.2–F5.5, F5.7, F5.9.
 
@@ -367,6 +369,34 @@ Findings: F2.2, F2.3, F2.6, F2.7, F4, F5.2–F5.5, F5.7, F5.9.
 **Exit criteria:** the example application uses the request ID, a denial event, and two documents
 (public and internal); every new event is in the observability recipe; `deno task verify` and CI
 pass.
+
+### M11: Contract structure and base
+
+**Goal:** organize `contract` by reader, move HyAPI's shared HTTP and TypeBox mechanisms into a
+Core-internal base layer, and enforce a fixed interface between the contract compiler and its
+consumers, as decided in [ADR 0004](0004-contract-structure-and-base.md). Released as `0.3.0`.
+
+- **Base (L0):** `src/base/http.ts` (`HttpMethod`, media types, reason phrases) and
+  `src/base/typebox.ts` (schema guard, component-name marker, `objectSchema`, `isRecord`,
+  `snapshot`, `cloneSchema`, format lists), imported by `contract`, `openapi`, and `runtime` only.
+- **Contract:** `declare/` (what applications write), `compile/` (the only interpreter), `model.ts`
+  (the inner interface, owning the shared OpenAPI vocabulary and the parameter defaults that replace
+  `LOCATIONS`), and `infer.ts`. `normalize_operation.ts` is split into operation, parameters, body,
+  and responses; the security rules move into `compile/security.ts`; named schemas and responses
+  share one registry in `compile/components.ts`.
+- **Enforcement:** the layer and import tests learn `base/`; a new test limits `runtime/` and
+  `openapi/` to `model.ts`, `compile/compile.ts`, `compile/diagnostics.ts`, and the types of
+  `declare/` and `infer.ts`; a public API snapshot test compares every entry point's symbols with a
+  committed snapshot.
+- **Records:** ADR 0002 §1 and §3, ADR 0003 §1, §3, and §4, `components/contract.md`, a new
+  `components/base.md`, and `AGENTS.md`, updated in the same change.
+
+**Plan:** one pull request: the snapshot test first, then the moves, then the boundary tests and
+records.
+
+**Exit criteria:** the public API snapshot is unchanged; the example's `emit --check` passes, so the
+emitted documents are byte-identical; diagnostic codes and messages are unchanged; no module outside
+`compile/` imports a private compiler module; `deno task verify` and CI pass.
 
 ## Open roadmap questions
 
