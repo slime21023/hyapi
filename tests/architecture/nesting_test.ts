@@ -1,15 +1,13 @@
 import { assertEquals } from "@std/assert";
 import { checkNesting, checkRepositoryNesting } from "./nesting.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 function chains(source: string): string[] {
   return checkNesting("x.ts", source).map((violation) => violation.chain);
 }
 
 Deno.test("packages nest at most two levels", async () => {
-  const violations = await checkRepositoryNesting(root);
+  const violations = await checkRepositoryNesting(ROOT);
   assertEquals(violations.map((v) => `${v.file}:${v.line} ${v.within}: ${v.chain}`), []);
 });
 

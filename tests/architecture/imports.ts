@@ -1,5 +1,6 @@
 // Enforces the dependency rules of ADR 0002 §3 and ADR 0004 §1 by scanning import specifiers in
 // packages/.
+import { readSources, resolveRelative } from "./repository.ts";
 
 export type Component =
   | "base"
@@ -97,16 +98,6 @@ export function importSpecifiers(source: string): string[] {
   return specifiers;
 }
 
-/** Resolves a relative specifier against the importing file's repository-relative path. */
-export function resolveRelative(from: string, specifier: string): string {
-  const parts = from.split("/").slice(0, -1);
-  for (const segment of specifier.split("/")) {
-    if (segment === "..") parts.pop();
-    else if (segment !== ".") parts.push(segment);
-  }
-  return parts.join("/");
-}
-
 /** `npm:@scope/name@1/sub` → `@scope/name`; `typebox/value` → `typebox`. */
 function packageName(specifier: string): string {
   const [first = "", second = ""] = specifier.replace(/^(npm|jsr):\/?/, "").split("/");
@@ -172,24 +163,15 @@ export function checkFile(path: string, source: string): Violation[] {
   return violations;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (/\.(ts|tsx|mts)$/.test(entry.name)) yield path;
-  }
-}
-
 /** Checks every TypeScript file under `packages/`, relative to the repository root. */
 export async function checkRepository(root: string): Promise<Violation[]> {
   const violations: Violation[] = [];
-  for await (const file of sourceFiles(`${root}/packages`)) {
-    const path = file.slice(root.length + 1);
+  for (const [path, source] of await readSources(root, "packages")) {
     if (!componentOf(path)) {
       violations.push({ file: path, specifier: "", reason: "file belongs to no component" });
       continue;
     }
-    violations.push(...checkFile(path, await Deno.readTextFile(file)));
+    violations.push(...checkFile(path, source));
   }
   return violations;
 }

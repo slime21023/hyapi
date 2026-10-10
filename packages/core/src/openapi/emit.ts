@@ -12,7 +12,7 @@ import {
 } from "../contract/model.ts";
 
 /** The OpenAPI version HyAPI emits. */
-export const OPENAPI_VERSION = "3.1.1";
+const OPENAPI_VERSION = "3.1.1";
 
 /** A JSON value in an emitted document. */
 type JsonValue =

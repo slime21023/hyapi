@@ -463,7 +463,7 @@ it holds. These public types change accordingly:
 [Review 0002](../reviews/0002-interfaces-and-module-depth.md) found that 48 of 111 public symbols
 were referenced by no document, example, test, or other package. `AGENTS.md` now exports a public
 type only when applications must write its name: a callback they implement, an argument they build
-apart from the call, or a result they inspect. The public API has 86 symbols after these changes.
+apart from the call, or a result they inspect. The public API has 80 symbols after these changes.
 
 - **A38. Declaration shapes are not exported.** `@hyapi/core/contract` no longer exports `ApiInfo`,
   `ServerSpec`, `TagSpec`, `OAuthFlow`, `OAuthFlows`, `SchemeSpec`, `BasicSpec`, `BasicScheme`,
@@ -487,6 +487,13 @@ apart from the call, or a result they inspect. The public API has 86 symbols aft
 - **A41. `problem()` is removed.** A handler writes a problem body as a literal, such as
   `{ status: 404, body: { title: "Not found", detail: id } }`, which the contract checks against the
   `Problem` schema; the runtime still fills in `status`. `title` is no longer required by the type.
+- **A42. Residual and literal-only exports.** A check before 0.3.0 found six more public symbols
+  that applications never name: `ProblemValue`, left by A41 and used by no public signature;
+  `HealthStatus`, already part of `HealthReportValue`; `OPENAPI_VERSION`, which the emitted document
+  states as `openapi`; `ResponseValidation`, written only as `"off"`, `"log"`, or `"enforce"`; and
+  `ErrorInfo` and `Violation`, parts of events and problem responses that are read without being
+  named. None of them is exported any more; `AppOptions["responseValidation"]` names the option type
+  where needed.
 
 ## Alternatives rejected
 

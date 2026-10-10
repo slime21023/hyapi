@@ -1,6 +1,7 @@
 // Enforces the naming rule for generics in AGENTS.md: every type parameter, including `infer`
 // variables and mapped-type keys, is named for what it holds, never a one- or two-letter name.
 import ts from "typescript";
+import { readSources } from "./repository.ts";
 
 export interface NamingViolation {
   readonly file: string;
@@ -25,20 +26,8 @@ export function checkTypeParameters(file: string, source: string): NamingViolati
   return violations;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (entry.name.endsWith(".ts")) yield path;
-  }
-}
-
 /** Checks every module under `packages/`, relative to the repository root. */
 export async function checkRepositoryTypeParameters(root: string): Promise<NamingViolation[]> {
-  const violations: NamingViolation[] = [];
-  for await (const file of sourceFiles(`${root}/packages`)) {
-    const path = file.slice(root.length + 1);
-    violations.push(...checkTypeParameters(path, await Deno.readTextFile(file)));
-  }
-  return violations;
+  const sources = await readSources(root, "packages");
+  return [...sources].flatMap(([path, source]) => checkTypeParameters(path, source));
 }

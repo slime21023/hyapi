@@ -1,6 +1,7 @@
 // Renders the public API of every package entry point as TypeScript-like signatures, so that a
 // change to the public surface is always deliberate (ADR 0004 §4). Where a declaration lives and
 // how it is documented are not part of its shape. `deno task api:update` rewrites the snapshot.
+import { ROOT } from "./repository.ts";
 
 /** Every public entry point, relative to the repository root. */
 export const ENTRY_POINTS: readonly string[] = [
@@ -212,7 +213,6 @@ export async function publicApi(root: string): Promise<string> {
 }
 
 if (import.meta.main) {
-  const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-  await Deno.writeTextFile(`${root}/${SNAPSHOT}`, await publicApi(root));
+  await Deno.writeTextFile(`${ROOT}/${SNAPSHOT}`, await publicApi(ROOT));
   console.log(`wrote ${SNAPSHOT}`);
 }

@@ -9,8 +9,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Narrow public interfaces (Review 0002, roadmap M12b) — breaking
 
-The public API is 86 symbols instead of 111. A public type is exported only when applications must
-write its name (RFC 0001 A38–A41).
+The public API is 80 symbols instead of 111. A public type is exported only when applications must
+write its name (RFC 0001 A38–A42).
 
 - `@hyapi/core/contract` no longer exports the declaration shapes `ApiInfo`, `ServerSpec`,
   `TagSpec`, `OAuthFlow`, `OAuthFlows`, `SchemeSpec`, `BasicSpec`, `BasicScheme`, `BodySpec`,
@@ -25,6 +25,10 @@ write its name (RFC 0001 A38–A41).
   are removed.
 - `problem()` is removed. Write the problem body as a literal:
   `{ status: 404, body: { title: "Book not found", detail: id } }`.
+- `ProblemValue`, `HealthStatus`, `OPENAPI_VERSION`, `ResponseValidation`, `ErrorInfo`, and
+  `Violation` are no longer exported. Use `AppOptions["responseValidation"]` for the option type.
+- The architecture tests share one module for reading sources and resolving imports, and the CLI
+  tests share one helper for running the CLI.
 
 ### Narrow internal interfaces (Review 0002, roadmap M12a)
 

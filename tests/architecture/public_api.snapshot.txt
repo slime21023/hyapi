@@ -65,7 +65,6 @@ function openIdConnect<Identity>(options: { readonly url: string; readonly descr
 
 ## packages/core/openapi.ts
 
-const OPENAPI_VERSION: "3.1.1"
 interface OpenApiDocument {
   readonly openapi: string;
   readonly info: { readonly title: string; readonly version: string; readonly [key: string]: JsonValue };
@@ -94,12 +93,6 @@ interface DocumentOption {
   readonly content: unknown;
   readonly contentType?: string;
 }
-interface ErrorInfo {
-  readonly name: string;
-  readonly message: string;
-  readonly stack?: string;
-  readonly cause?: ErrorInfo;
-}
 type EventListener = (event: AppEvent) => void | Promise<void>
 type FetchHandler = (request: Request) => Response | Promise<Response>
 type Handler<Resource extends AnyContract, OperationId extends keyof Resource["operations"]> = Resource extends Contract<infer SchemeSet, infer Operations, infer DefaultSecurity> ? HandlerFor<Operations[OperationId & keyof Operations], SchemeSet, DefaultSecurity> : never
@@ -108,7 +101,6 @@ interface Health {
 }
 type HealthCheck = (signal: AbortSignal) => CheckResult | Promise<CheckResult>
 type HealthReportValue = Static<typeof HealthReport>
-type HealthStatus = "healthy" | "degraded" | "unhealthy"
 class HttpError extends Error {
   constructor(status: number, options: { readonly title?: string; readonly detail?: string; readonly code?: string; readonly headers?: Readonly<Record<string, string>>; readonly cause?: unknown } = …);
   readonly status: number;
@@ -121,8 +113,6 @@ interface LifecycleResource {
   readonly start?: () => void | Promise<void>;
   readonly stop?: (signal: AbortSignal) => void | Promise<void>;
 }
-type ProblemValue = Static<typeof Problem>
-type ResponseValidation = "off" | "log" | "enforce"
 interface StartupDiagnostic extends Omit<Diagnostic, "code"> {
   readonly code: StartupDiagnosticCode;
 }
@@ -144,11 +134,6 @@ interface VerifierContext {
   readonly requestId: string | undefined;
 }
 type Verifiers<SchemeSet extends Schemes> = { readonly [Name in keyof SchemeSet]: VerifierFor<SchemeSet[Name]> }
-interface Violation {
-  readonly location: string;
-  readonly pointer: string;
-  readonly message: string;
-}
 async function createApp<Definition extends Api>(options: AppOptions<Definition>): Promise<App>
 function createHealth(checks: Readonly<Record<string, HealthCheck>>, options: { readonly timeoutMs?: number } = …): Health
 function implement<SchemeSet extends Schemes, Operations, DefaultSecurity>(contract: Contract<SchemeSet, Operations, DefaultSecurity>, handlers: NoInfer<{ readonly [OperationId in keyof Operations]: HandlerFor<Operations[OperationId], SchemeSet, DefaultSecurity> | NotImplemented }>): Implementation

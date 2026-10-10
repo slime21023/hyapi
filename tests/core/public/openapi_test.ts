@@ -2,7 +2,7 @@ import { assert, assertEquals, assertThrows } from "@std/assert";
 import { Validator } from "@seriousme/openapi-schema-validator";
 import Type from "typebox";
 import { ContractError, defineApi, defineContract } from "@hyapi/core/contract";
-import { emitOpenApi, OPENAPI_VERSION, serializeOpenApi } from "@hyapi/core/openapi";
+import { emitOpenApi, serializeOpenApi } from "@hyapi/core/openapi";
 import { api } from "../../fixtures/library_api.ts";
 
 const golden = new URL("../../fixtures/library_api.openapi.json", import.meta.url);
@@ -23,7 +23,7 @@ Deno.test("the emitted document is valid OpenAPI 3.1", async () => {
   const validator = new Validator();
   const result = await validator.validate(document());
   assertEquals(result, { valid: true });
-  assertEquals(document().openapi, OPENAPI_VERSION);
+  assertEquals(document().openapi, "3.1.1");
 });
 
 Deno.test("named schemas become component references, including inside derived schemas", () => {

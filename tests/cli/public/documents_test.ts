@@ -1,17 +1,9 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import { fromFileUrl, join } from "jsr:@std/path@^1";
-import { run } from "@hyapi/cli";
+import { join } from "jsr:@std/path@^1";
+import { cli, REPO } from "../helpers.ts";
 
-const repo = fromFileUrl(new URL("../../..", import.meta.url)).replace(/[\\/]$/, "");
-const library = join(repo, "tests", "fixtures", "library_api.ts");
-const documents = join(repo, "tests", "fixtures", "documents_api.ts");
-
-async function cli(args: string[], cwd: string) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const code = await run(args, { cwd, stdout: (l) => out.push(l), stderr: (l) => err.push(l) });
-  return { code, out: out.join("\n"), err: err.join("\n") };
-}
+const library = join(REPO, "tests", "fixtures", "library_api.ts");
+const documents = join(REPO, "tests", "fixtures", "documents_api.ts");
 
 /** A project whose deno.json declares `hyapi`. */
 async function project(hyapi: unknown): Promise<string> {

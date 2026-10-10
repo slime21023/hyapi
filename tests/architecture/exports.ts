@@ -2,7 +2,7 @@
 // imported by another module in packages/, or re-exported by one. Public entry points are exempt;
 // their exports are the public API, which the public API snapshot governs.
 import ts from "typescript";
-import { resolveRelative } from "./imports.ts";
+import { readSources, resolveRelative } from "./repository.ts";
 
 export interface UnusedExport {
   readonly file: string;
@@ -98,19 +98,7 @@ export function findUnusedExports(sources: ReadonlyMap<string, string>): UnusedE
   return unused;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (/\.(ts|tsx|mts)$/.test(entry.name)) yield path;
-  }
-}
-
 /** Checks every module under `packages/`, relative to the repository root. */
 export async function checkRepositoryExports(root: string): Promise<UnusedExport[]> {
-  const sources = new Map<string, string>();
-  for await (const file of sourceFiles(`${root}/packages`)) {
-    sources.set(file.slice(root.length + 1), await Deno.readTextFile(file));
-  }
-  return findUnusedExports(sources);
+  return findUnusedExports(await readSources(root, "packages"));
 }

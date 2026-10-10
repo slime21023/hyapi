@@ -3,7 +3,7 @@ import type { HealthReport } from "../contract/declare/schema.ts";
 import { withDeadline } from "./deadline.ts";
 
 /** The status of one check, or of the whole report. */
-export type HealthStatus = "healthy" | "degraded" | "unhealthy";
+type HealthStatus = "healthy" | "degraded" | "unhealthy";
 
 /**
  * One health check. Resolving (with nothing) means healthy; returning `{ status: "degraded" }`
