@@ -58,12 +58,6 @@ export interface OidcBearerOptions<Identity> {
   readonly scopes?: (claims: JWTPayload) => readonly string[];
 }
 
-/** A verifier for `openIdConnect`, `oauth2`, or `httpBearer` schemes. */
-export type OidcVerifier<Identity> = (
-  token: string,
-  ctx: VerifierContext,
-) => Promise<Verified<Identity> | null>;
-
 const ALGORITHMS: readonly OidcAlgorithm[] = ["RS256", "PS256", "ES256", "EdDSA"];
 
 /** The key server failed; never mistaken for an invalid token. */
@@ -117,7 +111,7 @@ async function discover(issuer: string, timeoutMs: number): Promise<string> {
  */
 export async function oidcBearer<Identity = JWTPayload>(
   options: OidcBearerOptions<Identity>,
-): Promise<OidcVerifier<Identity>> {
+): Promise<(token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>> {
   if (typeof options.issuer !== "string" || !/^https?:\/\//.test(options.issuer)) {
     throw new TypeError("issuer must be an http(s) URL");
   }

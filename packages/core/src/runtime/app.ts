@@ -24,10 +24,16 @@ import { createSecurity, type SecurityEvaluator } from "./security.ts";
 import { type Binding, checkStartup } from "./startup.ts";
 import { createValidators } from "./validation.ts";
 
+/**
+ * A Web-standard request handler: `app.fetch`, and what an outer wrapper such as a CORS plugin
+ * takes and returns, `(fetch, options) => fetch`.
+ */
+export type FetchHandler = (request: Request) => Response | Promise<Response>;
+
 /** A running HyAPI application. */
 export interface App {
   /** Handles one request. Compatible with `Deno.serve` and any Web-standard host. */
-  fetch(request: Request): Promise<Response>;
+  readonly fetch: FetchHandler;
   /**
    * Stops admitting requests (new ones get 503), drains in-flight requests within the shutdown
    * budget, aborts the rest, then stops lifecycle resources in reverse order. Idempotent. Rejects

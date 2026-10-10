@@ -120,13 +120,13 @@ export const api = defineApi({
   contracts: [greetings],
 });
 `,
-    "src/greetings.ts": `import { implement, problem } from "@hyapi/core";
+    "src/greetings.ts": `import { implement } from "@hyapi/core";
 import { greetings } from "../contracts/greetings.ts";
 
 export const greetingsImplementation = implement(greetings, {
   getGreeting: ({ params, query }) => {
     if (params.name === "nobody") {
-      return { status: 404, body: problem({ title: "Nobody to greet" }) };
+      return { status: 404, body: { title: "Nobody to greet" } };
     }
     const message = \`Hello, \${params.name}\${query.excited ? "!" : "."}\`;
     return { status: 200, body: { message } };

@@ -79,9 +79,11 @@ route match (404, or 405 with Allow; HEAD served for GET)
 
 ## Interface
 
-`createApp`, `implement`, `notImplemented`, `HttpError`, application options, and the types that
-handlers, verifiers, and event listeners need. The application object exposes `fetch` and `close`.
-Internal modules are not exported.
+`createApp`, `implement`, `notImplemented`, `HttpError`, `problemResponse`, application options, and
+the types that handlers, verifiers, and event listeners need. The application object exposes
+`fetch`, a `FetchHandler`, and `close`. `FetchHandler` is also the type that outer `fetch` wrappers
+take and return (RFC 0001 A39). Problem bodies are written as literals; there is no `problem()`
+helper (A41). Internal modules are not exported.
 
 ## Modules
 

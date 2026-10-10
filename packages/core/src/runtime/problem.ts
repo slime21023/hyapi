@@ -15,21 +15,6 @@ export interface Violation {
 export type ProblemValue = Static<typeof Problem>;
 
 /**
- * Builds a problem details body for a declared error response. The runtime fills in `status` from
- * the returned status, so it is not passed here.
- *
- * @example
- * ```ts
- * return { status: 404, body: problem({ title: "User not found", detail: `No user ${id}` }) };
- * ```
- */
-export function problem(
-  value: Omit<ProblemValue, "status"> & { readonly title: string },
-): ProblemValue {
-  return { ...value };
-}
-
-/**
  * An error for cross-cutting or unexpected failures. Declared outcomes should be returned instead.
  * The runtime answers with a problem response using this status.
  */

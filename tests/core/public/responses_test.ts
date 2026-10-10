@@ -1,6 +1,12 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import Type from "typebox";
-import { type AppEvent, createApp, implement, type ResponseValidation } from "@hyapi/core";
+import {
+  type AppEvent,
+  createApp,
+  type FetchHandler,
+  implement,
+  type ResponseValidation,
+} from "@hyapi/core";
 import { defineApi, defineContract, defineSchema } from "@hyapi/core/contract";
 
 const T = Type;
@@ -72,8 +78,8 @@ async function build(
   });
 }
 
-const get = (app: { fetch(r: Request): Promise<Response> }, path: string) =>
-  app.fetch(new Request(`http://t${path}`));
+const get = async (app: { readonly fetch: FetchHandler }, path: string) =>
+  await app.fetch(new Request(`http://t${path}`));
 
 // --- Response headers and the policy ------------------------------------------------------------
 

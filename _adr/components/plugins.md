@@ -11,10 +11,10 @@ plugin takes one of two shapes that the public API already supports.
 
 ## Shapes
 
-| Shape                 | Form                                                                | Plugins                                                                                                 |
-| --------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Security verifier     | A function registered under a `securitySchemes` name in `createApp` | `plugin-jwt` (JWT for bearer schemes), `plugin-oidc` (OIDC/JWKS for `openIdConnect` and bearer schemes) |
-| Outer `fetch` wrapper | `(fetch, options) => fetch`, composed around `app.fetch`            | `plugin-cors`, `plugin-csrf` (signed double-submit), `plugin-rate-limit` (single-instance, in-memory)   |
+| Shape                 | Form                                                                                | Plugins                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Security verifier     | A function registered under a `securitySchemes` name in `createApp`                 | `plugin-jwt` (JWT for bearer schemes), `plugin-oidc` (OIDC/JWKS for `openIdConnect` and bearer schemes) |
+| Outer `fetch` wrapper | `(fetch, options) => fetch` over Core's `FetchHandler`, composed around `app.fetch` | `plugin-cors`, `plugin-csrf` (signed double-submit), `plugin-rate-limit` (single-instance, in-memory)   |
 
 ## Responsibilities
 

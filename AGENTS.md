@@ -71,6 +71,10 @@ options, and stays removable. Prefer a recipe with an existing package before a 
   need the same type, move the type to a module that all of them import, never back to the caller.
 - **Export only what is used.** An internal module exports only what another module imports. Keep
   helpers private, and let a file's exports describe its interface.
+- **Public types are the ones users name.** Export a public type only when applications must write
+  its name: a callback they implement, an argument they build apart from the call, or a result they
+  inspect. Shapes that users write only as literals in a call stay private, and the public API
+  snapshot shows every change.
 - **Unions before generics.** Most code needs no generics. Describe a closed set of cases with a
   string-literal union, a discriminated union, or an enum, which bounds the cases and keeps types
   small. Use a generic only to carry a type that the caller chooses and that must reach another

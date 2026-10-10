@@ -4,6 +4,7 @@ import {
   type AppEvent,
   type AppOptions,
   createApp,
+  type FetchHandler,
   HttpError,
   implement,
   StartupError,
@@ -83,8 +84,8 @@ async function build(
   });
 }
 
-const get = (app: { fetch(r: Request): Promise<Response> }, path: string, headers = {}) =>
-  app.fetch(new Request(`http://t${path}`, { headers }));
+const get = async (app: { readonly fetch: FetchHandler }, path: string, headers = {}) =>
+  await app.fetch(new Request(`http://t${path}`, { headers }));
 
 // --- Request IDs (RFC 0001 A27) ------------------------------------------------------------------
 

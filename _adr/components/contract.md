@@ -77,7 +77,10 @@ enforces these edges.
 - `checkContracts(api)` returns `{ ok, diagnostics }`. Each diagnostic has a severity, a stable
   code, the `operationId` or location it concerns, and a message.
 - `ContractError` carries the diagnostics when `emitOpenApi` is given contracts with errors.
-- Contract, operation, and inference helper types.
+- The types that applications name: `Api`, `Contract`, `Scheme`, `Schemes`, `Security`,
+  `BasicCredential`, `FormatChecks`, `InputOf`, `ResultOf`, `CheckResult`, `Diagnostic`, and
+  `DiagnosticCode`. Declaration shapes, such as operations, bodies, responses, and scheme specs, are
+  inferred from the literals passed to the `define*` functions and are not exported (RFC 0001 A38).
 
 `ContractModel` is internal to `@hyapi/core` (ADR 0003 §7). The runtime and the emitter receive it
 from the internal `compileContracts`; applications and tools never see it.

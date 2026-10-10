@@ -68,12 +68,6 @@ export interface JwtBearerOptions<Identity> {
   readonly scopes?: (claims: JWTPayload) => readonly string[];
 }
 
-/** A verifier for an `httpBearer`, `oauth2`, or `openIdConnect` scheme. */
-export type JwtVerifier<Identity> = (
-  token: string,
-  ctx: VerifierContext,
-) => Promise<Verified<Identity> | null>;
-
 const ALGORITHMS: readonly JwtAlgorithm[] = ["HS256", "RS256", "ES256", "EdDSA"];
 const MIN_SECRET_BYTES = 32;
 
@@ -117,7 +111,7 @@ async function importKey(
  */
 export async function jwtBearer<Identity = JWTPayload>(
   options: JwtBearerOptions<Identity>,
-): Promise<JwtVerifier<Identity>> {
+): Promise<(token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>> {
   if (!ALGORITHMS.includes(options.algorithm)) {
     throw new TypeError(`algorithm must be one of ${ALGORITHMS.join(", ")}`);
   }

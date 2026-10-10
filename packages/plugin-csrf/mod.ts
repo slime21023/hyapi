@@ -12,10 +12,7 @@
  *
  * @module
  */
-import { problemResponse } from "@hyapi/core";
-
-/** A Web-standard request handler, such as `app.fetch`. */
-export type FetchHandler = (request: Request) => Response | Promise<Response>;
+import { type FetchHandler, problemResponse } from "@hyapi/core";
 
 /** Options for {@link withCsrf}. */
 export interface CsrfOptions {

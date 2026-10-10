@@ -7,6 +7,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Narrow public interfaces (Review 0002, roadmap M12b) — breaking
+
+The public API is 86 symbols instead of 111. A public type is exported only when applications must
+write its name (RFC 0001 A38–A41).
+
+- `@hyapi/core/contract` no longer exports the declaration shapes `ApiInfo`, `ServerSpec`,
+  `TagSpec`, `OAuthFlow`, `OAuthFlows`, `SchemeSpec`, `BasicSpec`, `BasicScheme`, `BodySpec`,
+  `StyleOverrides`, `ResponseValue`, `ResponseSpec`, `OperationSpec`, `NamedResponse`, `HttpMethod`,
+  `AnyContract`, and `Requirement`; they are inferred from the literals passed to `define*`.
+  `@hyapi/core` no longer exports `Implementation` and `NotImplemented`, and `@hyapi/core/openapi`
+  no longer exports `JsonValue`.
+- `@hyapi/core` exports `FetchHandler`. `App.fetch` is a `FetchHandler`, so its declared return type
+  is `Response | Promise<Response>`; await it where a `Promise` is required. The CORS, CSRF, and
+  rate-limit plugins use it and no longer export their own `FetchHandler`.
+- `jwtBearer` and `oidcBearer` declare their verifier type inline; `JwtVerifier` and `OidcVerifier`
+  are removed.
+- `problem()` is removed. Write the problem body as a literal:
+  `{ status: 404, body: { title: "Book not found", detail: id } }`.
+
 ### Narrow internal interfaces (Review 0002, roadmap M12a)
 
 No public API or behavior changes; the public API snapshot is unchanged.

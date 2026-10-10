@@ -1,6 +1,5 @@
 ## packages/core/contract.ts
 
-type AnyContract = Contract<any, any, any>
 interface Api<SchemeSet extends Schemes = Schemes, Contracts = readonly AnyContract[]> {
   readonly kind: "hyapi.api";
   readonly info: ApiInfo;
@@ -11,24 +10,10 @@ interface Api<SchemeSet extends Schemes = Schemes, Contracts = readonly AnyContr
   readonly security?: readonly Requirement<SchemeSet>[];
   readonly contracts: Contracts;
 }
-interface ApiInfo {
-  readonly title: string;
-  readonly version: string;
-  readonly summary?: string;
-  readonly description?: string;
-  readonly termsOfService?: string;
-  readonly contact?: { readonly name?: string; readonly url?: string; readonly email?: string };
-  readonly license?: { readonly name: string; readonly identifier?: string; readonly url?: string };
-}
 interface BasicCredential {
   readonly username: string;
   readonly password: string;
 }
-interface BasicScheme<Identity = unknown> extends Scheme<Identity> {
-  readonly spec: BasicSpec;
-}
-type BasicSpec = Extract<SchemeSpec, { readonly scheme: "basic" }>
-type BodySpec = TSchema | { readonly schema: TSchema; readonly mediaType?: string; readonly required?: boolean; readonly description?: string }
 interface CheckResult {
   readonly ok: boolean;
   readonly diagnostics: readonly Diagnostic[];
@@ -54,74 +39,17 @@ interface Diagnostic {
 type DiagnosticCode = "invalid-api" | "duplicate-contract" | "invalid-security-scheme" | "security-schemes-mismatch" | "unknown-security-scheme" | "undeclared-scope" | "empty-security-requirement" | "duplicate-operation-id" | "duplicate-route" | "invalid-method" | "invalid-path" | "path-parameter-mismatch" | "optional-path-parameter" | "invalid-parameter-schema" | "unsupported-parameter-style" | "unknown-style-target" | "duplicate-header" | "reserved-header" | "invalid-body" | "body-on-safe-method" | "invalid-media-type" | "no-responses" | "invalid-status" | "invalid-response" | "body-not-allowed" | "unsupported-schema" | "unresolved-reference" | "invalid-component-name" | "duplicate-schema-name" | "duplicate-response-name" | "unnamed-schema" | "unknown-format" | "invalid-format" | "implicit-public" | "unsupported-body-schema" | "reserved-schema-name"
 type FormatChecks = Readonly<Record<string, (value: string) => boolean>>
 const HealthReport: THealthReport
-type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "TRACE"
 type InputOf<Operation> = NoInput & (Operation extends { readonly params: infer Params } ? { readonly params: StaticOf<Params> } : unknown) & (Operation extends { readonly query: infer Query } ? { readonly query: ParameterInput<Query> } : unknown) & (Operation extends { readonly headers: infer Headers } ? { readonly headers: ParameterInput<Headers> } : unknown) & (Operation extends { readonly cookies: infer Cookies } ? { readonly cookies: ParameterInput<Cookies> } : unknown) & (Operation extends { readonly body: infer Body } ? BodyInput<Body> : unknown)
-interface NamedResponse<Spec extends ResponseSpec = ResponseSpec> {
-  readonly kind: "hyapi.response";
-  readonly name: string;
-  readonly spec: Spec;
-}
-interface OAuthFlow {
-  readonly authorizationUrl?: string;
-  readonly tokenUrl?: string;
-  readonly refreshUrl?: string;
-  readonly scopes: Readonly<Record<string, string>>;
-}
-interface OAuthFlows {
-  readonly implicit?: OAuthFlow;
-  readonly password?: OAuthFlow;
-  readonly clientCredentials?: OAuthFlow;
-  readonly authorizationCode?: OAuthFlow;
-}
-interface OperationSpec<SchemeSet extends Schemes = Schemes> {
-  readonly method: HttpMethod;
-  readonly path: string;
-  readonly params?: TObject;
-  readonly query?: TObject;
-  readonly headers?: TObject;
-  readonly cookies?: TObject;
-  readonly styles?: StyleOverrides;
-  readonly body?: BodySpec;
-  readonly responses: { readonly [status: number]: ResponseValue };
-  readonly security?: readonly Requirement<SchemeSet>[];
-  readonly summary?: string;
-  readonly description?: string;
-  readonly tags?: readonly string[];
-  readonly deprecated?: boolean;
-}
 const Problem: TProblem
-type Requirement<SchemeSet extends Schemes> = [keyof SchemeSet] extends [never] ? Readonly<Record<string, never>> : { readonly [Name in keyof SchemeSet]?: readonly string[] }
-interface ResponseSpec {
-  readonly description: string;
-  readonly body?: TSchema;
-  readonly mediaType?: string;
-  readonly headers?: TObject;
-}
-type ResponseValue = TSchema | ResponseSpec | NamedResponse
 type ResultOf<Operation> = { [Status in keyof ResponsesOf<Operation>]: ResultFor<Status, ResponsesOf<Operation>[Status]> }[keyof ResponsesOf<Operation>]
 interface Scheme<Identity = unknown> {
   readonly spec: SchemeSpec;
   readonly ~identity?: Identity;
 }
-type SchemeSpec = { readonly type: "http"; readonly scheme: "bearer"; readonly bearerFormat?: string; readonly description?: string } | { readonly type: "http"; readonly scheme: "basic"; readonly description?: string } | { readonly type: "apiKey"; readonly in: "header" | "query" | "cookie"; readonly name: string; readonly description?: string } | { readonly type: "oauth2"; readonly flows: OAuthFlows; readonly description?: string } | { readonly type: "openIdConnect"; readonly openIdConnectUrl: string; readonly description?: string }
 type Schemes = Readonly<Record<string, Scheme>>
 interface Security<SchemeSet extends Schemes = Schemes> {
   readonly kind: "hyapi.security";
   readonly schemes: SchemeSet;
-}
-interface ServerSpec {
-  readonly url: string;
-  readonly description?: string;
-}
-interface StyleOverrides {
-  readonly params?: Readonly<Record<string, { readonly style?: "simple"; readonly explode?: boolean }>>;
-  readonly query?: Readonly<Record<string, { readonly style?: "form" | "deepObject"; readonly explode?: boolean }>>;
-  readonly headers?: Readonly<Record<string, { readonly style?: "simple"; readonly explode?: boolean }>>;
-  readonly cookies?: Readonly<Record<string, { readonly style?: "form"; readonly explode?: boolean }>>;
-}
-interface TagSpec {
-  readonly name: string;
-  readonly description?: string;
 }
 function apiKey<Identity>(options: { readonly in: "header" | "query" | "cookie"; readonly name: string; readonly description?: string }): Scheme<Identity>
 function checkContracts(api: Api): CheckResult
@@ -137,7 +65,6 @@ function openIdConnect<Identity>(options: { readonly url: string; readonly descr
 
 ## packages/core/openapi.ts
 
-type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue }
 const OPENAPI_VERSION: "3.1.1"
 interface OpenApiDocument {
   readonly openapi: string;
@@ -150,7 +77,7 @@ function serializeOpenApi(document: OpenApiDocument): string
 ## packages/core/mod.ts
 
 interface App {
-  fetch(request: Request): Promise<Response>;
+  readonly fetch: FetchHandler;
   close(): Promise<void>;
 }
 type AppEvent = RequestScoped & { readonly type: "operation.start"; readonly operationId: string; readonly method: string; readonly path: string; readonly deprecated: boolean } | RequestScoped & { readonly type: "operation.end"; readonly operationId: string; readonly method: string; readonly path: string; readonly deprecated: boolean; readonly status: number; readonly durationMs: number; readonly code?: string; readonly error?: ErrorInfo } | RequestScoped & { readonly type: "security.denied"; readonly operationId: string; readonly method: string; readonly path: string; readonly status: 401 | 403; readonly reason: "missing" | "invalid" | "insufficient-scope"; readonly schemes: readonly string[]; readonly requiredScopes?: readonly string[] } | RequestScoped & { readonly type: "request.unmatched"; readonly method: string; readonly path: string; readonly status: number; readonly code: string } | RequestScoped & { readonly type: "response.violation"; readonly operationId: string; readonly status: number; readonly violations: readonly Violation[] } | RequestScoped & { readonly type: "response.stripped"; readonly operationId: string; readonly status: number; readonly removed: readonly string[] } | { readonly type: "startup.warning"; readonly code: string; readonly message: string; readonly operationId?: string } | { readonly type: "lifecycle.error"; readonly name: string; readonly phase: "start" | "stop"; readonly error: ErrorInfo }
@@ -174,6 +101,7 @@ interface ErrorInfo {
   readonly cause?: ErrorInfo;
 }
 type EventListener = (event: AppEvent) => void | Promise<void>
+type FetchHandler = (request: Request) => Response | Promise<Response>
 type Handler<Resource extends AnyContract, OperationId extends keyof Resource["operations"]> = Resource extends Contract<infer SchemeSet, infer Operations, infer DefaultSecurity> ? HandlerFor<Operations[OperationId & keyof Operations], SchemeSet, DefaultSecurity> : never
 interface Health {
   check(): Promise<HealthReportValue>;
@@ -188,18 +116,10 @@ class HttpError extends Error {
   readonly detail: string | undefined;
   readonly headers: Readonly<Record<string, string>>;
 }
-interface Implementation {
-  readonly kind: "hyapi.implementation";
-  readonly contract: AnyContract;
-  readonly handlers: Readonly<Record<string, unknown>>;
-}
 interface LifecycleResource {
   readonly name: string;
   readonly start?: () => void | Promise<void>;
   readonly stop?: (signal: AbortSignal) => void | Promise<void>;
-}
-interface NotImplemented {
-  readonly kind: "hyapi.not-implemented";
 }
 type ProblemValue = Static<typeof Problem>
 type ResponseValidation = "off" | "log" | "enforce"
@@ -233,7 +153,6 @@ async function createApp<Definition extends Api>(options: AppOptions<Definition>
 function createHealth(checks: Readonly<Record<string, HealthCheck>>, options: { readonly timeoutMs?: number } = …): Health
 function implement<SchemeSet extends Schemes, Operations, DefaultSecurity>(contract: Contract<SchemeSet, Operations, DefaultSecurity>, handlers: NoInfer<{ readonly [OperationId in keyof Operations]: HandlerFor<Operations[OperationId], SchemeSet, DefaultSecurity> | NotImplemented }>): Implementation
 const notImplemented: NotImplemented
-function problem(value: Omit<ProblemValue, "status"> & { readonly title: string }): ProblemValue
 function problemResponse(status: number, code: string, options: { readonly title?: string; readonly detail?: string; readonly violations?: readonly Violation[]; readonly headers?: Readonly<Record<string, string>>; readonly debug?: unknown } = …): Response
 
 ## packages/core/deno.ts
@@ -289,7 +208,6 @@ interface CorsOptions {
   readonly credentials?: boolean;
   readonly maxAgeSeconds?: number;
 }
-type FetchHandler = (request: Request) => Response | Promise<Response>
 function withCors(handler: FetchHandler, options: CorsOptions): FetchHandler
 
 ## packages/plugin-csrf/mod.ts
@@ -302,7 +220,6 @@ interface CsrfOptions {
   readonly secure?: boolean;
   readonly skip?: (request: Request) => boolean;
 }
-type FetchHandler = (request: Request) => Response | Promise<Response>
 function withCsrf(handler: FetchHandler, options: CsrfOptions): FetchHandler
 
 ## packages/plugin-jwt/mod.ts
@@ -328,8 +245,7 @@ interface JwtBearerOptions<Identity> {
   readonly identity?: (claims: JWTPayload) => Identity | null;
   readonly scopes?: (claims: JWTPayload) => readonly string[];
 }
-type JwtVerifier<Identity> = (token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>
-async function jwtBearer<Identity = JWTPayload>(options: JwtBearerOptions<Identity>): Promise<JwtVerifier<Identity>>
+async function jwtBearer<Identity = JWTPayload>(options: JwtBearerOptions<Identity>): Promise<(token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>>
 
 ## packages/plugin-oidc/mod.ts
 
@@ -355,12 +271,10 @@ interface OidcBearerOptions<Identity> {
   readonly identity?: (claims: JWTPayload) => Identity | null;
   readonly scopes?: (claims: JWTPayload) => readonly string[];
 }
-type OidcVerifier<Identity> = (token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>
-async function oidcBearer<Identity = JWTPayload>(options: OidcBearerOptions<Identity>): Promise<OidcVerifier<Identity>>
+async function oidcBearer<Identity = JWTPayload>(options: OidcBearerOptions<Identity>): Promise<(token: string, ctx: VerifierContext) => Promise<Verified<Identity> | null>>
 
 ## packages/plugin-rate-limit/mod.ts
 
-type FetchHandler = (request: Request) => Response | Promise<Response>
 interface RateLimitOptions {
   readonly limit: number;
   readonly windowMs: number;

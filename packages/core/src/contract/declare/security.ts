@@ -7,7 +7,7 @@ export interface BasicCredential {
 }
 
 /** The spec of an HTTP basic scheme, whose credential is decoded into a {@link BasicCredential}. */
-export type BasicSpec = Extract<SchemeSpec, { readonly scheme: "basic" }>;
+type BasicSpec = Extract<SchemeSpec, { readonly scheme: "basic" }>;
 
 /**
  * A security scheme. Its verifier receives a string credential (a bearer token or an API key),
@@ -22,7 +22,7 @@ export interface Scheme<Identity = unknown> {
 }
 
 /** An HTTP basic scheme. */
-export interface BasicScheme<Identity = unknown> extends Scheme<Identity> {
+interface BasicScheme<Identity = unknown> extends Scheme<Identity> {
   readonly spec: BasicSpec;
 }
 
