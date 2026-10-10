@@ -60,25 +60,30 @@ status and code. Deciding which status a situation gets is L3 policy.
 
 ### 3. Runtime modules
 
-| Layer | Module          | Responsibility                                                                               |
-| ----- | --------------- | -------------------------------------------------------------------------------------------- |
-| L2    | `deadline.ts`   | Race a promise against a deadline, clearing its timer.                                       |
-| L2    | `routing.ts`    | Compile the route table; match a method and path.                                            |
-| L2    | `params.ts`     | Decode path, query, header, and cookie parameters (from `wire.ts`).                          |
-| L2    | `body.ts`       | Media types, size-limited and cancellable reading, decoding, and encoding (from `wire.ts`).  |
-| L2    | `validation.ts` | Compile validators from model schemas; check, convert, and clean values.                     |
-| L2    | `security.ts`   | Evaluate requirements; return granted, denied (status, reason, challenge), or failed.        |
-| L2    | `problem.ts`    | Problem values, `HttpError`, and problem responses.                                          |
-| L2    | `health.ts`     | Run checks with deadlines and aggregate a report.                                            |
-| L2    | `lifecycle.ts`  | Start and stop resources in order; return failures instead of emitting them.                 |
-| L2    | `handler.ts`    | Handler, context, and implementation types; `implement`.                                     |
-| L3    | `pipeline.ts`   | The request flow and response policy; returns an `Outcome`.                                  |
-| L4    | `binding.ts`    | Startup checks of implementations, handlers, timeouts, verifiers, and lifecycle resources.   |
-| L4    | `events.ts`     | Event types and the listener wrapper that contains listener errors.                          |
-| L4    | `app.ts`        | Assembly, startup diagnostics, phases, in-flight tracking, close; the only caller of `emit`. |
+| Layer | Module           | Responsibility                                                                                |
+| ----- | ---------------- | --------------------------------------------------------------------------------------------- |
+| L2    | `deadline.ts`    | Race a promise against a deadline, clearing its timer.                                        |
+| L2    | `routing.ts`     | Compile the route table; match a method and path.                                             |
+| L2    | `params.ts`      | Decode path, query, header, and cookie parameters (from `wire.ts`).                           |
+| L2    | `body.ts`        | Media types, size-limited and cancellable reading, decoding, and encoding (from `wire.ts`).   |
+| L2    | `validation.ts`  | Compile validators from model schemas; check, convert, and clean values.                      |
+| L2    | `security.ts`    | Evaluate requirements; return granted, denied (status, reason, challenge), or failed.         |
+| L2    | `problem.ts`     | Problem values, `HttpError`, and problem responses.                                           |
+| L2    | `health.ts`      | Run checks with deadlines and aggregate a report.                                             |
+| L2    | `lifecycle.ts`   | Start and stop resources in order; return failures instead of emitting them.                  |
+| L2    | `handler.ts`     | Handler, context, and implementation types; `implement`.                                      |
+| L3    | `pipeline.ts`    | The request half of the flow: security, parameters, body, handler; returns an `Outcome`.      |
+| L3    | `respond.ts`     | The response half and response policy; the problem responses HyAPI chooses.                   |
+| L4    | `diagnostics.ts` | Startup diagnostic codes, the startup reporter, and `StartupError`.                           |
+| L4    | `options.ts`     | `createApp` options: types, defaults, checks, and request IDs.                                |
+| L4    | `documents.ts`   | The opt-in document endpoints: startup checks and answers.                                    |
+| L4    | `startup.ts`     | Every startup check, run together by `checkStartup`; touches no process-wide state.           |
+| L4    | `events.ts`      | Event types and the listener wrapper that contains listener errors.                           |
+| L4    | `app.ts`         | Formats, validators, lifecycle, phases, in-flight tracking, close; the only caller of `emit`. |
 
 Modules may still be split or renamed, but a module keeps its layer, and the table is updated in the
-same change. The modules of `base/` (L0) and `contract/` (L1) are listed in ADR 0004 §1–§2.
+same change. The modules of `base/` (L0) and `contract/` (L1) are listed in ADR 0004 §1–§2. Review
+0002 (M12a) split the former `app.ts` and `pipeline.ts`, and renamed `binding.ts` to `startup.ts`.
 
 ### 4. Import rules
 

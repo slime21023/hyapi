@@ -1,13 +1,7 @@
 // The runtime component. See _adr/components/runtime.md and RFC 0001.
-export {
-  type App,
-  type AppOptions,
-  createApp,
-  type DocumentOption,
-  type StartupDiagnostic,
-  type StartupDiagnosticCode,
-  StartupError,
-} from "./app.ts";
+export { type App, createApp } from "./app.ts";
+export { type StartupDiagnostic, type StartupDiagnosticCode, StartupError } from "./diagnostics.ts";
+export type { DocumentOption } from "./documents.ts";
 export type { AppEvent, EventListener } from "./events.ts";
 export {
   type Context,
@@ -25,7 +19,8 @@ export {
   type HealthStatus,
 } from "./health.ts";
 export type { LifecycleResource } from "./lifecycle.ts";
-export type { ResponseValidation } from "./pipeline.ts";
+export type { AppOptions } from "./options.ts";
+export type { ResponseValidation } from "./respond.ts";
 export type { Verified, Verifier, VerifierContext, Verifiers } from "./security.ts";
 export {
   type ErrorInfo,

@@ -1,40 +1,19 @@
+// Everything `createApp` checks before an application starts: options, contracts, implementations,
+// handlers, limits, verifiers, formats, lifecycle resources, and document paths. It touches no
+// process-wide state, so a failed check leaves the process as it was.
+import * as Format from "typebox/format";
+import { compileContracts } from "../contract/compile/compile.ts";
 import type { Diagnostic } from "../contract/compile/diagnostics.ts";
+import type { Api } from "../contract/declare/api.ts";
 import type { AnyContract } from "../contract/declare/contract.ts";
-import type { ContractModel, OperationModel } from "../contract/model.ts";
+import type { ContractModel, FormatModel, OperationModel } from "../contract/model.ts";
+import { type StartupDiagnostic, StartupError, type StartupReport } from "./diagnostics.ts";
+import { documentEndpoints, type ServedDocument } from "./documents.ts";
 import type { Implementation } from "./handler.ts";
 import type { LifecycleResource } from "./lifecycle.ts";
+import { type BaseOptions, positiveInteger, readSettings, type Settings } from "./options.ts";
 import type { AnyHandler } from "./pipeline.ts";
-
-/** Stable identifiers for diagnostics that only `createApp` can report. */
-export type StartupDiagnosticCode =
-  | "invalid-option"
-  | "invalid-lifecycle"
-  | "unknown-implementation"
-  | "duplicate-implementation"
-  | "missing-implementation"
-  | "missing-handler"
-  | "invalid-handler"
-  | "unknown-handler"
-  | "unknown-timeout-target"
-  | "unknown-body-limit-target"
-  | "missing-verifier"
-  | "invalid-verifier"
-  | "unknown-verifier"
-  | "document-route-conflict"
-  | "format-conflict"
-  | "not-implemented";
-
-/** A problem that only `createApp` can find, such as a missing handler. */
-export interface StartupDiagnostic extends Omit<Diagnostic, "code"> {
-  readonly code: StartupDiagnosticCode;
-}
-
-/** Reports a startup error. */
-export type StartupReport = (
-  code: StartupDiagnosticCode,
-  message: string,
-  operationId?: string,
-) => void;
+import { compileRoutes, type Router } from "./routing.ts";
 
 /** An operation bound to its handler, or to none when it is `notImplemented`. */
 export interface Binding {
@@ -45,7 +24,7 @@ export interface Binding {
 }
 
 /** The application-wide limits and their per-operation overrides. */
-export interface Limits {
+interface Limits {
   readonly requestTimeoutMs: number;
   readonly bodyLimitBytes: number;
   readonly timeouts: Readonly<Record<string, unknown>>;
@@ -76,12 +55,8 @@ function checkLimits(model: ContractModel, limits: Limits, error: StartupReport)
   }
 }
 
-export function positiveInteger(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value > 0;
-}
-
 /** Checks lifecycle resources: named, unique, and with functions for `start` and `stop`. */
-export function checkLifecycle(
+function checkLifecycle(
   resources: readonly LifecycleResource[],
   error: StartupReport,
 ): void {
@@ -105,7 +80,7 @@ export function checkLifecycle(
  * Binds every operation to the handler of its contract's implementation, with its timeout.
  * Reports missing, duplicate, unknown, and invalid implementations, handlers, and timeouts.
  */
-export function bindOperations(
+function bindOperations(
   model: ContractModel,
   contracts: readonly AnyContract[],
   implementations: readonly Implementation[],
@@ -184,7 +159,7 @@ function checkHandlerNames(implementation: Implementation, error: StartupReport)
 }
 
 /** Checks that there is exactly one verifier function per declared security scheme. */
-export function checkVerifiers(
+function checkVerifiers(
   model: ContractModel,
   verifiers: Readonly<Record<string, unknown>>,
   error: StartupReport,
@@ -205,4 +180,84 @@ export function checkVerifiers(
       error("unknown-verifier", `'${name}' is not a security scheme declared by defineSecurity`);
     }
   }
+}
+
+/**
+ * TypeBox's format registry is process-wide and cannot remove entries (ADR 0003 §5), so a name
+ * registered with a different check by anything else is a conflict.
+ */
+function checkFormats(formats: readonly FormatModel[], error: StartupReport): void {
+  for (const { name, check } of formats) {
+    const registered = Format.Get(name);
+    if (registered !== undefined && registered !== check) {
+      error(
+        "format-conflict",
+        `format '${name}' is already registered in this process with a different check`,
+      );
+    }
+  }
+}
+
+/** Everything `createApp` checked and prepared before it touches process-wide state. */
+interface Checked {
+  readonly settings: Settings;
+  readonly model: ContractModel;
+  readonly bindings: readonly Binding[];
+  readonly verifiers: Readonly<Record<string, unknown>>;
+  readonly lifecycle: readonly LifecycleResource[];
+  readonly router: Router;
+  readonly documents: ReadonlyMap<string, ServedDocument>;
+  /** Diagnostics that do not prevent startup, reported as `startup.warning` events. */
+  readonly warnings: readonly (Diagnostic | StartupDiagnostic)[];
+}
+
+/**
+ * Runs every startup check of `createApp` and throws a {@link StartupError} with every problem
+ * together when any check fails.
+ */
+export function checkStartup(
+  options: BaseOptions<Api> & { readonly verifiers?: unknown },
+): Checked {
+  const diagnostics: (Diagnostic | StartupDiagnostic)[] = [];
+  const error: StartupReport = (code, message, operationId) =>
+    diagnostics.push({ severity: "error", code, message, ...(operationId ? { operationId } : {}) });
+
+  const settings = readSettings(options, error);
+  const lifecycle = options.lifecycle ?? [];
+  checkLifecycle(lifecycle, error);
+
+  const compiled = compileContracts(options.api);
+  diagnostics.push(...compiled.diagnostics);
+  if (!compiled.ok) throw new StartupError(diagnostics);
+  const { model } = compiled;
+
+  const bindings = bindOperations(
+    model,
+    options.api.contracts as readonly AnyContract[],
+    options.implementations,
+    {
+      requestTimeoutMs: settings.requestTimeoutMs,
+      bodyLimitBytes: settings.bodyLimitBytes,
+      timeouts: (options.timeouts ?? {}) as Readonly<Record<string, unknown>>,
+      bodyLimits: (options.bodyLimits ?? {}) as Readonly<Record<string, unknown>>,
+    },
+    error,
+  );
+  const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
+  checkVerifiers(model, verifiers, error);
+  checkFormats(model.formats, error);
+  const router = compileRoutes(model.operations);
+  const documents = documentEndpoints(options.documents, router, error);
+
+  if (diagnostics.some((d) => d.severity === "error")) throw new StartupError(diagnostics);
+  return {
+    settings,
+    model,
+    bindings,
+    verifiers,
+    lifecycle,
+    router,
+    documents,
+    warnings: diagnostics,
+  };
 }

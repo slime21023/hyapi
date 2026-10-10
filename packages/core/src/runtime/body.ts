@@ -2,7 +2,7 @@ import { isJsonMediaType, isTextMediaType } from "../base/http.ts";
 import type { BodyModel } from "../contract/model.ts";
 
 /** The media type without parameters, lowercased. */
-export function mediaTypeOf(contentType: string | null): string | undefined {
+function mediaTypeOf(contentType: string | null): string | undefined {
   if (contentType === null) return undefined;
   const type = contentType.split(";")[0]!.trim().toLowerCase();
   return type === "" ? undefined : type;
@@ -14,7 +14,7 @@ function acceptsMediaType(declared: string, actual: string): boolean {
 }
 
 /** The outcome of reading a request body. */
-export type BodyResult =
+type BodyResult =
   | { readonly kind: "ok"; readonly value: unknown }
   | { readonly kind: "absent" }
   | { readonly kind: "too-large" }

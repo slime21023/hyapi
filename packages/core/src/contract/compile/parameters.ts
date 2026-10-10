@@ -1,7 +1,8 @@
 // Parameters: the `params`, `query`, `headers`, and `cookies` objects of an operation, their
 // styles, and the path template they must match.
 import type { TSchema } from "typebox";
-import { type Dict, isRecord, objectSchema } from "../../base/typebox.ts";
+import { type Dict, isRecord } from "../../base/record.ts";
+import { objectSchema } from "../../base/typebox.ts";
 import type { OperationSpec } from "../declare/contract.ts";
 import { PARAMETER_DEFAULTS, type ParameterLocation, type ParameterModel } from "../model.ts";
 import type { Reporter } from "./diagnostics.ts";

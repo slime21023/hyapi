@@ -1,12 +1,11 @@
 // The schema walk: what one schema tree may contain to be represented in JSON Schema, and which
 // named schemas it holds.
 import type { TSchema } from "typebox";
+import { type Dict, isRecord } from "../../base/record.ts";
 import {
   ANNOTATION_FORMATS,
-  type Dict,
   hasCodec,
   hasRefinement,
-  isRecord,
   objectSchema,
   schemaName,
   STANDARD_FORMATS,

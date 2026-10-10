@@ -88,7 +88,7 @@ export interface Denial {
 }
 
 /** The result of evaluating an operation's security. */
-export type SecurityResult =
+type SecurityResult =
   | { readonly kind: "allowed"; readonly security: Readonly<Record<string, unknown>> }
   | { readonly kind: "denied"; readonly denial: Denial };
 

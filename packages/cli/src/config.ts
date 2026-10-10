@@ -2,7 +2,7 @@ import { parse as parseJsonc } from "jsr:@std/jsonc@^1";
 import { extname, isAbsolute, join, resolve } from "jsr:@std/path@^1";
 
 /** One document in the `hyapi.documents` list of `deno.json`. */
-export interface DocumentConfig {
+interface DocumentConfig {
   /** Names the document in output and in `--document`. */
   readonly name: string;
   /** The API module and export, as `./contracts/api.ts#api`. */
@@ -15,7 +15,7 @@ export interface DocumentConfig {
  * The `hyapi` section of a project's `deno.json`: either one document as `api` and `openapi`, or
  * several as `documents`.
  */
-export interface ProjectConfig {
+interface ProjectConfig {
   readonly api?: string;
   readonly openapi?: string | readonly string[];
   readonly documents?: readonly DocumentConfig[];
@@ -24,7 +24,7 @@ export interface ProjectConfig {
 export type DocumentFormat = "json" | "yaml";
 
 /** One output file of a document. */
-export interface Output {
+interface Output {
   readonly path: string;
   readonly format: DocumentFormat;
 }

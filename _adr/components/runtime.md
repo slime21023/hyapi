@@ -90,10 +90,14 @@ every module, and the architecture test enforces the edges and the absence of mo
 
 - **L2 mechanisms:** `deadline`, `routing`, `params`, `body`, `validation`, `security`, `problem`,
   `health`, `lifecycle`, and `handler`. They return results and emit nothing.
-- **L3 request flow:** `pipeline` returns an `Outcome` with the response and its facts: problem
-  `code`, thrown error, security denial, response violations, and stripped fields.
-- **L4 application:** `binding` (startup checks of implementations, handlers, timeouts, verifiers,
-  and lifecycle resources), `events`, and `app`, the only owner of state and emitter of events.
+- **L3 request flow:** `pipeline` (the request half: security, parameters, body, handler) returns an
+  `Outcome` with the response and its facts: problem `code`, thrown error, security denial, response
+  violations, and stripped fields. `respond` holds the response half and the problem responses that
+  HyAPI chooses, including unmatched requests and shutdown.
+- **L4 application:** `diagnostics` (startup codes and `StartupError`), `options` (`createApp`
+  options, defaults, and request IDs), `documents` (document endpoints), `startup` (every startup
+  check, run by `checkStartup` without touching process-wide state), `events`, and `app`, the only
+  owner of state and emitter of events.
 
 ## Dependencies
 

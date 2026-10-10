@@ -1,7 +1,8 @@
 // Request bodies.
 import type { TSchema } from "typebox";
 import { isJsonMediaType, isMediaType, isTextMediaType, JSON_MEDIA_TYPE } from "../../base/http.ts";
-import { type Dict, isSchema } from "../../base/typebox.ts";
+import { type Dict } from "../../base/record.ts";
+import { isSchema } from "../../base/typebox.ts";
 import type { OperationSpec } from "../declare/contract.ts";
 import type { BodyModel } from "../model.ts";
 import type { OperationContext } from "./context.ts";

@@ -28,7 +28,7 @@ export function defineSchema<Schema extends TSchema>(name: string, schema: Schem
 type THealthStatus = TUnion<[TLiteral<"healthy">, TLiteral<"degraded">, TLiteral<"unhealthy">]>;
 
 /** The type of the {@link HealthReport} schema. */
-export type THealthReport = TObject<{
+type THealthReport = TObject<{
   status: THealthStatus;
   checks: TRecord<
     string,
@@ -37,7 +37,7 @@ export type THealthReport = TObject<{
 }>;
 
 /** The type of the {@link Problem} schema. */
-export type TProblem = TObject<{
+type TProblem = TObject<{
   type: TOptional<TString>;
   title: TOptional<TString>;
   status: TOptional<TInteger>;

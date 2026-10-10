@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Narrow internal interfaces (Review 0002, roadmap M12a)
+
+No public API or behavior changes; the public API snapshot is unchanged.
+
+- Thirteen internal exports that no module imported, three more than Review 0002 listed, are private
+  now, and a new architecture test requires every internal export to be imported or re-exported.
+- `runtime/app.ts` keeps only state and process-wide effects (583 → 363 lines of code). Options and
+  request IDs moved to `options.ts`, document endpoints to `documents.ts`, every startup check to
+  `startup.ts` (formerly `binding.ts`), and startup diagnostics and `StartupError` to
+  `diagnostics.ts`.
+- `runtime/pipeline.ts` keeps the request half; the response half and the problem responses that
+  HyAPI chooses moved to `respond.ts`.
+- `isRecord` and `Dict` moved from `base/typebox.ts` to `base/record.ts`, and the CLI's
+  `document.ts` is now `serialize.ts`.
+
 ### Internal structure (ADR 0004, roadmap M11)
 
 No public API or behavior changes; the public API snapshot and the emitted documents are unchanged.

@@ -1,6 +1,6 @@
 // The security rules of a contract: declared schemes, requirements against them, and the effective
 // requirement of each operation (operation, then contract default, then API root).
-import { isRecord } from "../../base/typebox.ts";
+import { isRecord } from "../../base/record.ts";
 import type { Schemes } from "../declare/security.ts";
 import type { OAuthFlows, OperationModel, RequirementModel, SchemeSpec } from "../model.ts";
 import type { Reporter } from "./diagnostics.ts";
@@ -146,7 +146,7 @@ export function normalizeRequirements(
 }
 
 /** The requirements an operation inherits when it declares none. */
-export interface InheritedSecurity {
+interface InheritedSecurity {
   /** The contract default, or `undefined` when the contract declares none. */
   readonly contract: RequirementModel[] | undefined;
   /** The API root requirement, or `undefined` when the API declares none. */

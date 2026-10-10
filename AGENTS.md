@@ -69,6 +69,8 @@ options, and stays removable. Prefer a recipe with an existing package before a 
 - **No import cycles.** Imports form a directed acyclic graph at every granularity, type-only
   imports included; prefer a tree where nothing is shared. When a module and the modules it calls
   need the same type, move the type to a module that all of them import, never back to the caller.
+- **Export only what is used.** An internal module exports only what another module imports. Keep
+  helpers private, and let a file's exports describe its interface.
 - **Unions before generics.** Most code needs no generics. Describe a closed set of cases with a
   string-literal union, a discriminated union, or an enum, which bounds the cases and keeps types
   small. Use a generic only to carry a type that the caller chooses and that must reach another
@@ -99,4 +101,4 @@ options, and stays removable. Prefer a recipe with an existing package before a 
 - Benchmarks live in `bench/` and the example in `apps/example/`; neither defines the public API.
 - Run the smallest relevant check while working, and `deno task verify` before calling a change
   done. The architecture tests enforce the component, layer, contract-boundary, acyclic-import,
-  naming, and nesting rules, and the public API snapshot.
+  unused-export, naming, and nesting rules, and the public API snapshot.
