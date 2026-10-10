@@ -2,10 +2,10 @@ import { assert, assertEquals, assertRejects } from "@std/assert";
 import Type from "typebox";
 import {
   type AppEvent,
+  type AppOptions,
   createApp,
   type FetchHandler,
   implement,
-  type ResponseValidation,
 } from "@hyapi/core";
 import { defineApi, defineContract, defineSchema } from "@hyapi/core/contract";
 
@@ -50,7 +50,7 @@ function manualStream() {
 
 async function build(
   options: {
-    responseValidation?: ResponseValidation;
+    responseValidation?: AppOptions["responseValidation"];
     events?: AppEvent[];
     shutdownTimeoutMs?: number;
     log?: string[];

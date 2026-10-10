@@ -2,6 +2,7 @@
 // inside a top-level declaration. `else if` continues its chain at the same level, and an arrow
 // function whose body is a single expression, or empty, does not count as a level.
 import ts from "typescript";
+import { readSources } from "./repository.ts";
 
 export interface NestingViolation {
   readonly file: string;
@@ -90,20 +91,9 @@ export function checkNesting(file: string, source: string): NestingViolation[] {
   return violations;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (entry.name.endsWith(".ts")) yield path;
-  }
-}
-
 /** Checks every module under `packages/`, relative to the repository root. */
 export async function checkRepositoryNesting(root: string): Promise<NestingViolation[]> {
-  const violations: NestingViolation[] = [];
-  for await (const file of sourceFiles(`${root}/packages`)) {
-    const path = file.slice(root.length + 1);
-    violations.push(...checkNesting(path, await Deno.readTextFile(file)));
-  }
+  const sources = await readSources(root, "packages");
+  const violations = [...sources].flatMap(([path, source]) => checkNesting(path, source));
   return violations.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }

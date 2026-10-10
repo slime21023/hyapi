@@ -1,11 +1,9 @@
 import { assertEquals } from "@std/assert";
 import { checkRepositoryCycles, findCycles, importGraph } from "./cycles.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 Deno.test("the import graph of packages/ has no cycles", async () => {
-  const cycles = await checkRepositoryCycles(root);
+  const cycles = await checkRepositoryCycles(ROOT);
   assertEquals(cycles.map((cycle) => cycle.join(" -> ")), []);
 });
 

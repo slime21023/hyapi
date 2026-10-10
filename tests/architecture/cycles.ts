@@ -1,7 +1,8 @@
 // Enforces that the file-level import graph of packages/ is acyclic, so the library is at least a
 // directed acyclic graph at every granularity. Type-only imports, re-exports, and dynamic imports
 // count, because a cycle of types still couples the modules in it.
-import { importSpecifiers, resolveRelative } from "./imports.ts";
+import { importSpecifiers } from "./imports.ts";
+import { readSources, resolveRelative } from "./repository.ts";
 
 /** Package entry points that packages import by name, mapped to their files. */
 const PACKAGE_FILES: Readonly<Record<string, string>> = {
@@ -66,19 +67,7 @@ export function findCycles(graph: ReadonlyMap<string, readonly string[]>): strin
   return search.cycles;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (/\.(ts|tsx|mts)$/.test(entry.name)) yield path;
-  }
-}
-
 /** Finds the import cycles among the files under `packages/`, relative to the repository root. */
 export async function checkRepositoryCycles(root: string): Promise<string[][]> {
-  const sources = new Map<string, string>();
-  for await (const file of sourceFiles(`${root}/packages`)) {
-    sources.set(file.slice(root.length + 1), await Deno.readTextFile(file));
-  }
-  return findCycles(importGraph(sources));
+  return findCycles(importGraph(await readSources(root, "packages")));
 }

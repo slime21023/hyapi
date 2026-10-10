@@ -1,5 +1,6 @@
 // Enforces the layer rules of ADR 0003 §3–§5 and ADR 0004 §1 inside packages/core/src.
 import { importSpecifiers } from "./imports.ts";
+import { readSources, resolveRelative } from "./repository.ts";
 
 export interface LayerViolation {
   readonly file: string;
@@ -45,15 +46,6 @@ export function layerOf(path: string): number | undefined {
   if (module in LAYERS) return LAYERS[module];
   const directory = Object.keys(LAYERS).find((key) => key.endsWith("/") && module.startsWith(key));
   return directory === undefined ? undefined : LAYERS[directory];
-}
-
-function resolveRelative(from: string, specifier: string): string {
-  const parts = from.split("/").slice(0, -1);
-  for (const segment of specifier.split("/")) {
-    if (segment === "..") parts.pop();
-    else if (segment !== ".") parts.push(segment);
-  }
-  return parts.join("/");
 }
 
 // Module scope starts at column 0, which `deno fmt` guarantees.
@@ -106,20 +98,8 @@ export function checkLayers(path: string, source: string): LayerViolation[] {
   return violations;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (entry.name.endsWith(".ts")) yield path;
-  }
-}
-
 /** Checks every module under `packages/core/src/`, relative to the repository root. */
 export async function checkCoreLayers(root: string): Promise<LayerViolation[]> {
-  const violations: LayerViolation[] = [];
-  for await (const file of sourceFiles(`${root}/${SRC.slice(0, -1)}`)) {
-    const path = file.slice(root.length + 1);
-    violations.push(...checkLayers(path, await Deno.readTextFile(file)));
-  }
-  return violations;
+  const sources = await readSources(root, SRC.slice(0, -1));
+  return [...sources].flatMap(([path, source]) => checkLayers(path, source));
 }

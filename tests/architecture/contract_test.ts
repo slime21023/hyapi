@@ -1,14 +1,12 @@
 import { assertEquals } from "@std/assert";
 import { checkContractBoundaries, checkRepositoryContractBoundaries } from "./contract.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 const reasons = (path: string, source: string) =>
   checkContractBoundaries(path, source).map((v) => v.reason);
 
 Deno.test("Core follows the contract boundaries of ADR 0004", async () => {
-  const violations = await checkRepositoryContractBoundaries(root);
+  const violations = await checkRepositoryContractBoundaries(ROOT);
   assertEquals(violations.map((v) => `${v.file} -> ${v.target}: ${v.reason}`), []);
 });
 

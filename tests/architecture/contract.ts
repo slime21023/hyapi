@@ -1,7 +1,7 @@
 // Enforces the inner boundaries of the contract component (ADR 0004 §2–§3): the runtime and the
 // emitter reach the compiler only through its fixed entry points, and dependencies inside the
 // component point one way.
-import { resolveRelative } from "./imports.ts";
+import { readSources, resolveRelative } from "./repository.ts";
 
 export interface BoundaryViolation {
   readonly file: string;
@@ -78,22 +78,10 @@ export function checkContractBoundaries(path: string, source: string): BoundaryV
   return violations;
 }
 
-async function* sourceFiles(dir: string): AsyncGenerator<string> {
-  for await (const entry of Deno.readDir(dir)) {
-    const path = `${dir}/${entry.name}`;
-    if (entry.isDirectory) yield* sourceFiles(path);
-    else if (entry.name.endsWith(".ts")) yield path;
-  }
-}
-
 /** Checks every module under `packages/core/src/`, relative to the repository root. */
 export async function checkRepositoryContractBoundaries(
   root: string,
 ): Promise<BoundaryViolation[]> {
-  const violations: BoundaryViolation[] = [];
-  for await (const file of sourceFiles(`${root}/${SRC.slice(0, -1)}`)) {
-    const path = file.slice(root.length + 1);
-    violations.push(...checkContractBoundaries(path, await Deno.readTextFile(file)));
-  }
-  return violations;
+  const sources = await readSources(root, SRC.slice(0, -1));
+  return [...sources].flatMap(([path, source]) => checkContractBoundaries(path, source));
 }

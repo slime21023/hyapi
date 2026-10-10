@@ -1,6 +1,4 @@
-import type { Static } from "typebox";
 import { reasonPhrase } from "../base/http.ts";
-import type { Problem } from "../contract/declare/schema.ts";
 
 /** One reason a request or response did not match its contract. */
 export interface Violation {
@@ -10,9 +8,6 @@ export interface Violation {
   readonly pointer: string;
   readonly message: string;
 }
-
-/** A problem details value (RFC 9457). */
-export type ProblemValue = Static<typeof Problem>;
 
 /**
  * An error for cross-cutting or unexpected failures. Declared outcomes should be returned instead.

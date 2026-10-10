@@ -421,7 +421,7 @@ modules that each have one reason to change, as decided in
   declaration shapes of I1; export one `FetchHandler` from `@hyapi/core`, used by `App.fetch` and
   the wrapper plugins; declare the JWT and OIDC verifier return types inline; remove `problem()`.
   Breaking; recorded as RFC 0001 amendments, with the public API snapshot, documentation, and
-  example updated. Done: RFC 0001 A38–A41; the public API is 86 symbols instead of 111.
+  example updated. Done: RFC 0001 A38–A42; the public API is 80 symbols instead of 111.
 - **M12c: openapi-diff** (D3). Split `diff.ts` by area. No public API change. Done: `change.ts`,
   `document.ts`, `schema.ts`, `operations.ts`, and a 25-line `diff.ts` entry point.
 

@@ -1,13 +1,11 @@
 import { assertEquals } from "@std/assert";
 import { checkRepositoryTypeParameters, checkTypeParameters } from "./generics.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 const names = (source: string) => checkTypeParameters("x.ts", source).map((v) => v.name);
 
 Deno.test("packages name every type parameter for what it holds", async () => {
-  const violations = await checkRepositoryTypeParameters(root);
+  const violations = await checkRepositoryTypeParameters(ROOT);
   assertEquals(violations.map((v) => `${v.file}:${v.line} ${v.name}`), []);
 });
 

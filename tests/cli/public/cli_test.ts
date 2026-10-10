@@ -1,18 +1,10 @@
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { parse as parseYaml } from "jsr:@std/yaml@^1.0.12";
-import { fromFileUrl, join } from "jsr:@std/path@^1";
-import { run } from "@hyapi/cli";
+import { join } from "jsr:@std/path@^1";
+import { cli, REPO } from "../helpers.ts";
 
-const repo = fromFileUrl(new URL("../../..", import.meta.url)).replace(/[\\/]$/, "");
-const fixture = join(repo, "tests", "fixtures", "library_api.ts");
-const golden = join(repo, "tests", "fixtures", "library_api.openapi.json");
-
-async function cli(args: string[], cwd = repo) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const code = await run(args, { cwd, stdout: (l) => out.push(l), stderr: (l) => err.push(l) });
-  return { code, out: out.join("\n"), err: err.join("\n") };
-}
+const fixture = join(REPO, "tests", "fixtures", "library_api.ts");
+const golden = join(REPO, "tests", "fixtures", "library_api.openapi.json");
 
 async function tempDir(): Promise<string> {
   return await Deno.makeTempDir({ prefix: "hyapi-cli-" });
@@ -75,7 +67,7 @@ Deno.test("emit reads deno.json and flags override it", async () => {
 Deno.test("emit reports contract errors and writes nothing", async () => {
   const dir = await tempDir();
   const out = join(dir, "openapi.json");
-  const broken = join(repo, "tests", "fixtures", "broken_api.ts");
+  const broken = join(REPO, "tests", "fixtures", "broken_api.ts");
   const result = await cli(["emit", "--api", `${broken}#api`, "--out", out]);
   assertEquals(result.code, 1);
   assertStringIncludes(result.err, "error [unknown-format] a (a/responses/200/body)");
@@ -122,7 +114,7 @@ Deno.test("doctor checks the committed document and lists undocumented framework
 
 Deno.test("new creates a starter that passes its own verification", async () => {
   const dir = join(await tempDir(), "demo");
-  const created = await cli(["new", dir, "--local", repo]);
+  const created = await cli(["new", dir, "--local", REPO]);
   assertEquals(created.code, 0, created.err);
   assert((await Deno.stat(join(dir, "openapi.json"))).isFile);
   const verify = await new Deno.Command("deno", { args: ["task", "verify"], cwd: dir }).output();
@@ -143,5 +135,5 @@ Deno.test("new creates a starter that passes its own verification", async () => 
   const diffOutput = new TextDecoder().decode(diff.stdout) + new TextDecoder().decode(diff.stderr);
   assert(diff.success, diffOutput);
   assertStringIncludes(diffOutput, "0 breaking, 0 non-breaking change(s)");
-  assertEquals((await cli(["new", dir, "--local", repo])).code, 2, "refuses a non-empty directory");
+  assertEquals((await cli(["new", dir, "--local", REPO])).code, 2, "refuses a non-empty directory");
 });

@@ -1,11 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { fromFileUrl, join } from "jsr:@std/path@^1";
-import { run } from "@hyapi/cli";
+import { join } from "jsr:@std/path@^1";
+import { cli, REPO } from "../helpers.ts";
 
-const repo = fromFileUrl(new URL("../../..", import.meta.url)).replace(/[\\/]$/, "");
-const fixture = join(repo, "tests", "fixtures", "library_api.ts");
+const fixture = join(REPO, "tests", "fixtures", "library_api.ts");
 const golden = JSON.parse(
-  await Deno.readTextFile(join(repo, "tests", "fixtures", "library_api.openapi.json")),
+  await Deno.readTextFile(join(REPO, "tests", "fixtures", "library_api.openapi.json")),
 );
 
 async function git(cwd: string, ...args: string[]) {
@@ -32,15 +31,8 @@ async function project(base: unknown | undefined, branch = "main"): Promise<stri
   return dir;
 }
 
-async function diff(dir: string, ...args: string[]) {
-  const out: string[] = [];
-  const err: string[] = [];
-  const code = await run(["diff", ...args], {
-    cwd: dir,
-    stdout: (l) => out.push(l),
-    stderr: (l) => err.push(l),
-  });
-  return { code, out: out.join("\n"), err: err.join("\n") };
+function diff(dir: string, ...args: string[]) {
+  return cli(["diff", ...args], dir);
 }
 
 Deno.test("no changes against an identical document on main", async () => {

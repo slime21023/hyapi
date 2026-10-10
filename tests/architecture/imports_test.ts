@@ -1,15 +1,13 @@
 import { assertEquals } from "@std/assert";
 import { checkFile, checkRepository, componentOf, importSpecifiers } from "./imports.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 function reasons(path: string, source: string): string[] {
   return checkFile(path, source).map((violation) => violation.reason);
 }
 
 Deno.test("the repository follows the ADR 0002 dependency rules", async () => {
-  assertEquals(await checkRepository(root), []);
+  assertEquals(await checkRepository(ROOT), []);
 });
 
 Deno.test("files are classified into components", () => {

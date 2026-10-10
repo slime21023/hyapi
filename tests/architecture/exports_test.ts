@@ -1,14 +1,12 @@
 import { assertEquals } from "@std/assert";
 import { checkRepositoryExports, findUnusedExports } from "./exports.ts";
-
-const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")
-  .replace(/\/$/, "");
+import { ROOT } from "./repository.ts";
 
 const unused = (sources: Record<string, string>) =>
   findUnusedExports(new Map(Object.entries(sources))).map((u) => `${u.file}#${u.name}`);
 
 Deno.test("every internal export is imported or re-exported", async () => {
-  const found = await checkRepositoryExports(root);
+  const found = await checkRepositoryExports(ROOT);
   assertEquals(found.map((u) => `${u.file}#${u.name}`), []);
 });
 
