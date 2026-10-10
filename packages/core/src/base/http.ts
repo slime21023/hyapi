@@ -1,3 +1,30 @@
+// HTTP vocabulary shared by the contract compiler and the runtime (ADR 0004 §1). Mechanisms only:
+// no diagnostics, no policy, and no state.
+
+/** HTTP methods that an operation may declare. */
+export type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "TRACE";
+
+/** The default media type of request and response bodies. */
+export const JSON_MEDIA_TYPE = "application/json";
+
+/** The media type of RFC 9457 problem details. */
+export const PROBLEM_MEDIA_TYPE = "application/problem+json";
+
+/** Returns true when the value has the form `type/subtype`. */
+export function isMediaType(value: string): boolean {
+  return /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(value);
+}
+
+/** JSON media types: `application/json` and any `+json` suffix. Parsed and validated as JSON. */
+export function isJsonMediaType(mediaType: string): boolean {
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+}
+
+/** `text/*` media types. Decoded as UTF-8 and validated as strings. */
+export function isTextMediaType(mediaType: string): boolean {
+  return mediaType.startsWith("text/");
+}
+
 // HTTP reason phrases used as default response descriptions.
 const PHRASES: Readonly<Record<number, string>> = {
   100: "Continue",

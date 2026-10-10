@@ -9,11 +9,7 @@ import Type, {
   type TString,
   type TUnion,
 } from "typebox";
-
-// A non-enumerable string key, like TypeBox's own `~kind` markers. TypeBox keeps such keys when
-// it derives schemas (T.Omit, T.Partial, ...), so nested named schemas keep their names, while
-// the derived top-level schema does not inherit one. JSON serialization ignores the key.
-const NAME = "~hyapi.name";
+import { withSchemaName } from "../../base/typebox.ts";
 
 /**
  * Names a schema so that it is emitted as `#/components/schemas/<name>` and referenced by `$ref`.
@@ -26,27 +22,7 @@ const NAME = "~hyapi.name";
  * ```
  */
 export function defineSchema<Schema extends TSchema>(name: string, schema: Schema): Schema {
-  const named = Object.create(
-    Object.getPrototypeOf(schema),
-    Object.getOwnPropertyDescriptors(schema),
-  ) as Schema;
-  Object.defineProperty(named, NAME, { value: name, enumerable: false });
-  return named;
-}
-
-/** Returns the component name given by {@link defineSchema}, if any. */
-export function schemaName(schema: unknown): string | undefined {
-  if (typeof schema !== "object" || schema === null) return undefined;
-  const name = (schema as Record<string, unknown>)[NAME];
-  return typeof name === "string" ? name : undefined;
-}
-
-/**
- * Returns true when the value is a TypeBox schema rather than a plain object. TypeBox's `TSchema`
- * is an empty interface, so the guard narrows to schemas that carry TypeBox's `~kind` marker.
- */
-export function isSchema(value: unknown): value is TSchema & { readonly "~kind": unknown } {
-  return typeof value === "object" && value !== null && ("~kind" in value || "~unsafe" in value);
+  return withSchemaName(schema, name);
 }
 
 type THealthStatus = TUnion<[TLiteral<"healthy">, TLiteral<"degraded">, TLiteral<"unhealthy">]>;

@@ -97,7 +97,8 @@ every module, and the architecture test enforces the edges and the absence of mo
 
 ## Dependencies
 
-[contract](contract.md) and TypeBox. Never imports [openapi](openapi.md) or [serve](serve.md).
+[contract](contract.md) (its model, compiler entry point, diagnostics, and declaration types; ADR
+0004 §3), [base](base.md), and TypeBox. Never imports [openapi](openapi.md) or [serve](serve.md).
 
 ## Failure behavior
 

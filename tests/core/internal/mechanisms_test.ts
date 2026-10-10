@@ -6,7 +6,7 @@ import type {
   OperationModel,
   ParameterModel,
 } from "../../../packages/core/src/contract/model.ts";
-import { snapshot } from "../../../packages/core/src/contract/snapshot.ts";
+import { snapshot } from "../../../packages/core/src/base/typebox.ts";
 import { readBody } from "../../../packages/core/src/runtime/body.ts";
 import { withDeadline } from "../../../packages/core/src/runtime/deadline.ts";
 import { createHealth } from "../../../packages/core/src/runtime/health.ts";

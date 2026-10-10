@@ -1,6 +1,8 @@
-// Enforces the dependency rules of ADR 0002 §3 by scanning import specifiers in packages/.
+// Enforces the dependency rules of ADR 0002 §3 and ADR 0004 §1 by scanning import specifiers in
+// packages/.
 
 export type Component =
+  | "base"
   | "contract"
   | "runtime"
   | "openapi"
@@ -35,9 +37,10 @@ interface Rule {
 }
 
 const RULES: Record<Component, Rule> = {
-  contract: { internal: ["contract"], public: [], external: ["typebox"] },
-  openapi: { internal: ["openapi", "contract"], public: [], external: [] },
-  runtime: { internal: ["runtime", "contract"], public: [], external: ["typebox"] },
+  base: { internal: ["base"], public: [], external: ["typebox"] },
+  contract: { internal: ["contract", "base"], public: [], external: ["typebox"] },
+  openapi: { internal: ["openapi", "contract", "base"], public: [], external: [] },
+  runtime: { internal: ["runtime", "contract", "base"], public: [], external: ["typebox"] },
   serve: { internal: ["serve"], public: ["runtime"], external: [] },
   "openapi-diff": { internal: ["openapi-diff"], public: [], external: [] },
   cli: { internal: ["cli"], public: ["contract", "openapi", "openapi-diff"], external: "any" },
@@ -64,7 +67,7 @@ const PACKAGE_ENTRIES: Record<string, Component> = {
 export function componentOf(path: string): { component: Component; owner: string } | undefined {
   const entry = CORE_ENTRIES[path];
   if (entry) return { component: entry, owner: "core" };
-  const core = path.match(/^packages\/core\/src\/(contract|runtime|openapi|deno)\//);
+  const core = path.match(/^packages\/core\/src\/(base|contract|runtime|openapi|deno)\//);
   if (core) {
     const name = core[1] === "deno" ? "serve" : core[1] as Component;
     return { component: name, owner: "core" };
@@ -94,7 +97,8 @@ export function importSpecifiers(source: string): string[] {
   return specifiers;
 }
 
-function resolveRelative(from: string, specifier: string): string {
+/** Resolves a relative specifier against the importing file's repository-relative path. */
+export function resolveRelative(from: string, specifier: string): string {
   const parts = from.split("/").slice(0, -1);
   for (const segment of specifier.split("/")) {
     if (segment === "..") parts.pop();

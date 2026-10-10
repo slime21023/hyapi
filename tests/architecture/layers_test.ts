@@ -13,7 +13,8 @@ Deno.test("Core follows the layer rules of ADR 0003", async () => {
 });
 
 Deno.test("modules are assigned to layers", () => {
-  assertEquals(layerOf("packages/core/src/contract/check.ts"), 1);
+  assertEquals(layerOf("packages/core/src/base/typebox.ts"), 0);
+  assertEquals(layerOf("packages/core/src/contract/compile/compile.ts"), 1);
   assertEquals(layerOf("packages/core/src/openapi/emit.ts"), 2);
   assertEquals(layerOf("packages/core/src/runtime/routing.ts"), 2);
   assertEquals(layerOf("packages/core/src/runtime/pipeline.ts"), 3);
@@ -32,8 +33,12 @@ Deno.test("imports may go down or sideways, never up", () => {
   assertEquals(reasons("runtime/pipeline.ts", `import type { Emit } from "./events.ts";`), [
     "L3 runtime/pipeline.ts may not import L4 runtime/events.ts",
   ]);
-  assertEquals(reasons("contract/check.ts", `import "../runtime/validation.ts";`), [
-    "L1 contract/check.ts may not import L2 runtime/validation.ts",
+  assertEquals(reasons("contract/compile/compile.ts", `import "../../runtime/validation.ts";`), [
+    "L1 contract/compile/compile.ts may not import L2 runtime/validation.ts",
+  ]);
+  assertEquals(reasons("contract/model.ts", `import "../base/http.ts";`), []);
+  assertEquals(reasons("base/http.ts", `import "../contract/model.ts";`), [
+    "L0 base/http.ts may not import L1 contract/model.ts",
   ]);
   assertEquals(reasons("runtime/stray.ts", ""), [
     "runtime/stray.ts has no layer; add it to ADR 0003 §3",

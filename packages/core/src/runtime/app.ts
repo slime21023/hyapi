@@ -1,9 +1,10 @@
 import * as Format from "typebox/format";
-import { compileContracts } from "../contract/check.ts";
-import type { AnyContract, Api, Contract } from "../contract/define.ts";
-import { describeErrors, type Diagnostic } from "../contract/diagnostics.ts";
+import { compileContracts } from "../contract/compile/compile.ts";
+import { describeErrors, type Diagnostic } from "../contract/compile/diagnostics.ts";
+import type { Api } from "../contract/declare/api.ts";
+import type { AnyContract, Contract } from "../contract/declare/contract.ts";
+import type { Schemes } from "../contract/declare/security.ts";
 import type { FormatModel } from "../contract/model.ts";
-import type { Schemes } from "../contract/security.ts";
 import {
   type Binding,
   bindOperations,

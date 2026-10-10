@@ -4,8 +4,8 @@ import { assert, assertEquals, assertFalse } from "@std/assert";
 import Type from "typebox";
 import { Compile } from "typebox/compile";
 import * as Format from "typebox/format";
-import { defineSchema, schemaName } from "../../../packages/core/src/contract/schema.ts";
-import { cloneSchema, snapshot } from "../../../packages/core/src/contract/snapshot.ts";
+import { cloneSchema, schemaName, snapshot } from "../../../packages/core/src/base/typebox.ts";
+import { defineSchema } from "../../../packages/core/src/contract/declare/schema.ts";
 
 const T = Type;
 

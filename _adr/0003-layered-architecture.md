@@ -35,14 +35,14 @@ L4  Application  app: the only owner of mutable state; emits events
 L3  Request flow pipeline: one request through the mechanisms; response policy
 L2  Mechanisms   routing · params · body · validation · security · problem · deadline
                  health · lifecycle · handler types · openapi/emit
-L1  Contract     declarations → checkContracts → ContractModel (internal)
-L0  Platform     Web APIs and TypeBox
+L1  Contract     declare/ → compile/ → ContractModel (internal)
+L0  Platform     Web APIs, TypeBox, and base/: HyAPI's thin HTTP and TypeBox mechanisms
 
 Tools beside the stack: cli (uses public entries), openapi-diff (uses no HyAPI package)
 ```
 
-ADR 0002's components map onto the layers: `contract` is L1; `runtime` spans L2–L4; `openapi` is an
-L2 consumer of the model; `serve` is L5; plugins are L6.
+ADR 0002's components map onto the layers: `base` is L0 (ADR 0004 §1); `contract` is L1; `runtime`
+spans L2–L4; `openapi` is an L2 consumer of the model; `serve` is L5; plugins are L6.
 
 ### 2. Rules per layer
 
@@ -78,14 +78,16 @@ status and code. Deciding which status a situation gets is L3 policy.
 | L4    | `app.ts`        | Assembly, startup diagnostics, phases, in-flight tracking, close; the only caller of `emit`. |
 
 Modules may still be split or renamed, but a module keeps its layer, and the table is updated in the
-same change.
+same change. The modules of `base/` (L0) and `contract/` (L1) are listed in ADR 0004 §1–§2.
 
 ### 4. Import rules
 
-- L1 imports only TypeBox.
-- L2 imports L1 and other L2 modules. `openapi/` imports only L1.
-- L3 imports L1 and L2.
-- L4 imports L1–L3. Only L4 imports `events.ts`.
+- L0 (`base/`) imports only TypeBox.
+- L1 imports only L0 and TypeBox. Inside L1, the inner boundaries of ADR 0004 §2 apply.
+- L2 imports L0, L1, and other L2 modules. `openapi/` imports only L0 and L1. From L1, L2 and above
+  import only the entry points of ADR 0004 §3.
+- L3 imports L0–L2.
+- L4 imports L0–L3. Only L4 imports `events.ts`.
 - L5 and L6 import only public entry points.
 
 The architecture test checks these edges for `packages/core/src/`, as it already checks the edges of

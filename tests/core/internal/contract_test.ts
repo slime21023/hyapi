@@ -10,7 +10,7 @@ import {
   httpBearer,
   Problem,
 } from "@hyapi/core/contract";
-import { compileContracts } from "../../../packages/core/src/contract/check.ts";
+import { compileContracts } from "../../../packages/core/src/contract/compile/compile.ts";
 
 const T = Type;
 const Ok = defineSchema("Ok", T.Object({ ok: T.Boolean() }));

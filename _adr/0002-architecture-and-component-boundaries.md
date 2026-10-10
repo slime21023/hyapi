@@ -53,6 +53,7 @@ interpretation of contracts.
 | [cli](components/cli.md)                   | `@hyapi/cli`           | `new`, `emit`, `diff`, and `doctor` commands                                     |
 | [openapi-diff](components/openapi-diff.md) | `@hyapi/openapi-diff`  | Classify changes between two OpenAPI documents                                   |
 | [plugins](components/plugins.md)           | `@hyapi/plugin-*`      | Security verifiers and outer `fetch` wrappers                                    |
+| [base](components/base.md)                 | none (Core-internal)   | HTTP and TypeBox mechanisms shared by `contract`, `runtime`, and `openapi`       |
 
 The runtime is **one component**. Routing, parameter and body decoding, validation, security
 evaluation, problem responses, the request flow, events, lifecycle, and health are internal modules
@@ -72,10 +73,13 @@ by the structure, not only by tests.
 
 ### 3. Dependency rules
 
-- `contract` depends only on TypeBox. It never imports `runtime`, `openapi`, or `serve`.
-- `runtime` and `openapi` depend on `contract` and never on each other. The runtime's opt-in
-  document endpoint receives an already emitted document from the application, so `runtime` needs no
-  import of `openapi`.
+- `base` depends only on TypeBox, and only `contract`, `runtime`, and `openapi` may import it (ADR
+  0004 §1).
+- `contract` depends only on TypeBox and `base`. It never imports `runtime`, `openapi`, or `serve`.
+- `runtime` and `openapi` depend on `contract` and never on each other. They import from `contract`
+  only its model, the compiler's entry point and diagnostics, and the declaration types (ADR 0004
+  §3). The runtime's opt-in document endpoint receives an already emitted document from the
+  application, so `runtime` needs no import of `openapi`.
 - `serve` depends only on the public `@hyapi/core` entry and Deno APIs.
 - `openapi-diff` depends on no HyAPI package. It works on any OpenAPI document.
 - `cli` and every plugin depend only on public entry points, never on `src/`.
@@ -139,7 +143,7 @@ the code that it describes. A change that moves a responsibility between compone
 - `AGENTS.md` names the four entry points as the public Core boundary.
 - Public contract tests import only public entry points. Internal tests may import runtime modules
   directly.
-- The source tree follows the components: `packages/core/src/contract/`,
+- The source tree follows the components: `packages/core/src/base/`, `packages/core/src/contract/`,
   `packages/core/src/runtime/`, `packages/core/src/openapi/`, `packages/core/src/deno/`,
   `packages/cli/`, and `packages/openapi-diff/`.
 - An architecture test enforces §3.

@@ -1,5 +1,5 @@
 import type { Static } from "typebox";
-import type { HealthReport } from "../contract/schema.ts";
+import type { HealthReport } from "../contract/declare/schema.ts";
 import { withDeadline } from "./deadline.ts";
 
 /** The status of one check, or of the whole report. */

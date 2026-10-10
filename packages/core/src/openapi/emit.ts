@@ -1,15 +1,15 @@
-import { compileContracts } from "../contract/check.ts";
-import type { Api } from "../contract/define.ts";
-import { ContractError } from "../contract/diagnostics.ts";
-import type {
-  ContractModel,
-  OperationModel,
-  ParameterModel,
-  RequirementModel,
-  ResponseModel,
+import { schemaName } from "../base/typebox.ts";
+import { compileContracts } from "../contract/compile/compile.ts";
+import { ContractError } from "../contract/compile/diagnostics.ts";
+import type { Api } from "../contract/declare/api.ts";
+import {
+  type ContractModel,
+  type OperationModel,
+  PARAMETER_DEFAULTS,
+  type ParameterModel,
+  type RequirementModel,
+  type ResponseModel,
 } from "../contract/model.ts";
-import { LOCATIONS } from "../contract/normalize_operation.ts";
-import { schemaName } from "../contract/schema.ts";
 
 /** The OpenAPI version HyAPI emits. */
 export const OPENAPI_VERSION = "3.1.1";
@@ -72,7 +72,7 @@ function parameter(model: ParameterModel): Json {
   if (model.required) result.required = true;
   if (schema.deprecated === true) result.deprecated = true;
   // Only differences from OpenAPI's defaults for the location are emitted.
-  const defaults = LOCATIONS.find((location) => location.in === model.in)!;
+  const defaults = PARAMETER_DEFAULTS[model.in];
   if (model.style !== defaults.style) result.style = model.style;
   if (model.explode !== defaults.explode) result.explode = model.explode;
   result.schema = toJsonSchema(model.schema);

@@ -1,6 +1,6 @@
 import type { Static } from "typebox";
-import type { Problem } from "../contract/schema.ts";
-import { reasonPhrase } from "../contract/reason.ts";
+import { reasonPhrase } from "../base/http.ts";
+import type { Problem } from "../contract/declare/schema.ts";
 
 /** One reason a request or response did not match its contract. */
 export interface Violation {

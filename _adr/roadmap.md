@@ -43,7 +43,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
 | [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
 | [M10](#m10-production-features)         | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
-| [M11](#m11-contract-structure-and-base) | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Planned           |
+| [M11](#m11-contract-structure-and-base) | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐

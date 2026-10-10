@@ -1,34 +1,15 @@
-import type { AnyContract, Api, OperationSpec } from "./define.ts";
-import { createReporter, type Diagnostic, type Reporter } from "./diagnostics.ts";
-import {
-  ANNOTATION_FORMATS,
-  createInspector,
-  type Inspector,
-  isRecord,
-  STANDARD_FORMATS,
-} from "./inspect.ts";
-import type { ContractModel, FormatModel, OperationModel } from "./model.ts";
-import { normalizeOperation, type OperationContext } from "./normalize_operation.ts";
-import { normalizeRequirements, normalizeSchemes } from "./normalize_security.ts";
-import { snapshot } from "./snapshot.ts";
+// The API as a whole: its metadata, custom formats, and the contracts it merges, with the conflicts
+// that only appear across contracts.
+import { ANNOTATION_FORMATS, isRecord, STANDARD_FORMATS } from "../../base/typebox.ts";
+import type { Api } from "../declare/api.ts";
+import type { AnyContract, OperationSpec } from "../declare/contract.ts";
+import type { FormatModel, OperationModel } from "../model.ts";
+import type { Reporter } from "./diagnostics.ts";
+import { normalizeOperation, type OperationContext } from "./operation.ts";
+import { normalizeRequirements } from "./security.ts";
 
-/** The result of {@link checkContracts}. */
-export interface CheckResult {
-  /** True when no diagnostic is an error; warnings never fail the check. */
-  readonly ok: boolean;
-  readonly diagnostics: readonly Diagnostic[];
-}
-
-/** The normalized model with its diagnostics; internal to `@hyapi/core`. */
-export type Compiled =
-  | {
-    readonly ok: true;
-    readonly model: ContractModel;
-    readonly diagnostics: readonly Diagnostic[];
-  }
-  | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] };
-
-function checkInfo(api: Api, report: Reporter): void {
+/** Reports API metadata that OpenAPI requires. */
+export function checkInfo(api: Api, report: Reporter): void {
   if (typeof api.info?.title !== "string" || api.info.title === "") {
     report.error("invalid-api", "info.title must be a non-empty string", undefined, "info/title");
   }
@@ -42,7 +23,8 @@ function checkInfo(api: Api, report: Reporter): void {
   }
 }
 
-function normalizeFormats(formats: unknown, report: Reporter): FormatModel[] {
+/** Checks the custom formats declared with `defineApi({ formats })`. */
+export function normalizeFormats(formats: unknown, report: Reporter): FormatModel[] {
   if (formats === undefined) return [];
   if (!isRecord(formats)) {
     report.error(
@@ -176,7 +158,8 @@ function normalizeContract(
   }
 }
 
-function normalizeContracts(
+/** Normalizes the operations of every listed contract, in contract order. */
+export function normalizeContracts(
   api: Api,
   report: Reporter,
   ctx: OperationContext,
@@ -192,50 +175,4 @@ function normalizeContracts(
     normalizeContract(contract, index, collected, report, ctx);
   }
   return collected.operations;
-}
-
-/**
- * Merges and normalizes an API's contracts into the internal model, reporting every problem
- * together. This is the only place where contracts are interpreted (ADR 0002 §2). The model is a
- * frozen copy, so later changes to the declarations cannot reach it (ADR 0003 §2).
- */
-export function compileContracts(api: Api): Compiled {
-  const report = createReporter();
-  if (!isRecord(api) || api.kind !== "hyapi.api") {
-    report.error("invalid-api", "checkContracts expects a value created by defineApi");
-    return { ok: false, diagnostics: Object.freeze([...report.diagnostics]) };
-  }
-  checkInfo(api, report);
-  const formats = normalizeFormats(api.formats, report);
-  const inspector: Inspector = createInspector(report, new Set(formats.map((f) => f.name)));
-  const schemes = normalizeSchemes(api.securitySchemes?.schemes, report);
-  const rootSecurity = api.security === undefined
-    ? undefined
-    : normalizeRequirements(api.security, schemes, report, undefined, "security");
-  const ctx: OperationContext = { report, inspector, schemes, responses: new Map(), rootSecurity };
-  const operations = normalizeContracts(api, report, ctx);
-
-  const diagnostics = Object.freeze([...report.diagnostics]);
-  if (report.hasErrors()) return { ok: false, diagnostics };
-  const model: ContractModel = snapshot({
-    info: api.info,
-    servers: [...(api.servers ?? [])],
-    tags: [...(api.tags ?? [])],
-    formats,
-    securitySchemes: [...schemes].map(([name, spec]) => ({ name, spec })),
-    security: rootSecurity,
-    operations,
-    schemas: [...inspector.schemas].map(([name, schema]) => ({ name, schema })),
-    responses: [...ctx.responses.values()].map((entry) => entry.model),
-  });
-  return { ok: true, model, diagnostics };
-}
-
-/**
- * Checks an API's contracts and reports every problem together. The same rules run in
- * `createApp`, `hyapi emit`, and `hyapi doctor`.
- */
-export function checkContracts(api: Api): CheckResult {
-  const { ok, diagnostics } = compileContracts(api);
-  return Object.freeze({ ok, diagnostics });
 }

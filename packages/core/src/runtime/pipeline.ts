@@ -1,12 +1,12 @@
 import Type from "typebox";
+import { isJsonMediaType } from "../base/http.ts";
+import { cloneSchema } from "../base/typebox.ts";
 import type {
   BodyModel,
   OperationModel,
   ParameterLocation,
   ResponseModel,
 } from "../contract/model.ts";
-import { cloneSchema } from "../contract/snapshot.ts";
-import { isJsonMediaType } from "../contract/media.ts";
 import { encodeBody, readBody } from "./body.ts";
 import { readParameters } from "./params.ts";
 import { describeError, HttpError, problemResponse, type Violation } from "./problem.ts";

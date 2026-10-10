@@ -45,6 +45,23 @@ and never read raw declarations.
   - security requirements that reference undeclared schemes or scopes; and
   - unregistered object schemas in requests or responses (warning).
 
+## Structure
+
+The component is organized by reader ([ADR 0004](../0004-contract-structure-and-base.md)):
+
+| Part       | Reader                      | Contents                                                                                                                                                                                                                     |
+| ---------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `declare/` | applications                | `defineApi`, `defineContract` and the type-level path checks, `defineSecurity` and scheme constructors, `defineResponse`, `defineSchema`, `Problem`, `HealthReport`                                                          |
+| `infer.ts` | handlers and verifiers      | `InputOf`, `ResultOf`, and the security result types                                                                                                                                                                         |
+| `model.ts` | the runtime and the emitter | `ContractModel`, the OpenAPI vocabulary it shares with the declarations (`ApiInfo`, `ServerSpec`, `TagSpec`, `SchemeSpec`, OAuth flows), and `PARAMETER_DEFAULTS`                                                            |
+| `compile/` | Core only                   | `compile.ts` (`compileContracts`, `checkContracts`), `api.ts`, `operation.ts`, `parameters.ts`, `body.ts`, `responses.ts`, `security.ts`, `components.ts` (named schemas and responses), `schema_rules.ts`, `diagnostics.ts` |
+
+Dependencies point one way: `model.ts` imports only [base](base.md); `declare/` imports `model.ts`
+and base; `infer.ts` imports `declare/`; `compile/` imports all of them. The runtime and the emitter
+import only `model.ts`, `compile/compile.ts`, `compile/diagnostics.ts`, the built-in schemas, and
+the types of `declare/` and `infer.ts`. The architecture test `tests/architecture/contract.ts`
+enforces these edges.
+
 ## Boundary
 
 - No runtime behavior: no HTTP I/O, routing, validation, or handler execution.
@@ -67,7 +84,7 @@ from the internal `compileContracts`; applications and tools never see it.
 
 ## Dependencies
 
-TypeBox only. Never imports `runtime`, `openapi`, or `serve`.
+TypeBox and [base](base.md). Never imports `runtime`, `openapi`, or `serve`.
 
 ## Failure behavior
 
@@ -109,6 +126,17 @@ ADR 0001 §1–§3, §7, §8; ADR 0002 §2, §5; RFC 0001.
   `media.ts`, and the runtime uses the same functions.
 - **Reserved name.** `reserved-schema-name` is an error when a schema other than the built-in
   `Problem` is named `Problem` (A25).
+
+## Resolved in M11
+
+- **Structure (ADR 0004).** `define.ts`, `security.ts`, `response.ts`, and `schema.ts` became
+  `declare/`; `check.ts`, `inspect.ts`, `normalize_operation.ts`, `normalize_security.ts`, and
+  `diagnostics.ts` became `compile/`, with operations split into operation, parameters, body, and
+  responses. The security rules, including the effective requirement, are in `compile/security.ts`,
+  and named schemas and responses share one registry in `compile/components.ts`.
+- **Base.** `media.ts`, `reason.ts`, `snapshot.ts`, the schema guard, the name marker, and the
+  format lists moved to [base](base.md). The emitter reads `PARAMETER_DEFAULTS` from the model
+  instead of a normalizer's private table.
 
 ## Open questions
 
