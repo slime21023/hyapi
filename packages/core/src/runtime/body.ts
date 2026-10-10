@@ -1,4 +1,4 @@
-import { isJsonMediaType, isTextMediaType } from "../contract/media.ts";
+import { isJsonMediaType, isTextMediaType } from "../base/http.ts";
 import type { BodyModel } from "../contract/model.ts";
 
 /** The media type without parameters, lowercased. */

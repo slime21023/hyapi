@@ -1,7 +1,7 @@
 import type { TSchema } from "typebox";
 import { Compile } from "typebox/compile";
 import * as Value from "typebox/value";
-import { cloneSchema } from "../contract/snapshot.ts";
+import { cloneSchema } from "../base/typebox.ts";
 import type { Violation } from "./problem.ts";
 
 const INT32_MIN = -(2 ** 31);

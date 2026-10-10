@@ -1,5 +1,5 @@
-import type { Diagnostic } from "../contract/diagnostics.ts";
-import type { AnyContract } from "../contract/define.ts";
+import type { Diagnostic } from "../contract/compile/diagnostics.ts";
+import type { AnyContract } from "../contract/declare/contract.ts";
 import type { ContractModel, OperationModel } from "../contract/model.ts";
 import type { Implementation } from "./handler.ts";
 import type { LifecycleResource } from "./lifecycle.ts";

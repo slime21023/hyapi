@@ -23,6 +23,7 @@
     "docs:preview": "deno run --node-modules-dir=auto --allow-read --allow-write --allow-net --allow-env --allow-run --allow-ffi --allow-sys vitepress preview docs",
     "example:check": "deno task --cwd apps/example emit --check",
     "publish:check": "deno publish --dry-run --allow-dirty",
+    "api:update": "deno run --allow-read --allow-write --allow-run tests/architecture/public_api.ts",
     "bench:http": "deno run --allow-net --allow-read --allow-run bench/http/load.ts"
   },
   "fmt": {

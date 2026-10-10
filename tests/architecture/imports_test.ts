@@ -16,6 +16,7 @@ Deno.test("files are classified into components", () => {
   assertEquals(componentOf("packages/core/contract.ts")?.component, "contract");
   assertEquals(componentOf("packages/core/mod.ts")?.component, "runtime");
   assertEquals(componentOf("packages/core/src/deno/serve.ts")?.component, "serve");
+  assertEquals(componentOf("packages/core/src/base/http.ts")?.component, "base");
   assertEquals(componentOf("packages/plugin-jwt/mod.ts"), {
     component: "plugin",
     owner: "plugin-jwt",
@@ -57,10 +58,12 @@ Deno.test("allowed edges pass", () => {
   assertEquals(reasons("packages/core/src/runtime/app.ts", `import "typebox";`), []);
   assertEquals(reasons("packages/core/src/openapi/emit.ts", `import "../contract/model.ts";`), []);
   assertEquals(
-    reasons("packages/core/src/contract/define.ts", `import "npm:typebox@1/value";`),
+    reasons("packages/core/src/contract/declare/api.ts", `import "npm:typebox@1/value";`),
     [],
   );
   assertEquals(reasons("packages/core/src/deno/serve.ts", `import "../../mod.ts";`), []);
+  assertEquals(reasons("packages/core/src/runtime/body.ts", `import "../base/http.ts";`), []);
+  assertEquals(reasons("packages/core/src/base/typebox.ts", `import "typebox";`), []);
   assertEquals(reasons("packages/cli/emit.ts", `import "@hyapi/core/contract";`), []);
   assertEquals(reasons("packages/cli/diff.ts", `import "@hyapi/openapi-diff";`), []);
   assertEquals(reasons("packages/cli/diff.ts", `import "jsr:@std/fs";`), []);
@@ -89,6 +92,12 @@ Deno.test("forbidden edges fail", () => {
   ]);
   assertEquals(reasons("packages/core/src/deno/serve.ts", `import "../runtime/app.ts";`), [
     "serve must import runtime through its public entry point",
+  ]);
+  assertEquals(reasons("packages/core/src/deno/serve.ts", `import "../base/http.ts";`), [
+    "serve may not depend on base",
+  ]);
+  assertEquals(reasons("packages/core/src/base/http.ts", `import "../contract/model.ts";`), [
+    "base may not depend on contract",
   ]);
   assertEquals(reasons("packages/cli/emit.ts", `import "../core/src/contract/mod.ts";`), [
     "cli must import contract through its public entry point",

@@ -1,6 +1,5 @@
 import type { TSchema } from "typebox";
-import type { ApiInfo, HttpMethod, ServerSpec, TagSpec } from "./define.ts";
-import type { SchemeSpec } from "./security.ts";
+import type { HttpMethod } from "../base/http.ts";
 
 /**
  * The single, normalized interpretation of an API. The runtime and the OpenAPI emitter read only
@@ -24,6 +23,67 @@ export interface ContractModel {
   /** Named responses in first-reference order. */
   readonly responses: readonly NamedResponseModel[];
 }
+
+/** API metadata emitted as the OpenAPI `info` object. */
+export interface ApiInfo {
+  readonly title: string;
+  readonly version: string;
+  readonly summary?: string;
+  readonly description?: string;
+  readonly termsOfService?: string;
+  readonly contact?: { readonly name?: string; readonly url?: string; readonly email?: string };
+  readonly license?: { readonly name: string; readonly identifier?: string; readonly url?: string };
+}
+
+/** A server URL emitted in the OpenAPI document. */
+export interface ServerSpec {
+  readonly url: string;
+  readonly description?: string;
+}
+
+/** Documentation for a tag used by operations. */
+export interface TagSpec {
+  readonly name: string;
+  readonly description?: string;
+}
+
+/** An OAuth 2 flow as declared in OpenAPI. */
+export interface OAuthFlow {
+  readonly authorizationUrl?: string;
+  readonly tokenUrl?: string;
+  readonly refreshUrl?: string;
+  readonly scopes: Readonly<Record<string, string>>;
+}
+
+/** The OAuth 2 flows of a scheme. At least one flow is required. */
+export interface OAuthFlows {
+  readonly implicit?: OAuthFlow;
+  readonly password?: OAuthFlow;
+  readonly clientCredentials?: OAuthFlow;
+  readonly authorizationCode?: OAuthFlow;
+}
+
+/** The OpenAPI description of a security scheme. */
+export type SchemeSpec =
+  | {
+    readonly type: "http";
+    readonly scheme: "bearer";
+    readonly bearerFormat?: string;
+    readonly description?: string;
+  }
+  | { readonly type: "http"; readonly scheme: "basic"; readonly description?: string }
+  | {
+    readonly type: "apiKey";
+    readonly in: "header" | "query" | "cookie";
+    readonly name: string;
+    readonly description?: string;
+  }
+  | { readonly type: "oauth2"; readonly flows: OAuthFlows; readonly description?: string }
+  | {
+    readonly type: "openIdConnect";
+    readonly openIdConnectUrl: string;
+    readonly description?: string;
+  };
 
 /** A custom format and its check. */
 export interface FormatModel {
@@ -54,6 +114,19 @@ export interface ParameterModel {
   /** Present when the schema declares a `default`, which the runtime applies when absent. */
   readonly hasDefault: boolean;
 }
+
+/** OpenAPI's default `style` and `explode` per parameter location. */
+export const PARAMETER_DEFAULTS: Readonly<
+  Record<
+    ParameterLocation,
+    { readonly style: ParameterModel["style"]; readonly explode: boolean }
+  >
+> = {
+  path: { style: "simple", explode: false },
+  query: { style: "form", explode: true },
+  header: { style: "simple", explode: false },
+  cookie: { style: "form", explode: true },
+};
 
 export interface BodyModel {
   readonly schema: TSchema;

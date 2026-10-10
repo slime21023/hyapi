@@ -7,6 +7,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Internal structure (ADR 0004, roadmap M11)
+
+No public API or behavior changes; the public API snapshot and the emitted documents are unchanged.
+
+- `contract` is organized by reader: `declare/` for what applications write, `compile/` as the only
+  interpreter, `model.ts` as the inner interface, and `infer.ts`. The 555-line operation normalizer
+  is split into operation, parameters, body, and responses; security rules and named components each
+  have one module.
+- A Core-internal `base/` layer (L0) holds the HTTP and TypeBox mechanisms shared by `contract`,
+  `runtime`, and `openapi`.
+- New architecture tests: the runtime and the emitter import only the contract model, the compiler's
+  entry point and diagnostics, and declaration types; dependencies inside `contract` point one way;
+  and a public API snapshot (`deno task api:update`) makes every public change deliberate.
+
 ## [0.2.5] - 2026-10-10
 
 Observability and authorization (roadmap M10a), several documents (roadmap M10b), operations

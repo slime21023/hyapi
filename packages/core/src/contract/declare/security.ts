@@ -1,40 +1,4 @@
-/** An OAuth 2 flow as declared in OpenAPI. */
-export interface OAuthFlow {
-  readonly authorizationUrl?: string;
-  readonly tokenUrl?: string;
-  readonly refreshUrl?: string;
-  readonly scopes: Readonly<Record<string, string>>;
-}
-
-/** The OAuth 2 flows of a scheme. At least one flow is required. */
-export interface OAuthFlows {
-  readonly implicit?: OAuthFlow;
-  readonly password?: OAuthFlow;
-  readonly clientCredentials?: OAuthFlow;
-  readonly authorizationCode?: OAuthFlow;
-}
-
-/** The OpenAPI description of a security scheme. */
-export type SchemeSpec =
-  | {
-    readonly type: "http";
-    readonly scheme: "bearer";
-    readonly bearerFormat?: string;
-    readonly description?: string;
-  }
-  | { readonly type: "http"; readonly scheme: "basic"; readonly description?: string }
-  | {
-    readonly type: "apiKey";
-    readonly in: "header" | "query" | "cookie";
-    readonly name: string;
-    readonly description?: string;
-  }
-  | { readonly type: "oauth2"; readonly flows: OAuthFlows; readonly description?: string }
-  | {
-    readonly type: "openIdConnect";
-    readonly openIdConnectUrl: string;
-    readonly description?: string;
-  };
+import type { OAuthFlows, SchemeSpec } from "../model.ts";
 
 /** The decoded credential of an HTTP basic scheme. */
 export interface BasicCredential {

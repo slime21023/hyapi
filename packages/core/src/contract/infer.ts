@@ -2,10 +2,10 @@
 // generics that carry a contract's literal declarations to its handlers; everything else in Core
 // should not need generics.
 import type { Static, TObject, TSchema } from "typebox";
-import type { NamedResponse } from "./response.ts";
-import type { IdentityOf, Schemes } from "./security.ts";
+import type { SchemaLike } from "../base/typebox.ts";
+import type { NamedResponse } from "./declare/response.ts";
+import type { IdentityOf, Schemes } from "./declare/security.ts";
 
-type SchemaLike = { readonly "~kind": unknown };
 type StaticOf<Schema> = Schema extends TSchema ? Static<Schema> : never;
 
 // Parameters with a `default` (declared with `T.With(schema, { default })`) are filled in by the
@@ -13,11 +13,13 @@ type StaticOf<Schema> = Schema extends TSchema ? Static<Schema> : never;
 type DefaultKeys<Properties> = {
   [Name in keyof Properties]: Properties[Name] extends { readonly default: unknown } ? Name : never;
 }[keyof Properties];
+
 // `[Keys] extends [never]` asks "are there no keys?" without distributing over the union of keys.
 type RequireKeys<Value, Keys extends PropertyKey> = [Keys] extends [never] ? Value
   :
     & Omit<Value, Keys>
     & { readonly [Name in Keys & keyof Value]-?: Exclude<Value[Name], undefined> };
+
 type ParameterInput<Schema> = Schema extends TObject<infer Properties>
   ? RequireKeys<Static<Schema>, DefaultKeys<Properties>>
   : StaticOf<Schema>;
@@ -26,14 +28,17 @@ type ParameterInput<Schema> = Schema extends TObject<infer Properties>
 type BodySchemaOf<Declaration> = Declaration extends SchemaLike ? Declaration
   : Declaration extends { readonly schema: infer Schema } ? Schema
   : never;
+
 // Bodies that are neither JSON nor text reach the handler as bytes (RFC 0001 A24).
 // `string extends MediaType` is true when the media type is not a literal, so it is unknown.
 type IsBytes<MediaType> = string extends MediaType ? false
   : MediaType extends "application/json" | `${string}+json` | `text/${string}` ? false
   : true;
+
 type BodyValue<Declaration> = Declaration extends { readonly mediaType: infer MediaType }
   ? IsBytes<MediaType> extends true ? Uint8Array : StaticOf<BodySchemaOf<Declaration>>
   : StaticOf<BodySchemaOf<Declaration>>;
+
 type BodyInput<Declaration> = Declaration extends { readonly required: false }
   ? { readonly body?: BodyValue<Declaration> }
   : { readonly body: BodyValue<Declaration> };
@@ -93,12 +98,14 @@ export type ResultOf<Operation> = {
 type AlternativeIdentity<Alternative, SchemeSet extends Schemes> = {
   readonly [Name in keyof Alternative & keyof SchemeSet]: IdentityOf<SchemeSet[Name]>;
 };
+
 // One union member per alternative; `[Alternative] extends [never]` is the empty list, `[]`.
 type FromRequirements<Requirements, SchemeSet extends Schemes> = Requirements extends
   readonly (infer Alternative)[] ? [Alternative] extends [never] ? undefined
   : Alternative extends unknown ? AlternativeIdentity<Alternative, SchemeSet>
   : never
   : never;
+
 type Inherited<SchemeSet extends Schemes> = [keyof SchemeSet] extends [never] ? undefined
   : { readonly [Name in keyof SchemeSet]?: IdentityOf<SchemeSet[Name]> } | undefined;
 

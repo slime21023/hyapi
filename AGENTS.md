@@ -2,18 +2,18 @@
 
 HyAPI is a contract-first API library for Deno. Contracts are TypeScript (TypeBox), handlers are
 type-checked against them, and they compile into an OpenAPI 3.1 document. The decisions behind this
-guide are in [`_adr/`](_adr/): ADR 0001 (product), ADR 0002 (components), ADR 0003 (layers), and RFC
-0001 (public API).
+guide are in [`_adr/`](_adr/): ADR 0001 (product), ADR 0002 (components), ADR 0003 (layers), ADR
+0004 (contract structure), and RFC 0001 (public API).
 
 ## Design principles
 
 - **The contract is the single source of truth.** Handler types are inferred from it, the runtime
   enforces it, and the document is compiled from it. Contracts are interpreted once, into the
   internal `ContractModel`; nothing else reads raw declarations.
-- **Lower layers own less.** Contract (L1) → mechanisms (L2) → request flow (L3) → application (L4)
-  → host (L5) → plugins (L6). A module never imports a higher layer. Only `runtime/app.ts` holds
-  mutable state and emits events; lower layers return results. No module keeps state at module
-  scope.
+- **Lower layers own less.** Base (L0) → contract (L1) → mechanisms (L2) → request flow (L3) →
+  application (L4) → host (L5) → plugins (L6). A module never imports a higher layer. Only
+  `runtime/app.ts` holds mutable state and emits events; lower layers return results. No module
+  keeps state at module scope.
 - **Fail at startup, all at once.** Report every diagnostic together instead of ignoring an
   unsupported keyword, style, handler, or scheme. Security fails closed.
 - **Explicit over automatic.** Options and dependencies are passed in, by closure. No global state,
@@ -84,10 +84,16 @@ options, and stays removable. Prefer a recipe with an existing package before a 
 
 - The public surface is the four Core entry points (`@hyapi/core/contract`, `@hyapi/core/openapi`,
   `@hyapi/core`, `@hyapi/core/deno`) and each package's `mod.ts`. `packages/core/src/` is private.
+  The public API snapshot test lists that surface; after a deliberate change, run
+  `deno task api:update` and commit the snapshot.
+- Inside Core, `base/` holds HTTP and TypeBox mechanisms; `contract/declare/` is what applications
+  write and `contract/compile/` is the only interpreter. The runtime and the emitter import only
+  `contract/model.ts`, `compile/compile.ts`, `compile/diagnostics.ts`, and declaration types.
 - A public API change updates RFC 0001, the component specification in `_adr/components/`, the guide
   in `docs/`, and `CHANGELOG.md` in the same change.
 - Record design decisions, RFCs, reviews, and baselines in `_adr/`, numbered sequentially; user
   documentation goes in `docs/`.
 - Benchmarks live in `bench/` and the example in `apps/example/`; neither defines the public API.
 - Run the smallest relevant check while working, and `deno task verify` before calling a change
-  done. The architecture tests enforce the component, layer, and nesting rules.
+  done. The architecture tests enforce the component, layer, contract-boundary, naming, and nesting
+  rules, and the public API snapshot.

@@ -1,4 +1,4 @@
-// Enforces the layer rules of ADR 0003 §3–§5 inside packages/core/src.
+// Enforces the layer rules of ADR 0003 §3–§5 and ADR 0004 §1 inside packages/core/src.
 import { importSpecifiers } from "./imports.ts";
 
 export interface LayerViolation {
@@ -8,6 +8,7 @@ export interface LayerViolation {
 
 /** ADR 0003 §3: the layer of every Core module. Directories map as a whole. */
 const LAYERS: Readonly<Record<string, number>> = {
+  "base/": 0,
   "contract/": 1,
   "openapi/": 2,
   "runtime/deadline.ts": 2,

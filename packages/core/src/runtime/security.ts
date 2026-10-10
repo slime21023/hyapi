@@ -1,11 +1,11 @@
-import type { RequirementModel, SecuritySchemeModel } from "../contract/model.ts";
 import type {
   BasicCredential,
   CredentialOf,
   IdentityOf,
   Schemes,
   Security,
-} from "../contract/security.ts";
+} from "../contract/declare/security.ts";
+import type { RequirementModel, SecuritySchemeModel } from "../contract/model.ts";
 import { parseCookies } from "./params.ts";
 
 /** What a verifier receives besides the credential. */

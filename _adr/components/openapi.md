@@ -37,7 +37,8 @@ leaves unchanged. YAML serialization lives in the CLI.
 
 ## Dependencies
 
-[contract](contract.md) only. Never imports [runtime](runtime.md).
+[contract](contract.md) (its model, compiler entry point, and diagnostics; ADR 0004 §3) and
+[base](base.md). Never imports [runtime](runtime.md).
 
 ## Failure behavior
 

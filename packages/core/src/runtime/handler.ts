@@ -1,6 +1,6 @@
-import type { AnyContract, Contract } from "../contract/define.ts";
+import type { AnyContract, Contract } from "../contract/declare/contract.ts";
+import type { Schemes } from "../contract/declare/security.ts";
 import type { InputOf, ResultOf, SecurityOf } from "../contract/infer.ts";
-import type { Schemes } from "../contract/security.ts";
 
 /**
  * Runtime information passed to every handler.

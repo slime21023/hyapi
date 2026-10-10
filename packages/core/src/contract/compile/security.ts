@@ -1,7 +1,9 @@
+// The security rules of a contract: declared schemes, requirements against them, and the effective
+// requirement of each operation (operation, then contract default, then API root).
+import { isRecord } from "../../base/typebox.ts";
+import type { Schemes } from "../declare/security.ts";
+import type { OAuthFlows, OperationModel, RequirementModel, SchemeSpec } from "../model.ts";
 import type { Reporter } from "./diagnostics.ts";
-import { isRecord } from "./inspect.ts";
-import type { RequirementModel } from "./model.ts";
-import type { OAuthFlows, Schemes, SchemeSpec } from "./security.ts";
 
 /** Reports the URLs that each OAuth 2 flow of a scheme needs. */
 function checkOAuthFlows(
@@ -141,4 +143,42 @@ export function normalizeRequirements(
   return requirements.map((requirement, i) =>
     normalizeAlternative(requirement, schemes, report, operationId, `${at}/${i}`)
   );
+}
+
+/** The requirements an operation inherits when it declares none. */
+export interface InheritedSecurity {
+  /** The contract default, or `undefined` when the contract declares none. */
+  readonly contract: RequirementModel[] | undefined;
+  /** The API root requirement, or `undefined` when the API declares none. */
+  readonly api: RequirementModel[] | undefined;
+}
+
+/** The effective requirement of one operation, and where it came from. */
+export function effectiveSecurity(
+  declared: unknown,
+  inherited: InheritedSecurity,
+  schemes: ReadonlyMap<string, SchemeSpec>,
+  report: Reporter,
+  operationId: string,
+): { security: RequirementModel[]; origin: OperationModel["securityOrigin"] } {
+  if (declared !== undefined) {
+    const at = `${operationId}/security`;
+    return {
+      security: normalizeRequirements(declared, schemes, report, operationId, at),
+      origin: "operation",
+    };
+  }
+  if (inherited.contract !== undefined) return { security: inherited.contract, origin: "contract" };
+  if (inherited.api !== undefined) return { security: inherited.api, origin: "api" };
+  // Fail closed: once the API has security schemes, a public operation must say so.
+  if (schemes.size > 0) {
+    report.error(
+      "implicit-public",
+      "the operation has no security requirement although the API declares security schemes; " +
+        "declare one, or 'security: []' to make the operation public on purpose",
+      operationId,
+      `${operationId}/security`,
+    );
+  }
+  return { security: [], origin: "none" };
 }
