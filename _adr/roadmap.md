@@ -8,7 +8,8 @@
   [component specifications](components/README.md); M8–M10 are based on
   [Review 0001](reviews/0001-component-and-production-readiness.md) and
   [ADR 0003](0003-layered-architecture.md); M11 is based on
-  [ADR 0004](0004-contract-structure-and-base.md)
+  [ADR 0004](0004-contract-structure-and-base.md); M12 is based on
+  [Review 0002](reviews/0002-interfaces-and-module-depth.md)
 
 ## v1 goal
 
@@ -30,27 +31,28 @@ request bodies, and parameter styles beyond the v1 subset.
 
 ## Milestones
 
-| Milestone                               | Goal                                                 | Components                             | Depends on | Status            |
-| --------------------------------------- | ---------------------------------------------------- | -------------------------------------- | ---------- | ----------------- |
-| [M0](#m0-engineering-foundation)        | Engineering foundation                               | repository                             | —          | Done (2026-10-08) |
-| [M1](#m1-contract)                      | Contracts, inference, normalization, diagnostics     | contract                               | M0         | Done (2026-10-08) |
-| [M2](#m2-runtime-request-path)          | Runtime request path without security                | runtime                                | M1         | Done (2026-10-08) |
-| [M3](#m3-openapi-emission-and-cli)      | OpenAPI emission and the contract CLI                | openapi, cli                           | M1         | Done (2026-10-08) |
-| [M4](#m4-security)                      | Security evaluation and the JWT verifier             | runtime, plugins                       | M2         | Done (2026-10-08) |
-| [M5](#m5-lifecycle-hosting-and-events)  | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08) |
-| [M6](#m6-evolution-governance)          | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08) |
-| [M7](#m7-v1-release)                    | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
-| [M8](#m8-layered-architecture)          | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
-| [M9](#m9-correctness-and-safe-defaults) | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
-| [M10](#m10-production-features)         | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
-| [M11](#m11-contract-structure-and-base) | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
+| Milestone                                      | Goal                                                 | Components                             | Depends on | Status            |
+| ---------------------------------------------- | ---------------------------------------------------- | -------------------------------------- | ---------- | ----------------- |
+| [M0](#m0-engineering-foundation)               | Engineering foundation                               | repository                             | —          | Done (2026-10-08) |
+| [M1](#m1-contract)                             | Contracts, inference, normalization, diagnostics     | contract                               | M0         | Done (2026-10-08) |
+| [M2](#m2-runtime-request-path)                 | Runtime request path without security                | runtime                                | M1         | Done (2026-10-08) |
+| [M3](#m3-openapi-emission-and-cli)             | OpenAPI emission and the contract CLI                | openapi, cli                           | M1         | Done (2026-10-08) |
+| [M4](#m4-security)                             | Security evaluation and the JWT verifier             | runtime, plugins                       | M2         | Done (2026-10-08) |
+| [M5](#m5-lifecycle-hosting-and-events)         | Lifecycle, hosting, health, and events               | runtime, serve                         | M2         | Done (2026-10-08) |
+| [M6](#m6-evolution-governance)                 | Evolution governance                                 | openapi-diff, cli                      | M3         | Done (2026-10-08) |
+| [M7](#m7-v1-release)                           | Remaining plugins, documentation, and the v1 release | plugins, all                           | M4, M5, M6 | Done (2026-10-09) |
+| [M8](#m8-layered-architecture)                 | Layered architecture (ADR 0003)                      | contract, runtime, openapi, serve, cli | M7         | Done (2026-10-09) |
+| [M9](#m9-correctness-and-safe-defaults)        | Correctness and safe defaults (0.2.0)                | runtime, contract, plugins             | M8         | Done (2026-10-09) |
+| [M10](#m10-production-features)                | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
+| [M11](#m11-contract-structure-and-base)        | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
+| [M12](#m12-narrow-interfaces-and-deep-modules) | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | Planned           |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
           │       └─► M5 ─┼─► M7
           └─► M3 ───► M6 ─┘
 
-M7 ─► M8 ─► M9 ─► M10 ─► M11 ─► 1.0.0
+M7 ─► M8 ─► M9 ─► M10 ─► M11 ─► M12 ─► 1.0.0
 ```
 
 M2 and M3 can proceed in parallel after M1. M8–M10 run in order: M8 settles the layers of ADR 0003,
@@ -397,6 +399,31 @@ records.
 **Exit criteria:** the public API snapshot is unchanged; the example's `emit --check` passes, so the
 emitted documents are byte-identical; diagnostic codes and messages are unchanged; no module outside
 `compile/` imports a private compiler module; `deno task verify` and CI pass.
+
+### M12: Narrow interfaces and deep modules
+
+**Goal:** public and internal interfaces that hold only what users and other modules need, and
+modules that each have one reason to change, as decided in
+[Review 0002](reviews/0002-interfaces-and-module-depth.md). Released as `0.3.0`.
+
+**Plan:** three committed stages, one pull request each:
+
+- **M12a: internal structure** (I2, D1, D2, N1). Remove the ten unused internal exports and add an
+  architecture test that every internal export is imported or re-exported by a public entry point;
+  move the stateless parts of `runtime/app.ts` to `runtime/settings.ts` and `runtime/documents.ts`;
+  move the response half of `runtime/pipeline.ts` to `runtime/respond.ts`; rename
+  `runtime/binding.ts` to `runtime/startup.ts`, move `isRecord` and `Dict` out of `base/typebox.ts`,
+  and rename `cli/src/document.ts` to `serialize.ts`. No public API change.
+- **M12b: public interfaces** (I1, I3). Add the export rule to `AGENTS.md`; stop exporting the
+  declaration shapes of I1; export one `FetchHandler` from `@hyapi/core`, used by `App.fetch` and
+  the wrapper plugins; declare the JWT and OIDC verifier return types inline; remove `problem()`.
+  Breaking; recorded as RFC 0001 amendments, with the public API snapshot, documentation, and
+  example updated.
+- **M12c: openapi-diff** (D3). Split `diff.ts` by area. No public API change.
+
+**Exit criteria:** the internal-export test passes; no runtime module exceeds about 350 lines; every
+public symbol in the snapshot meets the export rule; the example and documentation use no removed
+symbol; `deno task verify` and CI pass.
 
 ## Open roadmap questions
 
