@@ -1,4 +1,4 @@
-import { assert, assertStringIncludes } from "@std/assert";
+import { assertStringIncludes } from "@std/assert";
 import { join, toFileUrl } from "jsr:@std/path@^1";
 import { watchEmit } from "../../../packages/cli/src/watch.ts";
 import { REPO } from "../helpers.ts";
@@ -39,8 +39,11 @@ Deno.test("emit --watch rewrites the document when a contract changes", async ()
     assertStringIncludes(await Deno.readTextFile(document), '"title": "Library API"');
 
     await Deno.writeTextFile(join(dir, "api.ts"), source.replace('"Library API"', '"Renamed API"'));
-    await until(async () => (await Deno.readTextFile(document)).includes('"title": "Renamed API"'));
-    assert(out.filter((line) => line.startsWith("wrote")).length >= 2, out.join("\n"));
+    // The file is written before the second emit's process exits and its output is relayed.
+    const wrote = () => out.filter((line) => line.startsWith("wrote")).length;
+    await until(async () =>
+      wrote() >= 2 && (await Deno.readTextFile(document)).includes('"title": "Renamed API"')
+    );
   } finally {
     controller.abort();
     await watching;
