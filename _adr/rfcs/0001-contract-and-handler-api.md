@@ -190,7 +190,8 @@ diagnostic error, and an unnamed object schema at a request or response top leve
   - A unit test only needs to build `input` and a minimal `ctx`.
 - **Result:** the union of the declared responses, each `{ status, body?, headers? }`. Declared
   response headers are required by type. A handler may also return a raw `Response` for streams and
-  files; its status must still be declared.
+  files; its status must still be declared. (Superseded by A47–A49: every response is a typed
+  result.)
 - **Declared outcomes are returned, not thrown.** `HttpError` is for cross-cutting or unexpected
   failures only.
 - **`implement(contract, handlers)`** binds one contract module. The handler map must contain every
@@ -513,6 +514,28 @@ place and that the development loop gave little feedback.
 - **A46. `hyapi emit --watch`.** Emits the documents, then emits them again in a fresh process
   whenever a TypeScript module or `deno.json` in the project changes. It cannot be combined with
   `--check`.
+
+## 24. Amendments for typed responses (M13b)
+
+[Review 0003](../reviews/0003-developer-experience.md) found that an undeclared status was reported
+as a mismatch with `Response`, because a handler could return a raw `Response`, and that streams,
+files, and several `Set-Cookie` headers needed one. Every everyday response is now a typed result.
+
+- **A47. Response bodies follow their media type.** A JSON body (the default, `application/json`, or
+  `+json`) is the schema's value; a `text/*` body, including `text/event-stream`, is a `string` or a
+  `ReadableStream<Uint8Array>`; any other body is a `Uint8Array`, a `Blob`, or a
+  `ReadableStream<Uint8Array>`, mirroring A24 for requests. Streamed, byte, and `Blob` bodies are
+  not validated.
+- **A48. Undeclared headers may have several values.** Headers that a response does not declare are
+  `string | readonly string[]`; a list is sent once per value, as several `Set-Cookie` headers need.
+- **A49. No raw `Response`.** A handler returns `ResultOf<Operation> | Promise<ResultOf<...>>`.
+  Returning a `Response` is a type error, so an undeclared status is reported on `status`
+  (`Type '201' is not assignable to type '200'`). At runtime, a returned `Response` is answered with
+  500 `RESPONSE_CONTRACT_VIOLATION` under every response policy, and its body is cancelled. This
+  supersedes A12: a conditional status such as `{ status: ok ? 200 : 503, body }` now type-checks.
+- **A50. `withDefault`.** `withDefault(schema, value)` from `@hyapi/core/contract` returns
+  `T.Optional(T.With(schema, { default: value }))`: the runtime applies the default when the
+  parameter is absent, and the parameter is required in the handler's input.
 
 ## Alternatives rejected
 

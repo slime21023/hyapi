@@ -56,7 +56,9 @@ route match (404, or 405 with Allow; HEAD served for GET)
   - undeclared fields are stripped, with a warning event in development;
   - the declared status, body schema, and header schemas are checked by policy: `enforce` answers
     500, `log` sends the response and emits `response.violation`, and `off` runs no check;
-  - raw `Response` results pass through after the status check; and
+  - every response is a typed result: text bodies may stream, other non-JSON bodies are bytes, a
+    `Blob`, or a stream, and undeclared headers may have several values (RFC 0001 A47–A49); a
+    returned `Response` answers 500 `RESPONSE_CONTRACT_VIOLATION`; and
   - streamed bodies are not validated, and stay in flight until they end.
 - **Cancellation:** each request has one `AbortSignal` that combines client disconnect, the request
   timeout, and shutdown. A timeout produces a 503 or 504 response.
@@ -112,7 +114,7 @@ every module, and the architecture test enforces the edges and the absence of mo
   application is returned. A failing startup hook rolls back earlier hooks in reverse order.
 - Every failure before a response is committed becomes a problem response. Building a problem
   response never throws; a fixed minimal 500 is the last resort.
-- After a raw `Response` is returned, stream and transport failures cannot become problem responses.
+- After a streamed body has started, stream and transport failures cannot become problem responses.
 - A handler that ignores its signal may keep running after its timeout response. This is documented
   as best effort.
 - Shutdown is bounded. Cleanup failures are aggregated, and later hooks still run.
@@ -198,9 +200,8 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
 - **Document endpoint.** `createApp({ document: { path, content } })` serves an emitted document on
   GET and HEAD. A path that collides with a declared route fails startup
   (`document-route-conflict`).
-- **Conditional statuses.** Return one object per status, for example
-  `ok ? { status: 200, body } : { status: 503, body }`. TypeScript cannot split
-  `{ status: 200 | 503 }` across a union that also allows a raw `Response` (RFC 0001 A12).
+- **Conditional statuses.** `{ status: ok ? 200 : 503, body }` type-checks since handlers no longer
+  return a raw `Response` (RFC 0001 A49, superseding A12).
 
 ## Resolved in M8
 
@@ -264,6 +265,14 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   signal leaked about 1 KB per request, found by the
   [HTTP load baseline](../baselines/http-load.md).
 - **Streams** listen to their request's signal, so forced shutdown still cancels them.
+
+## Resolved in M13b
+
+- **Typed responses (Review 0003 F1, F2).** Handler results are typed by the response's media type
+  (A47), and undeclared headers may be lists, sent once per value (A48). A raw `Response` is not a
+  handler result (A49); `respond` answers one with 500 `RESPONSE_CONTRACT_VIOLATION` and cancels its
+  body. Streamed, byte, and `Blob` bodies are not validated, and streams stay in flight until they
+  end.
 
 ## Resolved in M13a
 

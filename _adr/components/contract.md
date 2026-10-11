@@ -26,7 +26,8 @@ and never read raw declarations.
   returns a `BasicScheme`, whose credential is a `BasicCredential` (`{ username, password }`); every
   other scheme receives a string.
 - **Type inference.** Helpers infer handler input, the per-operation response union, and verifier
-  identity types directly from TypeBox `Static`, with no generation.
+  identity types directly from TypeBox `Static`, with no generation. Bodies are typed by their media
+  kind: JSON is the schema's value, text may stream, and other bodies are bytes (RFC 0001 A24, A47).
 - **Normalization into `ContractModel`.** Every interpretation decision is made here, once:
   - merge contract modules into one API;
   - resolve each operation's effective security requirement (operation, then contract default, then
@@ -77,6 +78,8 @@ enforces these edges.
 - `checkContracts(api)` returns `{ ok, diagnostics }`. Each diagnostic has a severity, a stable
   code, the `operationId` or location it concerns, and a message.
 - `ContractError` carries the diagnostics when `emitOpenApi` is given contracts with errors.
+- `withDefault(schema, value)` declares a parameter default that the runtime applies and that is
+  required in the handler's input (RFC 0001 A50).
 - `formatDiagnostic(diagnostic)` formats a contract or startup diagnostic as
   `error [code] operationId (location): message`, as `ContractError`, `StartupError`, and the CLI
   print it (RFC 0001 A43).

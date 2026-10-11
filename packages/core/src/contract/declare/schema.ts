@@ -1,4 +1,6 @@
 import Type, {
+  type Static,
+  type TAddOptional,
   type TInteger,
   type TLiteral,
   type TNumber,
@@ -8,6 +10,7 @@ import Type, {
   type TSchema,
   type TString,
   type TUnion,
+  type TWithAction,
 } from "typebox";
 import { withSchemaName } from "../../base/typebox.ts";
 
@@ -23,6 +26,24 @@ import { withSchemaName } from "../../base/typebox.ts";
  */
 export function defineSchema<Schema extends TSchema>(name: string, schema: Schema): Schema {
   return withSchemaName(schema, name);
+}
+
+/**
+ * Declares a parameter with a default. The runtime applies the default when the parameter is
+ * absent, so the handler's input always has it (RFC 0001 A50).
+ *
+ * @typeParam Schema - The parameter's schema, whose value type the default must have.
+ *
+ * @example
+ * ```ts
+ * query: T.Object({ limit: withDefault(T.Integer({ minimum: 1, maximum: 50 }), 10) }),
+ * ```
+ */
+export function withDefault<Schema extends TSchema>(
+  schema: Schema,
+  value: Static<Schema>,
+): TAddOptional<TWithAction<Schema, { readonly default: Static<Schema> }>> {
+  return Type.Optional(Type.With(schema, { default: value }));
 }
 
 type THealthStatus = TUnion<[TLiteral<"healthy">, TLiteral<"degraded">, TLiteral<"unhealthy">]>;

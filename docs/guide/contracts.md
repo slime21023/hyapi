@@ -119,16 +119,17 @@ Parameters arrive as strings and are coerced to their schema types before valida
 styles are path `simple`; query `form` (with or without `explode`) and `deepObject`; header
 `simple`; and cookie `form`.
 
-A parameter with a default declared through `T.With` is required in the handler's input, because the
-runtime fills it in:
+Declare a parameter default with `withDefault`. The runtime fills it in when the parameter is
+absent, so it is required in the handler's input:
 
 ```ts
-query: T.Object({ limit: T.Optional(T.With(T.Integer({ maximum: 100 }), { default: 20 })) });
+query: T.Object({ limit: withDefault(T.Integer({ maximum: 100 }), 20) });
 // handler: query.limit is number
 ```
 
-A default passed as a constructor option (`T.Integer({ default: 20 })`) is applied as well, but
-TypeBox does not carry it in the type, so the parameter stays optional for the handler.
+`withDefault(schema, value)` is `T.Optional(T.With(schema, { default: value }))`. A default passed
+as a constructor option (`T.Integer({ default: 20 })`) is applied as well, but TypeBox does not
+carry it in the type, so the parameter stays optional for the handler.
 
 ## The API
 

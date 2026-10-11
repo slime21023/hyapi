@@ -69,9 +69,9 @@ async function build(
           body: { n: 1 },
           headers: { "x-count": (query.value === "bad" ? "nope" : 3) as number },
         }),
-        events: () =>
-          new Response(options.feed ?? "done", { headers: { "content-type": "text/plain" } }),
-        feed: () => ({ status: 200, body: (options.feed ?? "done") as unknown as string }),
+        // Text bodies may stream (RFC 0001 A47).
+        events: () => ({ status: 200, body: options.feed ?? "done" }),
+        feed: () => ({ status: 200, body: options.feed ?? "done" }),
       }),
     ],
   });

@@ -63,6 +63,7 @@ function httpBasic<Identity>(options: { readonly description?: string } = …): 
 function httpBearer<Identity>(options: { readonly bearerFormat?: string; readonly description?: string } = …): Scheme<Identity>
 function oauth2<Identity>(options: { readonly flows: OAuthFlows; readonly description?: string }): Scheme<Identity>
 function openIdConnect<Identity>(options: { readonly url: string; readonly description?: string }): Scheme<Identity>
+function withDefault<Schema extends TSchema>(schema: Schema, value: Static<Schema>): TAddOptional<TWithAction<Schema, { readonly default: Static<Schema> }>>
 
 ## packages/core/openapi.ts
 

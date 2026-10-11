@@ -50,7 +50,7 @@ Deno.test("finished requests leave no listeners on any signal", async () => {
       implementations: [
         implement(contract, {
           plain: () => ({ status: 200, body: { ok: true } }),
-          stream: () => new Response(new Blob(["streamed"]).stream()),
+          stream: () => ({ status: 200, body: new Blob(["streamed"]).stream() }),
           slow: (_, ctx) =>
             new Promise((_resolve, reject) => {
               ctx.signal.addEventListener("abort", () => reject(ctx.signal.reason), { once: true });

@@ -24,7 +24,7 @@ export interface Context<Identities = unknown> {
 type HandlerFor<Operation, SchemeSet extends Schemes, DefaultSecurity> = (
   input: InputOf<Operation>,
   ctx: Context<SecurityOf<Operation, SchemeSet, DefaultSecurity>>,
-) => ResultOf<Operation> | Response | Promise<ResultOf<Operation> | Response>;
+) => ResultOf<Operation> | Promise<ResultOf<Operation>>;
 
 /**
  * The type of one operation's handler, for handlers defined outside {@link implement}.

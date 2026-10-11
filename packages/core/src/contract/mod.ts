@@ -5,7 +5,7 @@
 export { type Api, defineApi, type FormatChecks } from "./declare/api.ts";
 export { type Contract, defineContract } from "./declare/contract.ts";
 export { defineResponse } from "./declare/response.ts";
-export { defineSchema, HealthReport, Problem } from "./declare/schema.ts";
+export { defineSchema, HealthReport, Problem, withDefault } from "./declare/schema.ts";
 export {
   apiKey,
   type BasicCredential,

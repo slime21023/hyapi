@@ -59,7 +59,7 @@ export const greetings = defineContract({
     listGreetings: {
       method: "GET",
       path: "/greetings",
-      query: T.Object({ limit: T.Optional(T.With(T.Integer({ maximum: 50 }), { default: 10 })) }),
+      query: T.Object({ limit: withDefault(T.Integer({ maximum: 50 }), 10) }),
       responses: { 200: T.Array(Greeting) },
     },
   },

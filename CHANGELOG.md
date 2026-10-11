@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Typed responses (Review 0003, roadmap M13b) — breaking
+
+Every everyday response is a typed result, so a mistake is reported where it is (RFC 0001 A47–A50).
+
+- Response bodies follow their media type: JSON is the schema's value; `text/*`, including
+  `text/event-stream`, may be a `string` or a `ReadableStream`; other bodies may be a `Uint8Array`,
+  a `Blob`, or a `ReadableStream`.
+- Undeclared response headers may be lists, sent once per value, for several `Set-Cookie` headers.
+- **Handlers no longer return a raw `Response`.** Return `{ status: 200, body: stream }` instead of
+  `new Response(stream, ...)`; the content type comes from the contract. An undeclared status is now
+  reported as `Type '201' is not assignable to type '200'`, and `{ status: ok ? 200 : 503, body }`
+  type-checks. A `Response` returned from JavaScript answers 500 `RESPONSE_CONTRACT_VIOLATION`.
+- `withDefault(schema, value)` declares a parameter default that is required in the handler's input;
+  the starter, the guide, and the example use it instead of `T.Optional(T.With(...))`.
+
 ### Diagnostics and the development loop (Review 0003, roadmap M13a)
 
 - Startup and contract errors show each diagnostic's location, and startup diagnostics name the

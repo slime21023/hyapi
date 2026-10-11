@@ -89,7 +89,13 @@ deno task diff     compare the contracts with openapi.json on main; breaking cha
 \`\`\`
 `,
     "contracts/greetings.ts": `import T from "typebox";
-import { defineContract, defineResponse, defineSchema, Problem } from "@hyapi/core/contract";
+import {
+  defineContract,
+  defineResponse,
+  defineSchema,
+  Problem,
+  withDefault,
+} from "@hyapi/core/contract";
 
 export const Greeting = defineSchema("Greeting", T.Object({ message: T.String() }));
 
@@ -106,7 +112,7 @@ export const greetings = defineContract({
       path: "/greetings/{name}",
       summary: "Greet someone by name",
       params: T.Object({ name: T.String({ minLength: 1, maxLength: 64 }) }),
-      query: T.Object({ excited: T.Optional(T.With(T.Boolean(), { default: false })) }),
+      query: T.Object({ excited: withDefault(T.Boolean(), false) }),
       responses: { 200: Greeting, 404: NotFound },
     },
   },
