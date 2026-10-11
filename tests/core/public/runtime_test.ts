@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { assert, assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
 import T from "typebox";
 import {
   type App,
@@ -135,10 +135,9 @@ function handlers() {
           throw new HttpError(409, { detail: "Conflict detail", code: "ITEM_CONFLICT" });
         case "throw":
           throw new Error("boom");
-        case "raw":
-          return new Response("raw", { status: 200 });
         default:
-          return new Response("raw", { status: 202 });
+          // A raw Response is a type error; JavaScript callers can still return one.
+          return new Response("raw", { status: 200 }) as never;
       }
     },
     slow: (_input, ctx) =>
@@ -394,12 +393,15 @@ Deno.test("response validation policies", async () => {
   }
 });
 
-Deno.test("undeclared statuses are contract violations", async () => {
+Deno.test("undeclared statuses and raw Responses are contract violations", async () => {
   const app = await appWith({ responseValidation: "enforce" });
   assertEquals((await call(app, "GET", "/misbehave/status")).status, 500);
-  assertEquals((await call(app, "GET", "/misbehave/raw-undeclared")).status, 500);
-  const raw = await call(app, "GET", "/misbehave/raw");
-  assertEquals([raw.status, raw.body], [200, "raw"]);
+  // Whatever the response policy, a handler returns result objects (RFC 0001 A49).
+  for (const responseValidation of ["enforce", "off"] as const) {
+    const raw = await call(await appWith({ responseValidation }), "GET", "/misbehave/raw");
+    assertEquals([raw.status, raw.body.code], [500, "RESPONSE_CONTRACT_VIOLATION"]);
+    assertStringIncludes(raw.body.detail, "return a result object");
+  }
 });
 
 Deno.test("HttpError becomes a problem response", async () => {

@@ -124,16 +124,6 @@ function lookupHeader(headers: unknown, name: string): unknown {
 }
 
 /**
- * The outcome of a contract violation for a raw `Response`: when it is still sent (policy `log`),
- * its body streams; when it is replaced (policy `enforce`), its body is cancelled.
- */
-function withBody(outcome: Outcome, original: Response): Outcome {
-  if (outcome.response === original) return { ...outcome, streaming: original.body !== null };
-  void original.body?.cancel().catch(() => {});
-  return outcome;
-}
-
-/**
  * Applies the policy to a response that breaks its contract: `enforce` answers 500, and `log`
  * sends the response anyway. Either way, the violation is reported.
  */
@@ -168,32 +158,24 @@ const undeclaredStatus = (status: number): Violation => ({
 
 /** Applies the response policy and serializes a handler result. */
 export function respond(plan: ResponseTarget, result: unknown, settings: ResponsePolicy): Outcome {
-  if (result instanceof Response) return respondRaw(plan, result, settings);
+  // A handler describes its response as a result object, which the contract types (RFC 0001 A49).
+  if (result instanceof Response) {
+    void result.body?.cancel().catch(() => {});
+    return fail(500, "RESPONSE_CONTRACT_VIOLATION", {
+      detail: `Operation '${plan.operation.operationId}' returned a Response; return a result ` +
+        "object { status, body, headers } instead.",
+    });
+  }
   if (
     typeof result !== "object" || result === null ||
     typeof (result as { status?: unknown }).status !== "number"
   ) {
     return fail(500, "RESPONSE_CONTRACT_VIOLATION", {
       detail:
-        `Operation '${plan.operation.operationId}' returned a value that is not a result object or Response.`,
+        `Operation '${plan.operation.operationId}' returned a value that is not a result object.`,
     });
   }
   return respondResult(plan, result as ResultObject, settings);
-}
-
-/** A raw `Response` passes through after the status check (RFC 0001 A26 for `off`). */
-function respondRaw(plan: ResponseTarget, result: Response, settings: ResponsePolicy): Outcome {
-  if (settings.responseValidation === "off" || plan.responses.has(result.status)) {
-    return { response: result, streaming: result.body !== null };
-  }
-  const outcome = violated(
-    plan,
-    settings,
-    result.status,
-    [undeclaredStatus(result.status)],
-    () => result,
-  );
-  return withBody(outcome, result);
 }
 
 interface ResultObject {
@@ -202,13 +184,17 @@ interface ResultObject {
   readonly headers?: unknown;
 }
 
-/** Result headers as HTTP headers; non-string values are JSON-encoded. */
+/**
+ * Result headers as HTTP headers: a list sends the header once per value, as `Set-Cookie` needs;
+ * other values that are not strings are JSON-encoded.
+ */
 function toHeaders(given: unknown): Headers {
   const headers = new Headers();
   if (typeof given !== "object" || given === null) return headers;
   for (const [name, value] of Object.entries(given)) {
-    if (value !== undefined) {
-      headers.set(name, typeof value === "string" ? value : JSON.stringify(value));
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) {
+      headers.append(name, typeof item === "string" ? item : JSON.stringify(item));
     }
   }
   return headers;
@@ -274,8 +260,8 @@ function encodeResult(
       stripped = { status, removed: cleaned.removed };
     }
   }
-  // Streams and bytes are not validated; they are produced or passed through as they are.
-  const checkable = checking && !(value instanceof Uint8Array) &&
+  // Streams, bytes, and Blobs are not validated; they are produced or passed through as they are.
+  const checkable = checking && !(value instanceof Uint8Array) && !(value instanceof Blob) &&
     !(value instanceof ReadableStream);
   const violations = checkable
     ? declared.body!.check(value, "response").map((v) => ({ ...v, pointer: `/body${v.pointer}` }))

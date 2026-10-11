@@ -1,5 +1,5 @@
 import T from "typebox";
-import { defineContract } from "@hyapi/core/contract";
+import { defineContract, withDefault } from "@hyapi/core/contract";
 import { Book, BookPage, Conflict, CreateBook, NotFound, UpdateBook } from "./schemas.ts";
 import { security } from "./security.ts";
 
@@ -19,8 +19,8 @@ export const books = defineContract({
       query: T.Object({
         q: T.Optional(T.String({ maxLength: 100, description: "Matches title or author" })),
         tag: T.Optional(T.String()),
-        offset: T.Optional(T.With(T.Integer({ minimum: 0 }), { default: 0 })),
-        limit: T.Optional(T.With(T.Integer({ minimum: 1, maximum: 100 }), { default: 20 })),
+        offset: withDefault(T.Integer({ minimum: 0 }), 0),
+        limit: withDefault(T.Integer({ minimum: 1, maximum: 100 }), 20),
       }),
       responses: { 200: BookPage },
     },

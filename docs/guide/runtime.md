@@ -85,11 +85,11 @@ result still does not match its declared status, body schema, or header schemas:
 500 `RESPONSE_CONTRACT_VIOLATION`, `log` sends the response and emits `response.violation`, and
 `off` runs no check at all.
 
-To stream, return a raw `Response`, or a result whose body is a `ReadableStream`:
+To stream, declare a text or byte media type and return a `ReadableStream` as the body:
 
 ```ts
-events: () =>
-  new Response(stream, { headers: { "content-type": "text/event-stream" } }),
+// contract: responses: { 200: { description: "Events", body: T.String(), mediaType: "text/event-stream" } }
+events: () => ({ status: 200, body: stream }),
 ```
 
 Streamed bodies are not validated. They count as in flight until they end, so shutdown waits for

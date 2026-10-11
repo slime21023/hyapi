@@ -44,17 +44,36 @@ A handler receives `(input, ctx)`:
 A handler returns one of the operation's declared responses as `{ status, body?, headers? }`.
 Undeclared statuses and wrong bodies are type errors.
 
-When the status depends on a condition, return one object per status:
+A status may depend on a condition:
 
 ```ts
-return ok ? { status: 200, body: report } : { status: 503, body: report };
+return { status: ok ? 200 : 503, body: report };
 ```
 
-A single object such as `{ status: ok ? 200 : 503, body }` does not type-check, because handlers may
-also return a raw `Response`, and TypeScript cannot split the status union across both.
+The body follows the declared media type:
 
-A handler may return a raw `Response` for streams or files. Its status must still be declared; its
-body is neither buffered nor validated.
+| Declared media type                     | `body` may be                                   |
+| --------------------------------------- | ----------------------------------------------- |
+| JSON (the default, or `+json`)          | the schema's value                              |
+| `text/*`, including `text/event-stream` | a `string` or a `ReadableStream<Uint8Array>`    |
+| anything else, such as a file download  | a `Uint8Array`, a `Blob`, or a `ReadableStream` |
+
+Headers that a response does not declare may have several values, which are sent as several headers:
+
+```ts
+return { status: 204, headers: { "set-cookie": ["session=abc; HttpOnly", "theme=dark"] } };
+```
+
+There is no raw `Response`: every response is a result object, so a mistake is reported where it is.
+An undeclared status, for example, ends with:
+
+```text
+Types of property 'status' are incompatible.
+  Type '201' is not assignable to type '200'.
+```
+
+Returning a `Response` anyway, from JavaScript, answers 500 `RESPONSE_CONTRACT_VIOLATION`. Streamed,
+byte, and `Blob` bodies are not validated.
 
 Before serialization, the runtime removes response properties that the schema does not declare, so
 returning a database record cannot leak extra fields. For problem bodies it fills in `status`.

@@ -47,7 +47,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M10](#m10-production-features)                      | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
 | [M11](#m11-contract-structure-and-base)              | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
 | [M12](#m12-narrow-interfaces-and-deep-modules)       | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | Done (2026-10-10) |
-| [M13](#m13-developer-experience-and-troubleshooting) | Developer experience and troubleshooting (0.4.0)     | core, cli, starter, docs               | M12        | In progress       |
+| [M13](#m13-developer-experience-and-troubleshooting) | Developer experience and troubleshooting (0.4.0)     | core, cli, starter, docs               | M12        | Done (2026-10-11) |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -451,7 +451,7 @@ and the development loop shows what the application does, as decided in
   `ReadableStream`; undeclared response headers accept `string` or `readonly string[]`. A raw
   `Response` is no longer a handler result. `withDefault(schema, value)` is added. Breaking;
   recorded as RFC 0001 amendments, with the public API snapshot, guide, example, and changelog
-  updated.
+  updated. Done: RFC 0001 A47–A50; conditional statuses now type-check as well.
 
 **Exit criteria:** returning an undeclared status reports the status in the type error; an API with
 a contract error, a missing implementation, and a missing verifier reports all three in one startup,

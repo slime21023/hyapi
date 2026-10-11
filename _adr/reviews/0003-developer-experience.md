@@ -1,7 +1,6 @@
 # Review 0003: Developer experience and troubleshooting
 
-- Status: Accepted. The decisions below are scheduled in [the roadmap](../roadmap.md) as M13, the
-  first goal of 0.4.0.
+- Status: Accepted, and implemented in [roadmap](../roadmap.md) M13 (2026-10-11).
 - Date: 2026-10-10
 - Scope: `main` at `97257f0` (0.3.0)
 - Method: a hands-on walk through the journey of a new user: `hyapi new`, `deno task verify`, the

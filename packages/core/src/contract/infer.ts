@@ -29,14 +29,22 @@ type BodySchemaOf<Declaration> = Declaration extends SchemaLike ? Declaration
   : Declaration extends { readonly schema: infer Schema } ? Schema
   : never;
 
-// Bodies that are neither JSON nor text reach the handler as bytes (RFC 0001 A24).
-// `string extends MediaType` is true when the media type is not a literal, so it is unknown.
-type IsBytes<MediaType> = string extends MediaType ? false
-  : MediaType extends "application/json" | `${string}+json` | `text/${string}` ? false
-  : true;
+/**
+ * How a body travels, by its media type: JSON (`application/json`, `+json`, or a media type that
+ * is not a literal), text (`text/*`), or bytes (anything else).
+ */
+type MediaKind<MediaType> = string extends MediaType ? "json"
+  : MediaType extends "application/json" | `${string}+json` ? "json"
+  : MediaType extends `text/${string}` ? "text"
+  : "bytes";
 
-type BodyValue<Declaration> = Declaration extends { readonly mediaType: infer MediaType }
-  ? IsBytes<MediaType> extends true ? Uint8Array : StaticOf<BodySchemaOf<Declaration>>
+/** The media kind of a request body or response declaration; JSON when it names none. */
+type KindOf<Declaration> = Declaration extends { readonly mediaType: infer MediaType }
+  ? MediaKind<MediaType>
+  : "json";
+
+// A request body that is neither JSON nor text reaches the handler as bytes (RFC 0001 A24).
+type BodyValue<Declaration> = KindOf<Declaration> extends "bytes" ? Uint8Array
   : StaticOf<BodySchemaOf<Declaration>>;
 
 type BodyInput<Declaration> = Declaration extends { readonly required: false }
@@ -66,12 +74,27 @@ export type InputOf<Operation> =
     : unknown)
   & (Operation extends { readonly body: infer Body } ? BodyInput<Body> : unknown);
 
+/**
+ * Response headers that a response does not declare. A list sends the header once per value,
+ * as several `Set-Cookie` headers need.
+ */
+type UndeclaredHeaders = Readonly<Record<string, string | readonly string[]>>;
+
+/**
+ * A response body of one media kind (RFC 0001 A47): JSON is the schema's value; text may also
+ * stream; bytes are bytes, a `Blob`, or a stream.
+ */
+type ResponseBody<Kind, Body> = Kind extends "text" ? StaticOf<Body> | ReadableStream<Uint8Array>
+  : Kind extends "bytes" ? Uint8Array | Blob | ReadableStream<Uint8Array>
+  : StaticOf<Body>;
+
 type SpecResult<Status, Spec> =
   & { readonly status: Status }
-  & (Spec extends { readonly body: infer Body } ? { readonly body: StaticOf<Body> }
+  & (Spec extends { readonly body: infer Body }
+    ? { readonly body: ResponseBody<KindOf<Spec>, Body> }
     : { readonly body?: undefined })
   & (Spec extends { readonly headers: infer Headers } ? { readonly headers: StaticOf<Headers> }
-    : { readonly headers?: Readonly<Record<string, string>> });
+    : { readonly headers?: UndeclaredHeaders });
 
 /** The result for one declared status: a named response, a bare schema, or the full form. */
 type ResultFor<Status, Declared> = Declared extends NamedResponse<infer Spec>
@@ -79,7 +102,7 @@ type ResultFor<Status, Declared> = Declared extends NamedResponse<infer Spec>
   : Declared extends SchemaLike ? {
       readonly status: Status;
       readonly body: StaticOf<Declared>;
-      readonly headers?: Readonly<Record<string, string>>;
+      readonly headers?: UndeclaredHeaders;
     }
   : SpecResult<Status, Declared>;
 
