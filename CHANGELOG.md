@@ -7,6 +7,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-11
+
+Developer experience and troubleshooting (roadmap M13, Review 0003). Mistakes are reported where
+they are: an undeclared status names the status, startup errors show every problem at once with its
+location, and the starter logs requests and keeps the OpenAPI document current. Handlers no longer
+return a raw `Response`; every response is a typed result. See "Typed responses" for how to migrate.
+
 ### Typed responses (Review 0003, roadmap M13b) — breaking
 
 Every everyday response is a typed result, so a mistake is reported where it is (RFC 0001 A47–A50).
