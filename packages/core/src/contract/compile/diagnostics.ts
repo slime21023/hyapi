@@ -1,3 +1,4 @@
+import { isRecord } from "../../base/record.ts";
 /** Stable identifiers for contract diagnostics. */
 export type DiagnosticCode =
   | "invalid-api"
@@ -82,13 +83,43 @@ export function createReporter(): Reporter {
   };
 }
 
-/** Formats the error diagnostics of a list as one indented message. */
-export function describeErrors(
-  diagnostics: readonly (Omit<Diagnostic, "code"> & { readonly code: string })[],
+/**
+ * Names a contract in a message by its operations, such as `the contract with getUser, listUsers`,
+ * because contracts have no name of their own.
+ */
+export function contractLabel(contract: unknown): string {
+  const operations = isRecord(contract) && isRecord(contract.operations)
+    ? Object.keys(contract.operations)
+    : [];
+  if (operations.length === 0) return "a contract without operations";
+  const more = operations.length > 3 ? `, and ${operations.length - 3} more` : "";
+  return `the contract with ${operations.slice(0, 3).join(", ")}${more}`;
+}
+
+/** A contract or startup diagnostic, as {@link formatDiagnostic} reads it. */
+type Reported = Omit<Diagnostic, "code"> & { readonly code: string };
+
+/**
+ * Formats one diagnostic as `error [code] operationId (location): message`. `createApp`,
+ * `emitOpenApi`, and the CLI report diagnostics in this form.
+ */
+export function formatDiagnostic(
+  diagnostic: Omit<Diagnostic, "code"> & { readonly code: string },
 ): string {
+  const where = [
+    diagnostic.operationId,
+    diagnostic.location === undefined ? undefined : `(${diagnostic.location})`,
+  ].filter(Boolean).join(" ");
+  return `${diagnostic.severity} [${diagnostic.code}]${
+    where ? ` ${where}` : ""
+  }: ${diagnostic.message}`;
+}
+
+/** Formats the error diagnostics of a list, one indented line each. */
+export function describeErrors(diagnostics: readonly Reported[]): string {
   return diagnostics
     .filter((d) => d.severity === "error")
-    .map((d) => `- [${d.code}]${d.operationId ? ` ${d.operationId}:` : ""} ${d.message}`)
+    .map((d) => `  ${formatDiagnostic(d)}`)
     .join("\n");
 }
 

@@ -31,6 +31,8 @@ export type StartupReport = (
   code: StartupDiagnosticCode,
   message: string,
   operationId?: string,
+  /** The option the problem is in, such as `verifiers/bearer` or `timeouts/getUser`. */
+  location?: string,
 ) => void;
 
 /** Thrown by `createApp` with every diagnostic that prevents startup. */

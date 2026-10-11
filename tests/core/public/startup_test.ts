@@ -1,10 +1,9 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import * as Format from "typebox/format";
 import { type AppEvent, createApp, implement, notImplemented, StartupError } from "@hyapi/core";
 import { defineApi, defineContract, type FormatChecks } from "@hyapi/core/contract";
 
-const T = Type;
 const Ok = T.Object({ ok: T.Boolean() });
 
 function apiWith(format: string, formats: FormatChecks) {

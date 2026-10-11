@@ -1,10 +1,10 @@
 import { dirname, relative } from "jsr:@std/path@^1";
-import { checkContracts } from "@hyapi/core/contract";
+import { checkContracts, formatDiagnostic } from "@hyapi/core/contract";
 import { emitOpenApi, type OpenApiDocument } from "@hyapi/core/openapi";
 import { type DocumentFlags, type DocumentTarget, resolveDocuments } from "./config.ts";
 import { serialize } from "./serialize.ts";
 import { loadApi } from "./load.ts";
-import { formatDiagnostic, type Io } from "./report.ts";
+import type { Io } from "./report.ts";
 
 /** A document compiled from its contracts, with the text of each output file. */
 export interface Compiled {

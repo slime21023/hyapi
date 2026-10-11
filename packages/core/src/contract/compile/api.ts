@@ -5,7 +5,7 @@ import { ANNOTATION_FORMATS, STANDARD_FORMATS } from "../../base/typebox.ts";
 import type { Api } from "../declare/api.ts";
 import type { AnyContract, OperationSpec } from "../declare/contract.ts";
 import type { FormatModel, OperationModel } from "../model.ts";
-import type { Reporter } from "./diagnostics.ts";
+import { contractLabel, type Reporter } from "./diagnostics.ts";
 import type { OperationContext } from "./context.ts";
 import { normalizeOperation } from "./operation.ts";
 import { normalizeRequirements } from "./security.ts";
@@ -64,8 +64,8 @@ export function normalizeFormats(formats: unknown, report: Reporter): FormatMode
 /** Operations collected across contracts, with the owners and routes seen so far. */
 interface Collected {
   readonly operations: OperationModel[];
-  /** The contract index that declared each `operationId`. */
-  readonly owners: Map<string, number>;
+  /** The contract that declared each `operationId`. */
+  readonly owners: Map<string, AnyContract>;
   /** The operation that holds each method and path template. */
   readonly routes: Map<string, string>;
 }
@@ -140,12 +140,13 @@ function normalizeContract(
     if (owner !== undefined) {
       report.error(
         "duplicate-operation-id",
-        `operationId '${operationId}' is declared by contracts ${owner} and ${index}`,
+        `operationId '${operationId}' is declared by ${contractLabel(owner)} and by ` +
+          contractLabel(contract),
         operationId,
       );
       continue;
     }
-    collected.owners.set(operationId, index);
+    collected.owners.set(operationId, contract);
     const operation = normalizeOperation(
       operationId,
       declared as OperationSpec,

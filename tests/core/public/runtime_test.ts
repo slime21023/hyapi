@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import {
   type App,
   createApp,
@@ -15,8 +15,6 @@ import {
   defineSchema,
   Problem,
 } from "@hyapi/core/contract";
-
-const T = Type;
 
 const Item = defineSchema(
   "Item",

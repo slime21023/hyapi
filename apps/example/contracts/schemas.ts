@@ -1,7 +1,5 @@
-import Type from "typebox";
+import T from "typebox";
 import { defineResponse, defineSchema, Problem } from "@hyapi/core/contract";
-
-const T = Type;
 
 export const Book = defineSchema(
   "Book",

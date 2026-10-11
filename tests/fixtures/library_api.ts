@@ -1,6 +1,6 @@
 // A representative API shared by the OpenAPI and CLI tests. It exercises named schemas and
 // responses, every parameter location, styles, bodies, headers, security inheritance, and tags.
-import Type from "typebox";
+import T from "typebox";
 import {
   apiKey,
   defineApi,
@@ -12,8 +12,6 @@ import {
   oauth2,
   Problem,
 } from "@hyapi/core/contract";
-
-const T = Type;
 
 export const security = defineSecurity({
   bearer: httpBearer<{ subject: string }>({ bearerFormat: "JWT" }),

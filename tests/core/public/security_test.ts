@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import {
   type App,
   createApp,
@@ -19,8 +19,6 @@ import {
   oauth2,
   openIdConnect,
 } from "@hyapi/core/contract";
-
-const T = Type;
 
 const security = defineSecurity({
   bearer: httpBearer<{ subject: string }>(),

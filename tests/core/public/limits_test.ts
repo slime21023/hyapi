@@ -1,9 +1,8 @@
 import { assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import { createApp, implement, StartupError } from "@hyapi/core";
 import { defineApi, defineContract } from "@hyapi/core/contract";
 
-const T = Type;
 const Note = T.Object({ text: T.String() });
 const notes = defineContract({
   operations: {

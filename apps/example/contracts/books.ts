@@ -1,9 +1,8 @@
-import Type from "typebox";
+import T from "typebox";
 import { defineContract } from "@hyapi/core/contract";
 import { Book, BookPage, Conflict, CreateBook, NotFound, UpdateBook } from "./schemas.ts";
 import { security } from "./security.ts";
 
-const T = Type;
 const BookId = T.Object({ id: T.String({ format: "uuid" }) });
 
 export const books = defineContract({

@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import {
   type AppEvent,
   type AppOptions,
@@ -9,7 +9,6 @@ import {
 } from "@hyapi/core";
 import { defineApi, defineContract, defineSchema } from "@hyapi/core/contract";
 
-const T = Type;
 const Count = defineSchema("Count", T.Object({ n: T.Integer() }));
 
 const counts = defineContract({

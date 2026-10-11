@@ -94,5 +94,5 @@ Deno.test("contracts with errors throw a ContractError with every diagnostic", (
   });
   const error = assertThrows(() => emitOpenApi(broken), ContractError);
   assert(error.diagnostics.some((d) => d.code === "path-parameter-mismatch"));
-  assert(error.message.includes("[path-parameter-mismatch] a:"));
+  assert(error.message.includes("error [path-parameter-mismatch] a (a/params):"));
 });

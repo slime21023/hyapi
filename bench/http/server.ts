@@ -1,12 +1,11 @@
 // The server half of the HTTP load benchmark (bench/http/load.ts runs it in its own process).
 // Prints "listening <port>" when ready. Run with --v8-flags=--expose-gc so that /memory can
 // collect garbage before it measures.
-import Type from "typebox";
+import T from "typebox";
 import { createApp, implement } from "@hyapi/core";
 import { defineApi, defineContract, defineSchema } from "@hyapi/core/contract";
 import { serve } from "@hyapi/core/deno";
 
-const T = Type;
 const Item = defineSchema(
   "Item",
   T.Object({ id: T.String(), name: T.String(), tags: T.Array(T.String()) }),

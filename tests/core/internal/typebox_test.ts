@@ -1,13 +1,11 @@
 // Pins the TypeBox behavior that Core relies on (Review 0001 A15). A TypeBox upgrade that changes
 // any of it must fail here first.
 import { assert, assertEquals, assertFalse } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import { Compile } from "typebox/compile";
 import * as Format from "typebox/format";
 import { cloneSchema, schemaName, snapshot } from "../../../packages/core/src/base/typebox.ts";
 import { defineSchema } from "../../../packages/core/src/contract/declare/schema.ts";
-
-const T = Type;
 
 Deno.test("schemas carry non-enumerable '~kind' and '~optional' markers", () => {
   const schema = T.Object({ a: T.Optional(T.String()) });

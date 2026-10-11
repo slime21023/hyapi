@@ -1,5 +1,5 @@
 import { assert, assertEquals, assertMatch, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import {
   type AppEvent,
   type AppOptions,
@@ -19,7 +19,6 @@ import {
   httpBearer,
 } from "@hyapi/core/contract";
 
-const T = Type;
 const Who = defineSchema("Who", T.Object({ who: T.String() }));
 const security = defineSecurity({
   bearer: httpBearer<{ subject: string }>(),

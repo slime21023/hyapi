@@ -1,5 +1,5 @@
 // Request-path baseline for the runtime (roadmap M2). Results: _adr/baselines/request-path.md.
-import Type from "typebox";
+import T from "typebox";
 import { createApp, implement } from "@hyapi/core";
 import {
   defineApi,
@@ -9,7 +9,6 @@ import {
   Problem,
 } from "@hyapi/core/contract";
 
-const T = Type;
 const Item = defineSchema(
   "Item",
   T.Object({

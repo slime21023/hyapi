@@ -58,6 +58,7 @@ function defineContract<Operations extends OperationMap<SchemeSet>, SchemeSet ex
 function defineResponse<Spec extends ResponseSpec>(name: string, spec: Spec): NamedResponse<Spec>
 function defineSchema<Schema extends TSchema>(name: string, schema: Schema): Schema
 function defineSecurity<SchemeSet extends Schemes>(schemes: SchemeSet): Security<SchemeSet>
+function formatDiagnostic(diagnostic: Omit<Diagnostic, "code"> & { readonly code: string }): string
 function httpBasic<Identity>(options: { readonly description?: string } = …): BasicScheme<Identity>
 function httpBearer<Identity>(options: { readonly bearerFormat?: string; readonly description?: string } = …): Scheme<Identity>
 function oauth2<Identity>(options: { readonly flows: OAuthFlows; readonly description?: string }): Scheme<Identity>

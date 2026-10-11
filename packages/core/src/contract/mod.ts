@@ -20,4 +20,9 @@ export {
 } from "./declare/security.ts";
 export type { InputOf, ResultOf } from "./infer.ts";
 export { checkContracts, type CheckResult } from "./compile/compile.ts";
-export { ContractError, type Diagnostic, type DiagnosticCode } from "./compile/diagnostics.ts";
+export {
+  ContractError,
+  type Diagnostic,
+  type DiagnosticCode,
+  formatDiagnostic,
+} from "./compile/diagnostics.ts";

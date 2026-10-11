@@ -29,13 +29,13 @@ openapi.json       the committed OpenAPI document, emitted from contracts/
 deno.json          tasks and the hyapi configuration
 ```
 
-| Task               | What it does                                                                  |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `deno task dev`    | Runs the server and reloads on changes                                        |
-| `deno task emit`   | Writes `openapi.json` from the contracts                                      |
-| `deno task verify` | Formats, lints, type-checks, tests, and checks that `openapi.json` is current |
-| `deno task diff`   | Compares the contracts with `openapi.json` on `main`; breaking changes fail   |
-| `deno task doctor` | Checks the contracts and the committed document without starting a server     |
+| Task               | What it does                                                                     |
+| ------------------ | -------------------------------------------------------------------------------- |
+| `deno task dev`    | Runs the server with reload, logs each request, and keeps `openapi.json` current |
+| `deno task emit`   | Writes `openapi.json` from the contracts                                         |
+| `deno task verify` | Formats, lints, type-checks, tests, and checks that `openapi.json` is current    |
+| `deno task diff`   | Compares the contracts with `openapi.json` on `main`; breaking changes fail      |
+| `deno task doctor` | Checks the contracts and the committed document without starting a server        |
 
 ## The workflow of a change
 
@@ -43,8 +43,9 @@ deno.json          tasks and the hyapi configuration
    that reviewers can read before any handler exists.
 2. **Follow the type errors.** The editor flags every handler that no longer matches. An operation
    without a handler yet can use `notImplemented`, which answers 501.
-3. **Emit the document.** `deno task emit` rewrites `openapi.json`. Commit it with the change, so
-   the pull request shows what consumers will receive.
+3. **Commit the document.** While `deno task dev` runs, `openapi.json` follows the contracts;
+   otherwise `deno task emit` rewrites it. Commit it with the change, so the pull request shows what
+   consumers will receive. The running server also serves it at `/openapi.json`.
 4. **Verify.** `deno task verify` fails if `openapi.json` is stale, and `deno task diff` fails if
    the change breaks consumers. Use `--allow-breaking` only when the break is intended.
 
