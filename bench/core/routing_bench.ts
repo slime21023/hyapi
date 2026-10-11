@@ -4,11 +4,10 @@
 // resource adds one pattern to the same three-segment bucket that the router scans linearly.
 // Comparing the first and last pattern of that bucket shows the cost of the scan; a 404 shows
 // routing alone.
-import Type from "typebox";
+import T from "typebox";
 import { type App, createApp, implement } from "@hyapi/core";
 import { defineApi, defineContract, defineSchema } from "@hyapi/core/contract";
 
-const T = Type;
 const Ok = defineSchema("Ok", T.Object({ ok: T.Boolean() }));
 const Id = T.Object({ id: T.String() });
 const SIZES = [50, 500, 2000] as const;

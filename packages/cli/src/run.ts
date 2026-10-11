@@ -4,6 +4,7 @@ import { diffCommand } from "./diff.ts";
 import { doctorCommand } from "./doctor.ts";
 import { emitCommand } from "./emit.ts";
 import { newCommand } from "./new.ts";
+import { watchEmit } from "./watch.ts";
 import type { Io } from "./report.ts";
 
 /** Options for {@link run}. */
@@ -19,7 +20,8 @@ const USAGE = [
   "",
   "Commands:",
   "  new <dir> [--local <repository>]  Create a project; --local links an unpublished checkout.",
-  "  emit [--check]                    Write the OpenAPI documents, or verify that they are current.",
+  "  emit [--check | --watch]          Write the OpenAPI documents, verify that they are current,",
+  "                                    or rewrite them whenever the contracts change.",
   "  doctor                            Check the contracts and the committed documents.",
   "  diff [--format text|markdown|json] [--allow-breaking] [--base <ref>]",
   "                                    Compare the contracts with the documents on main.",
@@ -32,7 +34,7 @@ const USAGE = [
   "Exit codes: 0 success, 1 problems found, 2 usage error.",
 ].join("\n");
 
-const BOOLEAN_FLAGS = new Set(["check", "help", "allow-breaking"]);
+const BOOLEAN_FLAGS = new Set(["check", "watch", "help", "allow-breaking"]);
 
 function parse(args: readonly string[]) {
   const positional: string[] = [];
@@ -78,6 +80,11 @@ function diffFormat(flag: string | undefined): "text" | "markdown" | "json" {
   return format;
 }
 
+/** The project flags as command-line arguments, for a command that runs in a fresh process. */
+function projectArgs(project: Invocation["project"]): string[] {
+  return Object.entries(project).flatMap(([name, flag]) => [`--${name}`, flag]);
+}
+
 /** Runs one command after checking its options. Throws `UsageError` for invalid usage. */
 async function dispatch(
   command: string,
@@ -87,8 +94,12 @@ async function dispatch(
 ): Promise<number> {
   switch (command) {
     case "emit":
-      allowOnly(flags, ["api", "out", "document", "check"]);
-      return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
+      allowOnly(flags, ["api", "out", "document", "check", "watch"]);
+      if (flags.watch !== true) {
+        return await emitCommand(cwd, { ...project, check: flags.check === true }, io);
+      }
+      if (flags.check === true) throw new UsageError("--watch and --check cannot be combined");
+      return await watchEmit(cwd, projectArgs(project), io);
     case "diff":
       allowOnly(flags, ["api", "out", "document", "base", "format", "allow-breaking"]);
       return await diffCommand(

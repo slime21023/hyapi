@@ -3,10 +3,15 @@
 // process-wide state, so a failed check leaves the process as it was.
 import * as Format from "typebox/format";
 import { compileContracts } from "../contract/compile/compile.ts";
-import type { Diagnostic } from "../contract/compile/diagnostics.ts";
+import { contractLabel, type Diagnostic } from "../contract/compile/diagnostics.ts";
 import type { Api } from "../contract/declare/api.ts";
 import type { AnyContract } from "../contract/declare/contract.ts";
-import type { ContractModel, FormatModel, OperationModel } from "../contract/model.ts";
+import type {
+  ContractModel,
+  FormatModel,
+  OperationModel,
+  SecuritySchemeModel,
+} from "../contract/model.ts";
 import { type StartupDiagnostic, StartupError, type StartupReport } from "./diagnostics.ts";
 import { documentEndpoints, type ServedDocument } from "./documents.ts";
 import type { Implementation } from "./handler.ts";
@@ -38,19 +43,44 @@ function checkLimits(model: ContractModel, limits: Limits, error: StartupReport)
   );
   for (const [operationId, value] of Object.entries(limits.timeouts)) {
     if (!operations.has(operationId)) {
-      error("unknown-timeout-target", `'${operationId}' is not an operation of the API`);
+      error(
+        "unknown-timeout-target",
+        `'${operationId}' is not an operation of the API`,
+        undefined,
+        `timeouts/${operationId}`,
+      );
     } else if (value !== undefined && !positiveInteger(value)) {
-      error("invalid-option", `the timeout of '${operationId}' must be a positive integer`);
+      error(
+        "invalid-option",
+        `the timeout of '${operationId}' must be a positive integer`,
+        undefined,
+        `timeouts/${operationId}`,
+      );
     }
   }
   for (const [operationId, value] of Object.entries(limits.bodyLimits)) {
     const operation = operations.get(operationId);
     if (operation === undefined) {
-      error("unknown-body-limit-target", `'${operationId}' is not an operation of the API`);
+      error(
+        "unknown-body-limit-target",
+        `'${operationId}' is not an operation of the API`,
+        undefined,
+        `bodyLimits/${operationId}`,
+      );
     } else if (operation.body === undefined) {
-      error("unknown-body-limit-target", `'${operationId}' declares no request body`);
+      error(
+        "unknown-body-limit-target",
+        `'${operationId}' declares no request body`,
+        undefined,
+        `bodyLimits/${operationId}`,
+      );
     } else if (value !== undefined && !positiveInteger(value)) {
-      error("invalid-option", `the body limit of '${operationId}' must be a positive integer`);
+      error(
+        "invalid-option",
+        `the body limit of '${operationId}' must be a positive integer`,
+        undefined,
+        `bodyLimits/${operationId}`,
+      );
     }
   }
 }
@@ -80,36 +110,53 @@ function checkLifecycle(
  * Binds every operation to the handler of its contract's implementation, with its timeout.
  * Reports missing, duplicate, unknown, and invalid implementations, handlers, and timeouts.
  */
-function bindOperations(
-  model: ContractModel,
+/**
+ * Matches implementations to the API's contracts by identity. It needs no contract model, so it
+ * runs even when the contracts have errors.
+ */
+function checkImplementations(
   contracts: readonly AnyContract[],
   implementations: readonly Implementation[],
-  limits: Limits,
   error: StartupReport,
-): Binding[] {
+): Map<AnyContract, Implementation> {
   const byContract = new Map<AnyContract, Implementation>();
   for (const implementation of implementations) {
     if (!contracts.includes(implementation?.contract)) {
       error(
         "unknown-implementation",
         "an implementation is bound to a contract that the API does not list",
+        undefined,
+        "implementations",
       );
     } else if (byContract.has(implementation.contract)) {
       error(
         "duplicate-implementation",
-        `contract ${contracts.indexOf(implementation.contract)} is implemented twice`,
+        `${contractLabel(implementation.contract)} is implemented twice`,
+        undefined,
+        "implementations",
       );
     } else byContract.set(implementation.contract, implementation);
   }
-  contracts.forEach((contract, index) => {
-    if (!byContract.has(contract)) {
-      error(
-        "missing-implementation",
-        `contract ${index} has no implementation; pass implement(contract, handlers)`,
-      );
-    }
-  });
+  for (const contract of contracts) {
+    if (byContract.has(contract)) continue;
+    error(
+      "missing-implementation",
+      `${contractLabel(contract)} has no implementation; pass implement(contract, handlers)`,
+      undefined,
+      "implementations",
+    );
+  }
+  for (const implementation of byContract.values()) checkHandlerNames(implementation, error);
+  return byContract;
+}
 
+function bindOperations(
+  model: ContractModel,
+  contracts: readonly AnyContract[],
+  byContract: ReadonlyMap<AnyContract, Implementation>,
+  limits: Limits,
+  error: StartupReport,
+): Binding[] {
   checkLimits(model, limits, error);
 
   const bindings: Binding[] = [];
@@ -144,7 +191,6 @@ function bindOperations(
       bodyLimitBytes: positiveInteger(bodyLimit) ? bodyLimit : limits.bodyLimitBytes,
     });
   }
-  for (const implementation of byContract.values()) checkHandlerNames(implementation, error);
   return bindings;
 }
 
@@ -153,31 +199,48 @@ function checkHandlerNames(implementation: Implementation, error: StartupReport)
   const declared = new Set(Object.keys(implementation.contract.operations));
   for (const name of Object.keys(implementation.handlers)) {
     if (!declared.has(name)) {
-      error("unknown-handler", `'${name}' is not an operation of its contract`, name);
+      error(
+        "unknown-handler",
+        `'${name}' is not an operation of ${contractLabel(implementation.contract)}`,
+        name,
+        `implementations/${name}`,
+      );
     }
   }
 }
 
 /** Checks that there is exactly one verifier function per declared security scheme. */
 function checkVerifiers(
-  model: ContractModel,
+  schemes: readonly SecuritySchemeModel[],
   verifiers: Readonly<Record<string, unknown>>,
   error: StartupReport,
 ): void {
-  const schemeNames = new Set(model.securitySchemes.map((scheme) => scheme.name));
+  const schemeNames = new Set(schemes.map((scheme) => scheme.name));
   for (const name of schemeNames) {
     if (verifiers[name] === undefined) {
       error(
         "missing-verifier",
         `security scheme '${name}' has no verifier; pass verifiers.${name}`,
+        undefined,
+        `verifiers/${name}`,
       );
     } else if (typeof verifiers[name] !== "function") {
-      error("invalid-verifier", `the verifier for '${name}' must be a function`);
+      error(
+        "invalid-verifier",
+        `the verifier for '${name}' must be a function`,
+        undefined,
+        `verifiers/${name}`,
+      );
     }
   }
   for (const name of Object.keys(verifiers)) {
     if (!schemeNames.has(name)) {
-      error("unknown-verifier", `'${name}' is not a security scheme declared by defineSecurity`);
+      error(
+        "unknown-verifier",
+        `'${name}' is not a security scheme declared by defineSecurity`,
+        undefined,
+        `verifiers/${name}`,
+      );
     }
   }
 }
@@ -219,8 +282,14 @@ export function checkStartup(
   options: BaseOptions<Api> & { readonly verifiers?: unknown },
 ): Checked {
   const diagnostics: (Diagnostic | StartupDiagnostic)[] = [];
-  const error: StartupReport = (code, message, operationId) =>
-    diagnostics.push({ severity: "error", code, message, ...(operationId ? { operationId } : {}) });
+  const error: StartupReport = (code, message, operationId, location) =>
+    diagnostics.push({
+      severity: "error",
+      code,
+      message,
+      ...(operationId ? { operationId } : {}),
+      ...(location ? { location } : {}),
+    });
 
   const settings = readSettings(options, error);
   const lifecycle = options.lifecycle ?? [];
@@ -228,13 +297,26 @@ export function checkStartup(
 
   const compiled = compileContracts(options.api);
   diagnostics.push(...compiled.diagnostics);
+  // An invalid API has no contract list to match implementations against.
+  const listed = Array.isArray(options.api?.contracts) ? options.api.contracts : undefined;
+  const contracts = (listed ?? []) as readonly AnyContract[];
+  const byContract = listed === undefined
+    ? new Map<AnyContract, Implementation>()
+    : checkImplementations(contracts, options.implementations, error);
+  const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
+  checkVerifiers(
+    compiled.ok ? compiled.model.securitySchemes : compiled.securitySchemes,
+    verifiers,
+    error,
+  );
+  // The remaining checks need the contract model.
   if (!compiled.ok) throw new StartupError(diagnostics);
   const { model } = compiled;
 
   const bindings = bindOperations(
     model,
-    options.api.contracts as readonly AnyContract[],
-    options.implementations,
+    contracts,
+    byContract,
     {
       requestTimeoutMs: settings.requestTimeoutMs,
       bodyLimitBytes: settings.bodyLimitBytes,
@@ -243,8 +325,6 @@ export function checkStartup(
     },
     error,
   );
-  const verifiers = (options.verifiers ?? {}) as Readonly<Record<string, unknown>>;
-  checkVerifiers(model, verifiers, error);
   checkFormats(model.formats, error);
   const router = compileRoutes(model.operations);
   const documents = documentEndpoints(options.documents, router, error);

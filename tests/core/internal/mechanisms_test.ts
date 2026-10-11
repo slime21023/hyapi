@@ -1,6 +1,6 @@
 // L2 mechanisms (ADR 0003 §3), tested without an application.
 import { assert, assertEquals, assertRejects } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import type {
   BodyModel,
   OperationModel,
@@ -15,8 +15,6 @@ import { parseCookies, readParameters } from "../../../packages/core/src/runtime
 import { compileRoutes } from "../../../packages/core/src/runtime/routing.ts";
 import { createSecurity } from "../../../packages/core/src/runtime/security.ts";
 import { createValidators } from "../../../packages/core/src/runtime/validation.ts";
-
-const T = Type;
 
 function operation(method: string, path: string): OperationModel {
   return { operationId: `${method} ${path}`, method, path } as unknown as OperationModel;

@@ -6,7 +6,7 @@ security. Contracts are TypeScript modules written with
 They contain no implementation.
 
 ```ts
-import Type from "typebox";
+import T from "typebox";
 import {
   defineApi,
   defineContract,
@@ -16,8 +16,6 @@ import {
   httpBearer,
   Problem,
 } from "@hyapi/core/contract";
-
-const T = Type;
 ```
 
 Applications depend on `typebox` directly, at the same 1.x minor version as `@hyapi/core`.
@@ -174,4 +172,10 @@ with `format-conflict`.
 `checkContracts(api)` returns `{ ok, diagnostics }`. `createApp`, `hyapi emit`, and `hyapi doctor`
 all run the same checks, so the same messages appear everywhere, and the result never depends on
 what else runs in the process. Each diagnostic has a stable `code`, for example `duplicate-route`,
-`path-parameter-mismatch`, `unknown-format`, or `unnamed-schema` (a warning).
+`path-parameter-mismatch`, `unknown-format`, or `unnamed-schema` (a warning), and a `location` in
+the declaration. `formatDiagnostic` prints one the way errors and the CLI do:
+
+```text
+error [unknown-format] getUser (getUser/params/properties/id): format 'uuidv7' is neither a standard
+format nor declared in defineApi({ formats }); declare it there or remove it, ...
+```

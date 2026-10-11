@@ -7,6 +7,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+### Diagnostics and the development loop (Review 0003, roadmap M13a)
+
+- Startup and contract errors show each diagnostic's location, and startup diagnostics name the
+  option they concern, such as `verifiers/bearer`. `formatDiagnostic` from `@hyapi/core/contract`
+  formats a diagnostic the way these errors and the CLI print it (RFC 0001 A43).
+- Diagnostics name a contract by its operations (`the contract with getUser`) instead of its index
+  (A44).
+- When the contracts have errors, `createApp` still reports missing or duplicate implementations,
+  unknown handlers, and missing verifiers in the same `StartupError` (A45).
+- `hyapi emit --watch` rewrites the documents whenever the contracts change (A46).
+- The starter's `deno task dev` logs one line per request, serves `/openapi.json`, and keeps
+  `openapi.json` current.
+- Contracts import TypeBox as `import T from "typebox"`, without a `const T = Type;` alias, in the
+  starter, the guide, the example, and the tests.
+
 ## [0.3.0] - 2026-10-10
 
 Narrower interfaces and deeper modules (roadmap M11 and M12, ADR 0004, Review 0002). The public API

@@ -495,6 +495,25 @@ apart from the call, or a result they inspect. The public API has 80 symbols aft
   named. None of them is exported any more; `AppOptions["responseValidation"]` names the option type
   where needed.
 
+## 23. Amendments for developer experience (M13a)
+
+[Review 0003](../reviews/0003-developer-experience.md) found that startup diagnostics were hard to
+place and that the development loop gave little feedback.
+
+- **A43. Diagnostics carry their location.** `@hyapi/core/contract` exports
+  `formatDiagnostic(diagnostic)`, which formats a contract or startup diagnostic as
+  `error [code] operationId (location): message`. `ContractError`, `StartupError`, and the CLI use
+  it, so their messages show each diagnostic's location. Startup diagnostics gain a `location` for
+  the option they concern, such as `verifiers/bearer`, `timeouts/getUser`, or `implementations`.
+- **A44. Contracts are named by their operations.** Diagnostics that concern a whole contract name
+  it by its operations, such as `the contract with getUser, listUsers`, instead of its index.
+- **A45. More problems in one startup.** When the contracts have errors, `createApp` still checks
+  implementations (missing, duplicate, unknown, and unknown handler names) and verifiers against the
+  security schemes that could be read, and reports them in the same `StartupError`.
+- **A46. `hyapi emit --watch`.** Emits the documents, then emits them again in a fresh process
+  whenever a TypeScript module or `deno.json` in the project changes. It cannot be combined with
+  `--check`.
+
 ## Alternatives rejected
 
 - **A single contract that holds everything:** large APIs would assemble operations with object

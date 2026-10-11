@@ -77,6 +77,9 @@ enforces these edges.
 - `checkContracts(api)` returns `{ ok, diagnostics }`. Each diagnostic has a severity, a stable
   code, the `operationId` or location it concerns, and a message.
 - `ContractError` carries the diagnostics when `emitOpenApi` is given contracts with errors.
+- `formatDiagnostic(diagnostic)` formats a contract or startup diagnostic as
+  `error [code] operationId (location): message`, as `ContractError`, `StartupError`, and the CLI
+  print it (RFC 0001 A43).
 - The types that applications name: `Api`, `Contract`, `Scheme`, `Schemes`, `Security`,
   `BasicCredential`, `FormatChecks`, `InputOf`, `ResultOf`, `CheckResult`, `Diagnostic`, and
   `DiagnosticCode`. Declaration shapes, such as operations, bodies, responses, and scheme specs, are

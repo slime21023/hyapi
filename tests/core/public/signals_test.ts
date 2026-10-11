@@ -1,11 +1,10 @@
 // Regression test for a leak found by the HTTP load baseline: request signals must not stay
 // attached to the application's long-lived shutdown signal once their request is done.
 import { assert } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import { createApp, implement } from "@hyapi/core";
 import { defineApi, defineContract } from "@hyapi/core/contract";
 
-const T = Type;
 const contract = defineContract({
   operations: {
     plain: { method: "GET", path: "/plain", responses: { 200: T.Object({ ok: T.Boolean() }) } },

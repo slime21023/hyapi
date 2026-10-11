@@ -1,5 +1,5 @@
 import { assert, assertEquals } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import {
   type Api,
   apiKey,
@@ -16,7 +16,6 @@ import {
   Problem,
 } from "@hyapi/core/contract";
 
-const T = Type;
 const Ok = defineSchema("Ok", T.Object({ ok: T.Boolean() }));
 const info = { title: "Test", version: "1.0.0" };
 

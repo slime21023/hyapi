@@ -3,7 +3,7 @@
 import { isRecord } from "../../base/record.ts";
 import { snapshot } from "../../base/typebox.ts";
 import type { Api } from "../declare/api.ts";
-import type { ContractModel } from "../model.ts";
+import type { ContractModel, SecuritySchemeModel } from "../model.ts";
 import { checkInfo, normalizeContracts, normalizeFormats } from "./api.ts";
 import { createComponents } from "./components.ts";
 import { createReporter, type Diagnostic } from "./diagnostics.ts";
@@ -25,7 +25,12 @@ type Compiled =
     readonly model: ContractModel;
     readonly diagnostics: readonly Diagnostic[];
   }
-  | { readonly ok: false; readonly diagnostics: readonly Diagnostic[] };
+  | {
+    readonly ok: false;
+    readonly diagnostics: readonly Diagnostic[];
+    /** The security schemes that could be read, so startup can still check its verifiers. */
+    readonly securitySchemes: readonly SecuritySchemeModel[];
+  };
 
 /**
  * Merges and normalizes an API's contracts into the internal model, reporting every problem
@@ -36,7 +41,7 @@ export function compileContracts(api: Api): Compiled {
   const report = createReporter();
   if (!isRecord(api) || api.kind !== "hyapi.api") {
     report.error("invalid-api", "checkContracts expects a value created by defineApi");
-    return { ok: false, diagnostics: Object.freeze([...report.diagnostics]) };
+    return { ok: false, diagnostics: Object.freeze([...report.diagnostics]), securitySchemes: [] };
   }
   checkInfo(api, report);
   const formats = normalizeFormats(api.formats, report);
@@ -50,13 +55,16 @@ export function compileContracts(api: Api): Compiled {
   const operations = normalizeContracts(api, report, ctx);
 
   const diagnostics = Object.freeze([...report.diagnostics]);
-  if (report.hasErrors()) return { ok: false, diagnostics };
+  const securitySchemes = [...schemes].map(([name, spec]) => ({ name, spec }));
+  if (report.hasErrors()) {
+    return { ok: false, diagnostics, securitySchemes: snapshot(securitySchemes) };
+  }
   const model: ContractModel = snapshot({
     info: api.info,
     servers: [...(api.servers ?? [])],
     tags: [...(api.tags ?? [])],
     formats,
-    securitySchemes: [...schemes].map(([name, spec]) => ({ name, spec })),
+    securitySchemes,
     security: rootSecurity,
     operations,
     schemas: [...components.schemas].map(([name, schema]) => ({ name, schema })),

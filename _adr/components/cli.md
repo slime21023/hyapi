@@ -18,7 +18,8 @@ OpenAPI document, govern its evolution, and diagnose contracts without starting 
   `--local` maps `@hyapi/core` and the CLI to an unpublished checkout.
 - **`hyapi emit`** loads the project's contract modules and runs `checkContracts`. It then writes
   the canonical document through [openapi](openapi.md). With `--check`, it fails when the committed
-  document differs.
+  document differs. With `--watch`, it emits again whenever a TypeScript module or `deno.json` in
+  the project changes, each time in a fresh process so that changed modules are loaded again.
 - **`hyapi diff`** compares the current document with a baseline through
   [openapi-diff](openapi-diff.md). It prints a pull-request summary and machine-readable results,
   and it fails on unacknowledged breaking changes.
@@ -98,6 +99,13 @@ ADR 0001 §9, §10, §15, and the development workflow; ADR 0002 §1, §5.
     the previous output. Breaking changes of all documents count toward the exit code.
 - **Base.** `diff --base <ref>` compares with any branch, tag, or commit; without it, `main` or
   `origin/main` is used as before.
+
+## Resolved in M13a
+
+- **Development loop (Review 0003 F4).** `emit --watch` keeps the documents current. The starter's
+  `dev` task runs it beside the reloading server, logs one line per request in development through
+  `onEvent` (`src/dev_log.ts`), and serves `/openapi.json` through `createApp({ documents })`.
+- **Diagnostics.** The CLI prints diagnostics with Core's `formatDiagnostic`.
 
 ## Open questions
 

@@ -15,7 +15,16 @@ const app = await createApp({
 ```
 
 Every problem with the contracts, the implementations, the verifiers, and the options is reported
-together in a `StartupError`; no partially started application is returned.
+together in a `StartupError`, one line per problem with its location; no partially started
+application is returned. Implementations and verifiers are checked even when the contracts have
+errors, so one start shows as much as possible:
+
+```text
+The application cannot start (3 errors):
+  error [unknown-format] getUser (getUser/params/properties/id): format 'uuidv7' is neither ...
+  error [missing-implementation] (implementations): the contract with getUser has no implementation; ...
+  error [missing-verifier] (verifiers/bearer): security scheme 'bearer' has no verifier; ...
+```
 
 ## Options
 

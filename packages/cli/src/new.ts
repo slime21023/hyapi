@@ -29,7 +29,8 @@ function files(name: string, local: string | undefined): Record<string, string> 
   const { imports, cli } = wiring(local);
   const config = {
     tasks: {
-      dev: "deno run --watch --allow-net --allow-env src/main.ts",
+      // Rewrites openapi.json when the contracts change, beside the reloading server.
+      dev: `${cli} emit --watch & deno run --watch --allow-net --allow-env src/main.ts`,
       start: "deno run --allow-net --allow-env src/main.ts",
       emit: `${cli} emit`,
       doctor: `${cli} doctor`,
@@ -75,21 +76,20 @@ jobs:
 
 A contract-first API built with [HyAPI](https://github.com/slime21023/hyapi).
 
-- \`contracts/\` holds the API contract. Change it first, then run \`deno task emit\` and commit
-  \`openapi.json\`, the document your consumers receive.
+- \`contracts/\` holds the API contract. Change it first and commit \`openapi.json\`, the document your
+  consumers receive; \`deno task dev\` rewrites it on every change.
 - \`src/\` implements the contract. Handler types come from the contract.
 
 \`\`\`text
-deno task dev      run the server with reload
+deno task dev      run the server with reload, log each request, serve /openapi.json, and
+                   rewrite openapi.json when the contracts change
 deno task emit     write openapi.json from the contracts
 deno task verify   format, lint, type-check, test, and check that openapi.json is current
 deno task diff     compare the contracts with openapi.json on main; breaking changes fail
 \`\`\`
 `,
-    "contracts/greetings.ts": `import Type from "typebox";
+    "contracts/greetings.ts": `import T from "typebox";
 import { defineContract, defineResponse, defineSchema, Problem } from "@hyapi/core/contract";
-
-const T = Type;
 
 export const Greeting = defineSchema("Greeting", T.Object({ message: T.String() }));
 
@@ -134,11 +134,60 @@ export const greetingsImplementation = implement(greetings, {
 });
 `,
     "src/app.ts": `import { type App, createApp } from "@hyapi/core";
+import { emitOpenApi } from "@hyapi/core/openapi";
 import { api } from "../contracts/api.ts";
+import { logEvent } from "./dev_log.ts";
 import { greetingsImplementation } from "./greetings.ts";
 
 export function buildApp(options: { development?: boolean } = {}): Promise<App> {
-  return createApp({ api, implementations: [greetingsImplementation], ...options });
+  const development = options.development ?? false;
+  return createApp({
+    api,
+    implementations: [greetingsImplementation],
+    development,
+    // The current document of this API, for browsers and API tools.
+    documents: [{ path: "/openapi.json", content: emitOpenApi(api) }],
+    // One line per request while developing; without a listener, problems go to console.warn.
+    ...(development ? { onEvent: logEvent } : {}),
+  });
+}
+`,
+    "src/dev_log.ts": `import type { AppEvent } from "@hyapi/core";
+
+// Development logging from the application's read-only events: one line per request, the stack of
+// errors that became 500, and every problem. Replace it with your own logger in production.
+
+const line = (parts: readonly (string | number | undefined)[]) =>
+  parts.filter((part) => part !== undefined && part !== "").join(" ");
+
+export function logEvent(event: AppEvent): void {
+  switch (event.type) {
+    case "operation.end":
+      console.log(
+        line([event.method, event.path, event.status, \`\${event.durationMs}ms\`, event.code]),
+      );
+      if (event.error !== undefined) console.error(event.error.stack ?? event.error.message);
+      return;
+    case "request.unmatched":
+      console.log(line([event.method, event.path, event.status, event.code]));
+      return;
+    case "security.denied":
+      console.warn(line(["denied", event.operationId, event.status, event.reason]));
+      return;
+    case "response.violation":
+      for (const v of event.violations) {
+        console.warn(line(["violation", event.operationId, event.status, v.pointer, v.message]));
+      }
+      return;
+    case "response.stripped":
+      console.warn(line(["stripped", event.operationId, event.status, event.removed.join(", ")]));
+      return;
+    case "startup.warning":
+      console.warn(line(["warning", \`[\${event.code}]\`, event.operationId, event.message]));
+      return;
+    case "lifecycle.error":
+      console.error(line(["lifecycle", event.name, event.phase, event.error.message]));
+  }
 }
 `,
     "src/main.ts": `import { serve } from "@hyapi/core/deno";
@@ -171,6 +220,12 @@ Deno.test("rejects input that the contract forbids", async () => {
   const response = await get(\`/greetings/\${"x".repeat(65)}\`);
   assertEquals(response.status, 400);
   await response.body?.cancel();
+});
+
+Deno.test("serves its OpenAPI document", async () => {
+  const response = await get("/openapi.json");
+  assertEquals(response.status, 200);
+  assertEquals((await response.json()).openapi, "3.1.1");
 });
 `,
   };

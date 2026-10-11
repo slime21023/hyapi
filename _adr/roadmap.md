@@ -47,7 +47,7 @@ request bodies, and parameter styles beyond the v1 subset.
 | [M10](#m10-production-features)                      | Production features (0.2.5)                          | runtime, serve, cli, plugins           | M9         | Done (2026-10-09) |
 | [M11](#m11-contract-structure-and-base)              | Contract structure and the base layer (0.3.0)        | contract, runtime, openapi             | M10        | Done (2026-10-10) |
 | [M12](#m12-narrow-interfaces-and-deep-modules)       | Narrow interfaces and deep modules (0.3.0)           | all packages                           | M11        | Done (2026-10-10) |
-| [M13](#m13-developer-experience-and-troubleshooting) | Developer experience and troubleshooting (0.4.0)     | core, cli, starter, docs               | M12        | Planned           |
+| [M13](#m13-developer-experience-and-troubleshooting) | Developer experience and troubleshooting (0.4.0)     | core, cli, starter, docs               | M12        | In progress       |
 
 ```text
 M0 ─► M1 ─┬─► M2 ─┬─► M4 ─┐
@@ -444,7 +444,8 @@ and the development loop shows what the application does, as decided in
   operations; checks that do not need the contract model run even when the contracts have errors.
   The starter logs one line per request in development, serves `/openapi.json`, and runs
   `hyapi emit --watch` beside the server in its `dev` task. `import T from "typebox"` replaces the
-  `const T = Type;` alias in the starter, the guide, the example, and the tests. Not breaking.
+  `const T = Type;` alias in the starter, the guide, the example, and the tests. Not breaking. Done:
+  RFC 0001 A43–A46; startup diagnostics also carry the option they concern as their location.
 - **M13b: typed responses** (F1, F2, the rest of F5). Text bodies accept a `string` or a
   `ReadableStream`; bodies that are neither JSON nor text accept `Uint8Array`, `Blob`, or
   `ReadableStream`; undeclared response headers accept `string` or `readonly string[]`. A raw

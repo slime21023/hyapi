@@ -265,6 +265,14 @@ ADR 0001 §4–§8, §11–§14; ADR 0002 §1–§5; RFC 0001 §6–§8 (handler
   [HTTP load baseline](../baselines/http-load.md).
 - **Streams** listen to their request's signal, so forced shutdown still cancels them.
 
+## Resolved in M13a
+
+- **Startup diagnostics (Review 0003 F3).** `StartupError` prints each diagnostic through
+  `formatDiagnostic`, with its location; startup diagnostics carry the option they concern, such as
+  `verifiers/bearer`. Contracts are named by their operations. When the contracts have errors,
+  `checkStartup` still checks implementations, handler names, and verifiers, against the security
+  schemes that `compileContracts` could read, before it throws.
+
 ## Open questions
 
 - Request bodies beyond JSON and text (`application/x-www-form-urlencoded` and

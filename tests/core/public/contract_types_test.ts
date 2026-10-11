@@ -1,7 +1,7 @@
 // Type-level contract tests (RFC 0001). Valid code must type-check, and every @ts-expect-error
 // must be consumed by the error it names, so `deno test` fails if a promised check disappears.
 import { assertEquals } from "@std/assert";
-import Type from "typebox";
+import T from "typebox";
 import { type Handler, implement, notImplemented } from "@hyapi/core";
 import {
   apiKey,
@@ -15,8 +15,6 @@ import {
   Problem,
   type ResultOf,
 } from "@hyapi/core/contract";
-
-const T = Type;
 
 const security = defineSecurity({
   bearer: httpBearer<{ subject: string }>(),
