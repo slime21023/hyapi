@@ -1,145 +1,39 @@
-# Routes and Responses
+# Routes and Authorization
 
-A route declares its request schemas, possible response schemas, and handler in one place. HyAPI
-uses this metadata for runtime validation and OpenAPI generation.
+Modules have a name, an absolute path prefix, and a `routes: (route) => [...]` callback. The route builder offers `get`, `post`, `put`, `patch`, and `delete`. Use `:id` for path parameters and Standard Schema for `params`, `query`, `body`, and `response`; Valibot works directly. A context exposes validated `params`, `query`, and `body`, the raw `request`, the `root` container, and (for protected modules) `identity`.
 
 ```ts
-import { createApplication, defineConfig, type Module } from "@hyapi/core";
-import Type from "typebox";
+import { Container } from "@inferdi/inferdi";
+import { createApp, ForbiddenError, UnauthorizedError, reply } from "hyapi";
+import * as v from "valibot";
 
-const itemsModule: Module = {
-  name: "items",
-  setup(module) {
-    module.route({
-      method: "get",
-      path: "/items/{id}",
-      request: {
-        params: Type.Object({ id: Type.String({ minLength: 1 }) }),
-        query: Type.Object({ limit: Type.Integer({ default: 10 }) }),
+const container = new Container();
+const app = createApp({
+  container,
+  modules: ({ module }) => [
+    module({
+      name: "items",
+      prefix: "/items",
+      authenticate(request) {
+        const subject = request.headers.get("x-subject");
+        if (!subject) throw new UnauthorizedError();
+        return { subject };
       },
-      responses: {
-        200: Type.Object({ id: Type.String(), limit: Type.Integer() }),
-        404: Type.Object({ message: Type.String() }),
-      },
-      handler: ({ params, query, ok, json }) =>
-        params.id === "missing"
-          ? json({ message: "Item was not found." }, 404)
-          : ok({ id: params.id, limit: query.limit }),
-    });
-  },
-};
-
-const app = await createApplication({
-  config: defineConfig({ name: "items-api" }),
-  modules: [itemsModule],
+      routes: (route) => [
+        route.get("/:id", {
+          params: v.object({ id: v.string() }),
+          response: { 200: v.object({ id: v.string(), owner: v.string() }) },
+          authorize({ params, identity }) {
+            if (params.id !== identity.subject) throw new ForbiddenError();
+          },
+          handler: ({ params, identity }) => reply(200, { id: params.id, owner: identity.subject }),
+        }),
+      ],
+    }),
+  ],
 });
 ```
 
-## Request rules
+`authenticate(request, root)` runs at the module boundary before request validation. It returns a typed identity or rejects (for example with `UnauthorizedError`); a nullish result is unauthorized. An individual route's `authorize(context)` runs **after** validation and before `handler(context)`, for resource-specific permissions. Public modules omit `authenticate` and expose `identity` as `undefined`. Overlapping route patterns with different authentication policies are rejected at composition; `HEAD` requests routed to a protected `GET` inherit its authentication.
 
-- Paths use `{name}` parameters. Required static `params` schema properties must match the full
-  path.
-- `GET` routes cannot declare a request body.
-- HyAPI coerces request values and applies schema defaults before calling the handler. Declare a
-  defaulted field without `Type.Optional`: the default fills a missing value before validation, so
-  `query.limit` above is typed `number`. With `Type.Optional`, it would be `number | undefined`.
-- Register a static path such as `/users/me` before `/users/{id}` so it cannot be shadowed.
-
-## Guards
-
-A guard authenticates or authorizes a route before HyAPI reads its body or validates its input. It
-can return an `Identity`, return nothing, or throw an `AppError` such as `UnauthorizedError` (401)
-or `ForbiddenError` (403).
-
-```ts
-import { anyOf, defineGuard, requireScopes, UnauthorizedError } from "@hyapi/core";
-
-const ownsAccount = defineGuard({
-  name: "ownsAccount",
-  check({ identity, params }) {
-    if (identity?.subject !== params.accountId) throw new UnauthorizedError();
-  },
-});
-
-module.group("/accounts/{accountId}", { guards: [anyOf(bearer, apiKey)] }, (accounts) => {
-  accounts.route({
-    method: "get",
-    path: "",
-    guards: [requireScopes("accounts:read"), ownsAccount],
-    handler: ({ identity, ok }) => ok({ subject: identity?.subject }),
-  });
-});
-```
-
-- Group guards run first, from the outermost group inwards, then route guards. A route or nested
-  group can add guards but cannot remove inherited ones.
-- Guards run before body parsing and validation, so an unauthenticated request receives 401 before
-  any 400. Guards see raw `params` and `query` strings and must not read the body; checks that need
-  the validated body belong in the handler.
-- The first identity a guard returns becomes `ctx.identity`. A chain that returns two different
-  identities is a configuration error; use `anyOf()` to accept one of several credentials.
-- `requireScopes()` rejects a request without an identity with 401 and a request missing a scope
-  with 403.
-- A guard's `security` metadata becomes the route's OpenAPI security requirement. Guards without it
-  only document 403.
-
-### Sharing a guard across modules
-
-Provide the application's authentication guard through a Port instead of passing it to every module
-factory. Modules stay plain values and declare the dependency like any other Port.
-
-```ts
-// contracts/auth.ts
-export const authPort = definePort<Guard>("platform.auth");
-
-// modules/orders/module.ts
-export const ordersModule: Module = {
-  name: "orders",
-  requires: [authPort],
-  setup(module) {
-    module.group("/orders", { guards: [module.use(authPort)] }, (orders) => {
-      // routes
-    });
-  },
-};
-
-// app.ts
-await createApplication({
-  config,
-  modules: [ordersModule],
-  providers: [providePort(authPort, jwtBearer({ secret }))],
-});
-```
-
-Tests substitute the guard by providing a different value for `authPort`.
-
-## Response rules
-
-Use `ok`, `created`, `noContent`, `json`, or `respond` to return framework-managed responses. HyAPI
-validates the declared status and removes properties that the response schema does not declare.
-
-When a route declares `responses`, the helpers and the handler's return type follow them at compile
-time:
-
-- `ok(body)`, `created(body)`, and `json(body, status)` accept only declared statuses, with a body
-  of that status's schema. `noContent()` requires a declared 204.
-- A bare return value must match one of the declared schemas.
-- Routes without `responses` keep untyped helpers.
-
-Without `responseStatus` or a helper status, a handler that returns nothing responds with 204, a
-`POST` body with 201, and any other body with 200.
-
-Use `defineRoute()` for a route defined in its own file; it keeps the literal method and the
-inferred types:
-
-```ts
-export const getItem = defineRoute({
-  method: "get",
-  path: "/items/{id}",
-  responses: { 200: Item },
-  handler: ({ ok }) => ok({ id: "1", name: "Book" }),
-});
-```
-
-A native `Response` remains an opaque-body escape hatch: HyAPI checks its declared status but does
-not validate or filter its body. Use it only when the caller intentionally owns body serialization.
+A single response schema accepts a plain validated return value (default success status). A status-keyed response map may also return plain data for a declared 200; use `reply(status, value)` to select non-default 2xx/3xx statuses. Return a native `Response` for an explicit HTTP response or a streaming body, and let the stream own any resources it needs until completion or cancellation. `HttpError`, `UnauthorizedError`, and `ForbiddenError` produce Problem JSON. See [composition](/guide/composition) for opt-in request scopes.

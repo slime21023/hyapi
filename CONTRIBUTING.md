@@ -1,66 +1,24 @@
 # Contributing to HyAPI
 
-## Development workflow
+Use Node 24+ and Bun 1.4.0. Bun manages the workspace; commit `bun.lock`, not npm or pnpm lockfiles. The workspace contains the single publishable `hyapi` package at `packages/core` and a private `apps/example`. Import `hyapi` through `packages/core/mod.ts`, never a private `src/` subpath. Old CLI/plugin packages are not release targets.
 
-Use Deno 2.9 or later. Before opening a pull request, run:
+## Development
 
 ```text
-deno task verify
+bun install --frozen-lockfile
+bun run verify
 ```
 
-The command checks formatting, linting, TypeScript types (core, CLI, example, benchmarks, and
-scripts), the complete test suite, the example `doctor` report, and a generated starter project's
-verification, listener response, and graceful shutdown. Text files use LF line endings through
-`.gitattributes`, including on Windows checkouts.
+`verify` runs build, format/lint/type checks, Bun and Node tests, a local packed consumer, package checks, and documentation build. Tests require a reachable PostgreSQL 16 database via `DATABASE_URL` (for example, the Docker command in [README](README.md)); tests create and clean unique fixtures. CI provisions PostgreSQL on Linux and Windows. Local packed checks cannot prove registry publication.
 
-## Changes and issues
+For local development, supply `DATABASE_URL` and a cryptographically random `JWT_SECRET` of at least 32 UTF-8 bytes, then run `bun run dev`. To run built ESM, use `bun run build` followed by `bun run start` or `node apps/example/dist/main.js`. `HOST` and `PORT` are optional; the example does not implicitly load `.env`. To opt in, use `bun --env-file=.env run dev` or `node --env-file=.env apps/example/dist/main.js`.
 
-Create a development issue before implementation. Use the **Development task** issue template and
-record a goal, measurable key results, a `rule.yml` verification outline, and final test evidence.
-Keep an issue focused on one independently reviewable behavior.
+`bun run docs:dev` previews the guides. Text files use LF line endings on Windows and Unix checkouts. `patches/` contains declaration fixes for the pinned documentation toolchain; remove one only when its upstream fix is selected and verified.
 
-When work is complete, record the implementing commit, the relevant source or documentation path,
-and the exact verification command result in the issue before closing it. A roadmap issue may be
-closed only when its behavior is present on `main`, its documentation is current, and
-`deno task verify` passes.
+## Changes and releases
 
-For a public API change, include documentation, example updates, and migration notes in the same
-pull request. Do not expose Hono implementation details through a new HyAPI public API.
+Keep changes focused and update user documentation and behavior tests alongside public API changes. A module returns Elysia plugins and declares dependencies through Ports; do not restore an old route DSL or publish the old CLI/plugins as compatible. `_design/` migrations remain historical.
 
-## Versioning and releases
+Before a release, run `bun install --frozen-lockfile` and `bun run verify` with `DATABASE_URL`, inspect the single-package tarball, then run `bun scripts/release.ts hyapi-v0.5.0 --dry-run`. Publication uses only a matching stable `hyapi-v<version>` tag at or above 0.5.0, an available npm name, and `NPM_CONFIG_TOKEN`; old `core-v*` tags cannot publish. After publication, install the actual npm version in an external consumer and exercise declarations and HTTP on Bun and Node 24. Never commit credentials.
 
-HyAPI 1.x follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public API
-consists of:
-
-- every export of `packages/core/mod.ts` (`@hyapi/core`) and `packages/cli/mod.ts` (`@hyapi/cli`);
-- CLI commands and flags;
-- wire behavior: problem+json fields, the `x-request-id`, `x-hyapi-deadline`, and `x-hyapi-service`
-  headers, native HTTP responses, and the values of `ResilienceError.reason`.
-
-Breaking changes to the public API ship only in a major release. Minor releases add compatible
-features; patch releases contain compatible fixes, documentation, and quality improvements.
-
-After 1.0.0 is published, an API is removed only through deprecation: mark it with a `@deprecated`
-JSDoc tag, record the deprecation in `CHANGELOG.md`, and keep it for at least one minor release
-before removal in the next major.
-
-Before 1.0.0, no superseded API is kept: the replacement lands in the same change that deletes the
-old API, with no alias or transition period, and the change ships a migration note in
-`_design/migrations/`.
-
-Experimental APIs are marked with an `@experimental` JSDoc tag and may change in any minor release.
-
-Before a release, the maintainer verifies the release gate in the relevant roadmap milestone,
-updates `CHANGELOG.md`, runs `deno task verify` and `deno task publish:check` on a clean checkout,
-and tags the resulting commit. Pushing a `v*` tag runs `.github/workflows/publish.yml`, which
-rejects a tag that differs from either package version before repeating `deno task verify` and
-publishing both packages to JSR.
-
-The `v1.0.0-rc.3` and `v1.0.0-rc.4` candidates were superseded before publication. `v1.0.0-rc.5` is
-the next candidate, not a published release; its verification gate must pass before tagging. After
-that gate, runtime and public API changes are out of scope before `v1.0.0`. A benchmark regression
-of more than 20% on the same hardware must be explained in the pull request; see
-[`_design/baselines/performance.md`](_design/baselines/performance.md).
-
-The roadmap and release gates are maintained in [`_design/roadmap.md`](_design/roadmap.md). Report
-security issues privately as described in [SECURITY.md](SECURITY.md).
+Report security issues privately as described in [SECURITY.md](SECURITY.md).

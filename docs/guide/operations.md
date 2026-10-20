@@ -1,199 +1,31 @@
 # Operating HyAPI
 
-This guide covers deploying, observing, and splitting a HyAPI application. The reference
-implementation is the [example app](https://github.com/slime21023/hyapi/tree/main/apps/example).
+The private [ERP example](https://github.com/slime21023/hyapi/tree/main/apps/example) stores Users, Orders, and Inventory in PostgreSQL 16. Start a database (see [Getting Started](/guide/getting-started)), then inject a writable `DATABASE_URL` and a random `JWT_SECRET` of at least 32 UTF-8 bytes.
 
-## Deployment
-
-### Permissions
-
-Run the server with explicit Deno permissions:
-
-```text
-deno run --allow-net --allow-env --unstable-no-legacy-abort src/main.ts
+```sh
+bun install --frozen-lockfile
+bun run build
+DATABASE_URL=postgresql://postgres:local@127.0.0.1:15432/hyapi JWT_SECRET="<your-random-secret>" bun run start
 ```
 
-- `--allow-net` is needed by the HTTP listener and by remote providers created with `provideHttp()`.
-- `--allow-env` is needed to read configuration and secrets.
+For Node 24 use `node apps/example/dist/main.js` with the same environment. `HOST` defaults to `127.0.0.1` and `PORT` to `8000`. No implicit `.env` loading: use `bun --env-file=.env run start` or `node --env-file=.env apps/example/dist/main.js` explicitly. Keep secrets outside source control and restrict access at your trusted network/proxy boundary.
 
-Use `--unstable-no-legacy-abort` with Deno 2.9+ (included in the repository's `dev`/`start` tasks).
-Without it, Deno can abort the incoming `Request.signal` after a successful response, even though
-the client did not disconnect. HyAPI forwards client aborts to `ctx.signal` only while the request
-scope is active; deadline and shutdown aborts remain independently owned by HyAPI.
+## Reference workflow
 
-### Environment variables
+The example creates its application-owned `hyapi_example_*` tables when it starts. Supply an HS256 Bearer token signed with `JWT_SECRET` containing `sub`; inventory writes also require `role: "admin"`. `POST /v1/users/` accepts `{ "name": "Ada" }`. An administrator sets stock with `POST /v1/inventory/` and `{ "sku": "ITEM-1", "quantity": 10 }`. An owner purchases with `POST /v1/orders/` and `{ "userId": "<uuid>", "sku": "ITEM-1", "quantity": 2 }`. `GET /v1/users/:id` and `/v1/orders/:id` enforce ownership. A conditional stock update and order insert share one SQL transaction; missing inventory returns 404 and insufficient stock returns 409 without an order or decrement. This example is single-tenant, not a packaged database integration.
 
-The example app reads the following variables (see
-[`.env.example`](https://github.com/slime21023/hyapi/blob/main/.env.example)):
+## Listener and shutdown ownership
 
-| Variable       | Required | Purpose                                                  |
-| -------------- | -------- | -------------------------------------------------------- |
-| `JWT_SECRET`   | Yes      | Cryptographically random HS256 secret; at least 32 bytes |
-| `DENO_ENV`     | No       | `development` (default), `test`, or `production`         |
-| `HOST`         | No       | Listener host; defaults to `127.0.0.1`                   |
-| `PORT`         | No       | Listener port; defaults to `8000`                        |
-| `JWT_ISSUER`   | No       | Expected `iss` claim                                     |
-| `JWT_AUDIENCE` | No       | Expected `aud` claim                                     |
+`await app.listen({ port, hostname?, fetch? })` serves directly on Bun or Node. It returns a listener with `url` and `stop()`. The example calls `listener.stop()` on shutdown and then `app.close()`, which stops any remaining listeners and drains accepted handlers. Core never disposes the caller's InferDI root; the example follows `app.close()` with `root.dispose()` and closes its database pool registered with `registerValue`. Do the same for resources you supply. Set host grace periods and traffic limits for uncooperative handlers yourself.
 
-`DENO_ENV` becomes `AppConfig.environment`. Use `production` in deployed environments.
+## Readiness, logs, and trace correlation
 
-### Graceful shutdown
+`GET /health/live` answers without PostgreSQL. `GET /health/ready` queries the pool (`SELECT 1`); connection failure returns 503 Problem JSON with code `DATABASE_UNAVAILABLE`. Route traffic to ready instances only. The optional application-owned wrapper passed as `listen({ fetch: tracedFetch })` logs request ID, trace ID, method, path, status, and time until response headers; it returns `x-request-id`. It accepts a syntactically valid W3C `traceparent` trace ID for correlation, otherwise generates one. Core does not install telemetry or a logger. Never log tokens, query secrets, or bodies.
 
-Serve the application with `serve()`, which coordinates the listener and `app.close()`:
+## Streaming resources
 
-```ts
-import { serve } from "@hyapi/core";
+`GET /health/stream` returns a native `Response` with three NDJSON events. Its `ReadableStream` releases its timer on completion or cancellation. A route's opt-in InferDI scope is disposed after its handler completes, **not** after a streamed body finishes transmitting. Open and close cursors, subscriptions, and file descriptors used by a stream in the stream itself.
 
-const server = serve(app, {
-  hostname: "0.0.0.0",
-  port: 8000,
-  shutdownSignals: ["SIGINT", "SIGTERM"],
-});
-await server.finished;
-```
+## Deployment boundaries
 
-`serve()` binds `127.0.0.1` unless `hostname` is set and installs signal handlers only for the
-listed `shutdownSignals` (on Windows, only `SIGINT` and `SIGBREAK` are supported). `shutdown()` and
-an aborted `signal` option start the same graceful shutdown.
-
-On shutdown, `serve()` starts `app.close()` immediately and stops the listener after any active
-transmissions complete. `info.completed` observes network delivery only; request scopes still close
-when a `Response` returns. Deno 2.9 can raise `BadResource` if the ServeOptions signal aborts during
-an already running `server.shutdown()` with an unfinished stream. Therefore the listener defers
-`server.shutdown()` until active transmissions finish; at the `2 * shutdownTimeoutMs + 1000` ms
-grace deadline, it aborts ServeOptions first, then calls `server.shutdown()`. The shutdown promise
-is memoized across repeated signals and normal `server.finished` completion; both application and
-server errors are retained (as an `AggregateError` when both fail).
-
-`app.close()` shuts down in this order:
-
-1. It stops accepting requests. New requests receive 503 `APPLICATION_UNAVAILABLE`, and
-   `app.health()` reports `unhealthy`, so readiness probes fail while the application drains.
-2. It waits up to `shutdownTimeoutMs` (default 30000 ms) for in-flight requests, including handlers
-   abandoned after a request timeout. It then aborts remaining requests through `ctx.signal` and
-   waits at most `min(1000, shutdownTimeoutMs)` more for cooperative request cleanup.
-3. It gives module/plugin `onClose`, singleton services, and providers a separate shared
-   `shutdownTimeoutMs` cleanup budget, in reverse acquisition order. Async closers exceeding the
-   budget report `TimeoutError` in the shutdown `AggregateError`; synchronous blocking work cannot
-   be interrupted.
-
-The listener's grace deadline is `2 * shutdownTimeoutMs + 1000` ms (61 seconds at defaults). Set the
-orchestrator's termination grace **above 61 seconds plus external overhead**. On forced timeout, an
-uncooperative handler can still run after modules/providers close; resource cleanup is best effort,
-not a guarantee that such code can safely use providers.
-
-If provider connection fails during startup, its original connect exception is first in the reported
-`AggregateError`, followed by provider rollback failures and later plugin/module cleanup failures in
-order. Nested cleanup aggregates are flattened; the failed provider stage remains the startup
-aggregate's `cause`, with the connect exception as its own `cause`.
-
-The ownership and error-routing decisions are recorded in
-[ADR 0001](https://github.com/slime21023/hyapi/blob/main/_design/decisions/0001-layered-error-scopes.md).
-
-### Reverse proxies
-
-- Align the proxy's request body limit with `bodyLimitBytes` (default 10 MiB). HyAPI rejects larger
-  bodies with 413 `PAYLOAD_TOO_LARGE`.
-- Set the proxy's read timeout slightly above `requestTimeoutMs` (default 300000 ms, 5 minutes).
-  That way a slow request reaches the client as HyAPI's 503 `REQUEST_TIMEOUT` problem+json response
-  instead of a proxy-generated 504.
-
-```ts
-const config = defineConfig({
-  name: "orders-api",
-  environment: "production",
-  bodyLimitBytes: 1_048_576,
-  requestTimeoutMs: 30_000,
-  openapi: { enabled: false },
-});
-```
-
-### Response stream ownership
-
-HyAPI releases request services when a `Response` is returned, not when its body finishes
-transmitting. A lazy `ReadableStream` must own and close its own resources in `pull`/`cancel`; it
-must not access request services, singletons, providers, or `ctx.signal` after return. Example:
-
-```ts
-const payload = new TextEncoder().encode("ready\n");
-return new Response(
-  new ReadableStream({
-    pull(controller) {
-      controller.enqueue(payload);
-      controller.close();
-    },
-  }, { highWaterMark: 0 }),
-);
-```
-
-Errors after HTTP status is committed propagate to the body consumer or Deno transport, not to
-HyAPI's `onError` or a new problem+json response.
-
-## Observability
-
-### Request IDs
-
-HyAPI reads the request ID from `requestIdHeader` (default `x-request-id`). An incoming value is
-reused only when it matches `^[A-Za-z0-9._:-]{1,128}$`; otherwise a UUID is generated. The ID is
-returned in the same response header, included in every problem+json body, and available as
-`ctx.requestId` and in lifecycle hook contexts.
-
-### Logs and metrics
-
-Use global lifecycle hooks from a plugin to emit logs and metrics. The example app's
-`request-logging` plugin in
-[`apps/example/src/app.ts`](https://github.com/slime21023/hyapi/blob/main/apps/example/src/app.ts)
-records a start time in `onRequest` and logs a structured `request.complete` event with the request
-ID, method, path, status, and duration in `onResponse`. Error responses also pass through
-`onResponse`, so the same hook observes failures; use `onError` to record the underlying error.
-
-`onError` observers are invoked group then global, in order, and each receives the failure being
-reported even if another observer changed `lifecycle.error`. Each is awaited only until it settles
-or the original request deadline/forced shutdown interrupts the wait. Cleanup notifications after
-the request ends use the remaining original deadline. An unsettled observer promise is observed as a
-background task, not allowed to indefinitely delay the selected HTTP failure; it may still run or
-mutate shared lifecycle state later, so do not rely on its completion for critical cleanup.
-
-### Propagation to downstream services
-
-Inside a handler, build outgoing headers with `withHttpContext(ctx, "my-service")`. It forwards:
-
-- the request ID under the application's request ID header;
-- the W3C `traceparent` header when present;
-- `x-hyapi-service` with the caller's service name;
-- `x-hyapi-deadline` with `ctx.deadline`, the effective absolute deadline of the current request.
-
-`ctx.deadline` is always set: it is the earlier of the upstream `x-hyapi-deadline` and the request
-start time plus `requestTimeoutMs`. `withHttpContext()` forwards that value as a header; the native
-HTTP client does not reinterpret or enforce it. Pass `ctx.signal` in `RequestInit` when an outgoing
-request should stop with the incoming request.
-
-### Health endpoints
-
-`app.health()` is the readiness report. It runs every health check registered through `healthChecks`
-or a module's `module.healthCheck()` in parallel, each with a 5-second timeout, and aggregates the
-result as `healthy`, `degraded`, or `unhealthy`. It reports `unhealthy` while the application
-drains.
-
-`app.liveness()` does not run checks. It reports `healthy` while the application is running or
-draining, so an orchestrator does not restart an instance that is still finishing requests. Modules
-reach both reports through `module.health()` and `module.liveness()`.
-
-The example maps them to two endpoints:
-
-- `GET /health/live` reports that the process is serving requests and does not run health checks.
-- `GET /health/ready` returns 200 `{ status: "ready" }` unless `app.health()` reports `unhealthy`,
-  in which case it returns 503 with `status: "unavailable"` and the health-check reports. Load
-  balancers should route traffic only to instances whose readiness endpoint returns 200.
-
-## Service extraction
-
-A module that needs an independent deployment keeps its Port and replaces only its local provider
-with `provideHttp()`. Follow the
-[v0.5 extraction guide](https://github.com/slime21023/hyapi/blob/main/_design/migrations/v0.5.0.md)
-for the Users -> Orders walkthrough, including shared HTTP contracts, explicit response mapping, and
-request-context propagation.
-
-`provideHttp()` registers the port with the HTTP contract's version, so the application's
-major/minor compatibility check at startup compares the consumer's required version against the
-contract that the remote service actually implements.
+Core does not install an ORM, SQL migration framework, CORS, TLS, WAF, compression, security headers, or global rate limiting. Coordinate schema changes and credentials through your deployment workflow. Keep edge policy at the host, proxy, or an explicitly application-owned wrapper. See [HTTP and OpenAPI](/guide/http-and-openapi) for the opt-in schema endpoint.

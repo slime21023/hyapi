@@ -2,8 +2,8 @@
 layout: home
 hero:
   name: HyAPI
-  text: Structured APIs for Deno
-  tagline: Compose type-safe HTTP APIs from modules, Ports, and explicit lifecycle boundaries.
+  text: Declarative HTTP APIs for Node and Bun
+  tagline: Compose typed routes with InferDI dependencies and explicit authentication boundaries.
   actions:
     - theme: brand
       text: Get Started
@@ -12,20 +12,14 @@ hero:
       text: View on GitHub
       link: https://github.com/slime21023/hyapi
 features:
-  - title: Typed contracts
-    details: Define routes with TypeBox schemas and use the same metadata for runtime validation and OpenAPI.
+  - title: Typed route callbacks
+    details: Define module routes and validate requests and responses with Standard Schema.
   - title: Explicit composition
-    details: Keep modules independent through named Ports, scoped services, and small plugin capabilities.
-  - title: Native boundaries
-    details: Use Web-standard Request, Response, fetch, AbortSignal, and Deno without hiding transport details.
+    details: Supply your InferDI root; opt in to lazy request scopes only where needed.
+  - title: Protected boundaries
+    details: Authenticate a module before validation, then authorize resources after validation.
 ---
 
-# HyAPI documentation
+# HyAPI v0.5.0 documentation
 
-HyAPI is a structured, type-safe API framework for Deno. Start with the
-[guide](/guide/getting-started), then use the example application as a complete reference for health
-checks, guard-based authentication, modules, and Ports.
-
-This site documents how to use HyAPI. Architecture decisions, release history, benchmarks, and
-migration records live in the repository's
-[`_design/`](https://github.com/slime21023/hyapi/tree/main/_design) directory.
+Start with the [guide](/guide/getting-started), then consult the [PostgreSQL ERP example](https://github.com/slime21023/hyapi/tree/main/apps/example) for transactions, JWT authentication, explicit OpenAPI, and Bun/Node startup. `hyapi` is the only public package; the example is private. Local source builds are not evidence of npm publication. Historical `_design/` migrations are not current API documentation.

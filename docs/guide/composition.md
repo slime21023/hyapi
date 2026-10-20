@@ -1,125 +1,65 @@
 # Composition
 
-Modules own business routes and services. Plugins add platform-wide lifecycle hooks such as logging
-or metrics. A named Port is the boundary between modules.
+Create an InferDI root container yourself and pass it to `createApp`. Modules group routes; they do not own provider registration. A route accesses root dependencies through `root.get(...)`.
 
 ```ts
-import {
-  createApplication,
-  defineConfig,
-  definePort,
-  type Module,
-  NotFoundError,
-  providePort,
-} from "@hyapi/core";
-import Type from "typebox";
+import { Container } from "@inferdi/inferdi";
+import { createApp } from "hyapi";
+import * as v from "valibot";
 
-interface UserDirectory {
-  find(id: string): Promise<{ id: string } | null>;
-}
+const container = new Container().registerValue("users", {
+  find: (id: string) => ({ id, name: "Ada" }),
+});
+const app = createApp({
+  container,
+  modules: ({ module }) => [
+    module({
+      name: "users",
+      prefix: "/users",
+      routes: (route) => [
+        route.get("/:id", {
+          params: v.object({ id: v.string() }),
+          response: v.object({ id: v.string(), name: v.string() }),
+          handler: ({ params, root }) => root.get("users").find(params.id),
+        }),
+      ],
+    }),
+  ],
+});
+```
 
-const userDirectory = definePort<UserDirectory>("users.directory");
+For request-specific dependencies, register a scoped InferDI factory and explicitly opt a route into scopes. A scope is created **lazily** when `scope` is read; it is disposed after the route handler finishes, including when authorization or handling throws. A protected module's authenticated identity is passed as a scope input:
 
-const ordersModule: Module = {
-  name: "orders",
-  requires: [userDirectory],
-  setup(module) {
-    const users = module.use(userDirectory);
-    module.route({
-      method: "get",
-      path: "/orders/{id}",
-      request: { params: Type.Object({ id: Type.String() }) },
-      responses: { 200: Type.Object({ id: Type.String() }) },
-      handler: async ({ params, ok }) => {
-        const user = await users.find(params.id);
-        if (!user) throw new NotFoundError();
-        return ok(user);
+```ts
+import { Container } from "@inferdi/inferdi";
+import { createApp, UnauthorizedError } from "hyapi";
+import * as v from "valibot";
+
+const root = new Container()
+  .declareScopeInputs<{ identity: { subject: string } }>()
+  .registerFactory("subject", (scope) => scope.get("identity").subject, ["identity"], "scoped");
+
+const scopedApp = createApp({
+  container: root,
+  modules: ({ module }) => [
+    module({
+      name: "me",
+      prefix: "/me",
+      authenticate: (request) => {
+        const subject = request.headers.get("x-subject");
+        if (!subject) throw new UnauthorizedError();
+        return { subject };
       },
-    });
-  },
-};
-
-const app = await createApplication({
-  config: defineConfig({ name: "orders-api" }),
-  modules: [ordersModule],
-  providers: [providePort(userDirectory, { find: async (id) => id === "ada" ? { id } : null })],
+      routes: (route) => [
+        route.get("/", {
+          scoped: true,
+          response: v.object({ subject: v.string() }),
+          handler: ({ scope }) => ({ subject: scope.get("subject") }),
+        }),
+      ],
+    }),
+  ],
 });
 ```
 
-## Providing a Port from a module
-
-A module declares the Ports it implements in `provides` and implements each one during setup with
-`module.provide()`. The factory runs after that module's setup and can resolve its singletons.
-
-```ts
-const usersModule: Module = {
-  name: "users",
-  provides: [userDirectory],
-  setup(module) {
-    const repository = module.singleton(() => new Map([["ada", { id: "ada" }]]));
-    module.provide(userDirectory, async (services) => {
-      const users = await services.get(repository);
-      return { find: async (id) => users.get(id) ?? null };
-    });
-  },
-};
-```
-
-Modules are set up in dependency order, where requiring a Port depends on the module that provides
-it, so `module.use()` in a consumer always returns a ready value. Application-level `providers`
-remain the way to supply remote (`provideHttp()`) or test providers.
-
-## Module configuration
-
-A module can declare a TypeBox schema for its configuration. Values come from
-`createApplication({ moduleConfig })`, keyed by module name, and are validated, defaulted,
-converted, and frozen before any setup runs. Use `defineModule()` so `module.config` is typed.
-
-```ts
-const ordersModule = defineModule({
-  name: "orders",
-  config: Type.Object({ pageSize: Type.Integer({ minimum: 1, default: 20 }) }),
-  setup(module) {
-    const { pageSize } = module.config;
-  },
-});
-
-await createApplication({
-  config,
-  modules: [ordersModule],
-  moduleConfig: { orders: { pageSize: Deno.env.get("ORDERS_PAGE_SIZE") } },
-});
-```
-
-HyAPI does not read the environment; the application passes values explicitly.
-
-Annotating such a module as `const ordersModule: Module = { ... }` widens its configuration to
-`unknown`. Use `defineModule()` for every module that declares `config`.
-
-## Overriding services
-
-Name a service to make it replaceable, then pass `overrides` to `createApplication()`, usually in
-tests:
-
-```ts
-const clock = module.singleton("clock", () => ({ now: () => new Date() }));
-
-await createApplication({
-  config,
-  modules: [ordersModule],
-  overrides: [{ name: "clock", value: { now: () => new Date("2026-01-01") } }],
-});
-```
-
-Startup fails when an override names no service registered during setup, so a misspelled name is
-reported instead of silently ignored.
-
-## Keep boundaries small
-
-- Put a shared Port beside its contract, not inside a provider implementation.
-- Declare every consumed Port in `module.requires` before calling `module.use`, and every
-  implemented Port in `module.provides` before calling `module.provide`.
-- Use `singleton`, `request`, and `transient` services only for the lifetime they need.
-- Give plugins platform capabilities; they cannot register module routes.
-
-HyAPI checks missing and incompatible Port providers before accepting requests.
+Only `scoped: true` routes may access `scope`; ordinary routes can still use `root`. `app.close()` stops admission and drains accepted handlers but **does not dispose the caller's root**. Once closed, call `await root.dispose()` and explicitly close resources supplied through `registerValue` (such as a database pool). If application construction fails, dispose those resources as well. The [ERP example](https://github.com/slime21023/hyapi/blob/main/apps/example/src/app.ts) demonstrates both registration types and teardown.

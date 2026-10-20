@@ -1,63 +1,59 @@
 # Getting Started
 
-## Requirements
+HyAPI v0.5.0 exposes declarative HTTP modules through `hyapi`. Bun 1.4 develops and builds the workspace; built ESM runs on Node 24+ or Bun. A local build does not prove npm publication.
 
-- Deno 2.9 or later
-- TypeBox 1.x schemas
+## Try the example
 
-## Candidate status
+From the repository root, start PostgreSQL 16, then inject `DATABASE_URL` and a random `JWT_SECRET` of at least 32 UTF-8 bytes:
 
-HyAPI `v1.0.0-rc.5` is a pre-release candidate. `@hyapi/core` and `@hyapi/cli` are not yet published
-to JSR, so this guide does not provide an installation command.
-
-## Evaluate the example
-
-Run the checked-out example from the repository root:
-
-```text
-deno task dev
+```sh
+docker run -d --name hyapi-postgres -e POSTGRES_PASSWORD=local -e POSTGRES_DB=hyapi -p 15432:5432 postgres:16
+bun install --frozen-lockfile
+DATABASE_URL=postgresql://postgres:local@127.0.0.1:15432/hyapi JWT_SECRET="<your-random-secret>" bun run dev
 ```
 
-The example listens on `127.0.0.1:8000` by default. Set `HOST` and `PORT` when you need different
-listener settings.
+On Windows, set both variables in your shell before `bun run dev`. The example listens on `127.0.0.1:8000` unless `HOST` or `PORT` is set. No implicit `.env` loading; opt in with `bun --env-file=.env run dev`. See [configuration](/guide/configuration).
 
-The example requires a JWT secret. Generate at least 32 random bytes and expose the value through
-`JWT_SECRET`; do not use a human-chosen password as an HS256 key.
+## Minimal application
 
-## A minimal application
+With `hyapi`, `@inferdi/inferdi`, and `valibot` available to your project:
 
 ```ts
-import { createApplication, serve } from "@hyapi/core";
+import { Container } from "@inferdi/inferdi";
+import { createApp } from "hyapi";
+import * as v from "valibot";
 
-const app = await createApplication({
-  config: { name: "hello-api" },
-  modules: [{
-    name: "hello",
-    setup(module) {
-      module.route({ method: "get", path: "/hello", handler: ({ ok }) => ok({ hello: "world" }) });
-    },
-  }],
+const container = new Container();
+const app = createApp({
+  container,
+  modules: ({ module }) => [
+    module({
+      name: "hello",
+      prefix: "/hello",
+      routes: (route) => [
+        route.get("/", {
+          response: v.object({ hello: v.literal("world") }),
+          handler: () => ({ hello: "world" as const }),
+        }),
+      ],
+    }),
+  ],
 });
 
-const server = serve(app, { port: 8000, shutdownSignals: ["SIGINT", "SIGTERM"] });
-await server.finished;
+try {
+  const response = await app.fetch(new Request("http://localhost/hello/"));
+  console.log(await response.json());
+} finally {
+  await app.close();
+  await container.dispose();
+}
 ```
 
-Run it with `deno run --allow-net --unstable-no-legacy-abort main.ts`. Set `config.environment` to
-`"development"` while developing to see internal error details.
-
-## Verify a checkout
-
-When working on HyAPI itself, use one command to format, lint, type-check, test, inspect the
-example, verify a generated starter, and build this documentation site:
-
-```text
-deno task verify
-```
+`app.fetch(request)` handles requests without opening a socket. `await app.listen({ port: 8000 })` starts a Bun or Node listener and returns `{ url, stop() }`; call `await app.close()` to stop listeners and drain accepted handlers, then dispose your container and other caller-owned resources. Import the package facade, not private Core paths.
 
 ## Next steps
 
-- Define [routes and responses](/guide/routes).
-- Compose modules through [Ports and services](/guide/composition).
-- Configure [OpenAPI documents](/guide/configuration).
-- Add [optional HTTP plugins](/guide/plugins) around the native handler boundary.
+- Define [routes and authorization](/guide/routes).
+- Register [InferDI dependencies](/guide/composition).
+- Configure [HTTP and OpenAPI](/guide/http-and-openapi).
+- Migrate [older API consumers](/guide/migration-to-0.5).

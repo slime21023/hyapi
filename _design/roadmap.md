@@ -1,268 +1,32 @@
-# HyAPI Roadmap
+# HyAPI Roadmap — single public package
 
-HyAPI makes well-bounded modular monoliths easy to build while keeping service boundaries optional.
-Business modules depend on explicit Ports, so a local provider can later be replaced by an HTTP
-provider without changing use case code.
+## Current state and confirmed boundary
 
-## Product principles
+The repository now builds the [ADR 0002](decisions/0002-hyapi-only-public-interface.md) HyAPI-only `hyapi` 0.5.0 checkout on Bun 1.4 and Node 24: declarative routes, typed InferDI scopes, Valibot schemas, optional OpenAPI, and built-in HTTP listeners. The private PostgreSQL-backed Users, Orders, and Inventory example preserves transactional stock deduction. **The checkout is not an npm release.** No version in this release line has been verified as published. The legacy `core-v*` workflow cannot publish; the release script accepts only matching stable `hyapi-v<version>` tags at or above 0.5.0. Built source and a packed consumer are not substitutes for a published-package check.
 
-- Start with Application, Module, Route, and Schema; reveal advanced concepts only when needed.
-- Use explicit, function-first composition without decorators or reflection metadata.
-- Keep business Modules separate from cross-cutting platform Plugins.
-- Fail early with actionable diagnostics for invalid graphs and contract mismatches.
-- Keep distributed-system behavior explicit: remote calls declare contracts and timeouts.
+Only **one npm package, `hyapi`**, is planned. The example stays a private workspace importing the public package facade; Users, Orders, and Inventory are modules *inside* that application, not npm packages. No separate CLI or plugin packages are planned. The implemented public checkout uses declarative routes, an application-owned InferDI root with HyAPI-managed request scopes, two authorization functions, Standard Schema with a Valibot-first OpenAPI path, and explicit HTTP hosting. InferDI is the sole DI graph; Elysia remains internal. PostgreSQL, transactions, telemetry exporters, and edge policy remain application or host concerns.
 
-## Release timeline
+**0.1.x–0.4.x were internal implementation milestones; 0.5.0 is the first planned public npm release.** Milestone numbers did not imply npm publication. Older Deno/JSR and `1.0.0-rc.*` records are historical. Current user guides and the ERP example now describe the implemented HyAPI-only checkout; publication and a consumer installed from npm remain outstanding.
 
-| Version     | Capability                                                                        | Status     |
-| ----------- | --------------------------------------------------------------------------------- | ---------- |
-| v0.1.1      | Quality baseline, contribution and release workflow                               | Completed  |
-| v0.2.0      | Function-first Application/Module/Plugin composition and service scopes           | Completed  |
-| v0.3.0      | Deno/JSR CLI, project/module generation, inspect/doctor, starter template         | Completed  |
-| v0.4.0      | Typed Ports, local providers, contract tests, module boundary checks              | Completed  |
-| v0.5.0      | HTTP contracts, typed clients, remote providers, propagation and extraction guide | Completed  |
-| v0.5.1      | Runtime allocation and cleanup reliability optimizations                          | Completed  |
-| v0.6.0      | Removal of the legacy composition bridge                                          | Completed  |
-| v0.7.0      | Config defaults, `dependencies` naming, structured diagnostics and test helpers   | Completed  |
-| v0.8.0      | Provider lifecycle and contract-version compatibility                             | Completed  |
-| v0.9.0      | Distributed resilience and remote-call governance                                 | Completed  |
-| v1.0.0-rc.1 | Production baseline hardening and release-candidate freeze                        | Superseded |
-| v1.0.0-rc.2 | Audit remediation, Hono-free public API, release automation                       | Superseded |
-| v1.0.0-rc.3 | Lifecycle correctness and next release-candidate gate                             | Superseded |
-| v1.0.0-rc.4 | Public-contract tests and developer documentation                                 | Superseded |
-| v1.0.0-rc.5 | Guards, module Port providers, module config, typed request state                 | Candidate  |
-| v1.0.0      | Production baseline and public API stability                                      | Future     |
+## Milestones and observable gates
 
-## v0.8.0 — Provider lifecycle and contract compatibility
+| Milestone | Scope | Completion evidence |
+| --- | --- | --- |
+| **0.1.0 — internal baseline** | Keep the implemented Elysia-native module factories, application/request Port scopes, prevalidation authentication, postvalidation resource guards, and Problem JSON behavior. No npm publication. | Bun and Node tests, build, local tarball consumer, and `bun run verify` succeed. Protect the publish workflow before creating an internal tag. |
+| **0.1.1 — correctness and feasibility** | Test interleaved and nested identities, guard ordering, startup rollback, request-scope cleanup, shutdown, and error behavior without expanding Core's public surface. Try application-owned **protected-child OpenAPI document composition first**; if it requires duplicate route schemas or loses security metadata, test Elysia route composition instead. | Bun and Node regressions demonstrate 401 before malformed-body parsing, resource checks after schema validation, no cross-request identity leakage, and deterministic cleanup. The OpenAPI experiment records route coverage, schema reuse, authentication order, and the chosen implementation with evidence. |
+| **0.2.0 — single-tenant ERP reference** | Extend the private example with Users, Orders, and Inventory backed by an application-selected PostgreSQL adapter. Create an order and **directly deduct stock in one transaction**; reject insufficient stock and roll back the entire operation. Show application-owned role and resource guards. Do not add tenant identifiers or a Core ORM/transaction manager. | Integration tests against PostgreSQL prove successful purchase, rejection and rollback on insufficient stock, no overselling under concurrent requests, and denial of unauthorized resource access. |
+| **0.3.0 — application-owned API documentation** | Derive accurate OpenAPI documentation from Elysia route schemas for public and protected routes, following the 0.1.1 evidence-gated path. The application owns document assembly and security descriptions; Core does not provide a second schema or OpenAPI generator. | Every reference endpoint, schema, and security requirement appears in the generated document and agrees with live requests. Authentication must still reject unauthenticated malformed requests before body validation. If neither technical route meets these constraints, fix the pre-1.0 route contract rather than ship incomplete docs. |
+| **0.4.0 — application-owned operations** | Add PostgreSQL-aware readiness, structured logging/tracing recipes, deployment guidance, graceful shutdown, and a streaming-resource ownership example. Do not add default Core deadlines, health-check orchestration, or global traffic/security policy merely to satisfy this reference. | Bun and Node scenarios exercise dependency failure, readiness transition, restart/shutdown, and a stream that retains its own resources until completion. Liveness remains distinct from readiness. |
+| **0.5.0 — first public release** | Replace the existing Elysia-native public contract with the [HyAPI-only interface](decisions/0002-hyapi-only-public-interface.md): declarative module route lists, an application-owned typed InferDI root and HyAPI-owned request scopes rather than Port/Provider, grouped authentication and route authorization, Standard Schema with a Valibot-first OpenAPI path, ordinary and explicit-status responses, and Bun/Node `fetch` and listener access. Migrate the private PostgreSQL ERP reference and operations recipes. Publish only `hyapi`; no CLI, separate plugins, Core database dependency, or multi-tenancy. | New public declarations, ERP routes, InferDI graph type flow and scoped cleanup, authentication order, resource authorization, validation, OpenAPI coverage, listener lifecycle, and packed external consumers pass on Bun and Node without importing Elysia. Then `bun install --frozen-lockfile` and `bun run verify` pass; release tag and version match; an external consumer installs the **published npm package** and exercises declarations and HTTP on Node 24 and Bun. Verify npm name ownership and credentials before publication. No internal-version tag can publish. |
+| **1.0.0 — stable public contract** | Set compatibility/migration policy and a supported-runtime matrix; establish measurable security and performance regression thresholds from the **published 0.5.0 reference workload**, not invented targets. The official ERP example and packed/published-package consumers are sufficient adoption evidence; an independent production adopter is not mandatory. | The example and external package consumers can upgrade from 0.5.0 without undocumented breakage; dual-runtime, security, packaging, and reproducible workload checks pass against the final release. |
 
-**Goal:** make local, fake, and HTTP providers behave consistently during startup, contract
-validation, and shutdown, with independent application health checks.
+## Dependencies and decision gates
 
-- Add major/minor contract versions. A provider must have the same major and an equal-or-higher
-  minor version.
-- Add optional provider `connect` and `close` lifecycle callbacks.
-- Connect providers before the application becomes ready and aggregate all shutdown failures.
-- Add `app.health()` returning healthy, degraded, or unhealthy health-check status.
-- Run the same contract suite against local, fake, and HTTP providers.
-- Publish the provider lifecycle and version migration guide.
+- The 0.1.1 OpenAPI spike used protected-child document composition for the *then-current* Elysia-native Port checkout; it is historical, not part of 0.5.0. The replacement compiles each HyAPI route once into Elysia and projects the same Valibot schemas and declared security through the explicitly configured `/openapi/json` endpoint. `tests/example/v05_openapi_operations_test.ts` and the Bun/Node packed-package consumer check public and protected paths, schemas, BearerAuth, and 401 before malformed-body parsing. No second route document or Elysia import is required from consumers.
+- A published `hyapi` name was not found in a prior npm registry lookup, but an HTTP 404 does **not** prove the name is reservable. Confirm ownership and publication permission before the 0.5.0 release.
+- Record the 0.5.0 example workload and measurement environment before setting numerical 1.0.0 performance budgets. Do not convert unmeasured assumptions into SLAs.
+- The [first-publication quality rule](rules/hyapi-first-publication.rule.yml) tracks the single package, internal-release safety, accurate documentation, and dual-runtime consumer verification. Its publication claim must remain conditional until npm ownership, credentials, and an actual published consumer have been exercised.
 
-**Release gate:** incompatible versions fail before readiness; all provider close callbacks run;
-health-check reports are deterministic; local/fake/HTTP implementations pass the same contract
-suite.
+## Scope discipline
 
-## v0.9.0 — Distributed resilience
-
-**Goal:** make remote boundaries reliable without hiding distributed-system trade-offs.
-
-- Enforce timeout budgets and parent request deadlines.
-- Standardize retry/backoff and idempotency rules.
-- Add circuit breaker and concurrency isolation primitives.
-- Preserve consistent network, timeout, 4xx, 5xx, and contract error classification.
-
-## v1.0.0 — Production baseline
-
-**Goal:** stabilize the public API and provide an operationally predictable foundation.
-
-- Publish API stability and compatibility policies.
-- Establish runtime performance, security, and observability baselines.
-- Document deployment and service extraction reference patterns.
-- Automate release, package, and generated-project verification.
-
-## v0.9 execution tasks (Implemented)
-
-- [x] **RES-01:** Resilience error taxonomy and policy model.
-- [x] **RES-02:** Request deadline and timeout budget support.
-- [x] **RES-03:** Retry/backoff policy with safe-method defaults and jitter options.
-- [x] **RES-04:** Circuit breaker primitive.
-- [x] **RES-05:** Bulkhead/concurrency isolation primitive.
-- [x] **RES-06:** Generic policy integration for Port adapters.
-- [x] **RES-07:** Reference documentation and migration guide.
-- [x] **RES-08:** Reliability tests and release verification.
-
-## v1.0.0-rc.1 — Candidate hardening
-
-**Goal:** make the v0.9 API operationally predictable without adding a new public abstraction or
-breaking existing application code.
-
-- [x] **RC-01:** Clear resilience timeout timers after completion and preserve abort-aware operation
-      boundaries.
-- [x] **RC-02:** Make bulkhead admission FIFO and reserve released slots so queued work cannot be
-      overtaken or exceed the configured concurrency.
-- [x] **RC-03:** Count only transient/provider failures in circuit-breaker state; client and
-      contract failures do not open the breaker.
-- [x] **RC-04:** Keep `withHttpContext()` as header propagation; adapters choose their own request
-      deadline and retry policy.
-- [x] **RC-05:** Keep resilience error names/reasons while tightening policy validation at trust
-      boundaries.
-- [x] **RC-06:** Keep the existing verification suite as the RC performance/resource baseline and
-      cover the new queue, timeout, breaker, and deadline behavior with focused tests.
-- [x] **RC-07:** Keep the RC dependency-free and reject malformed policy/deadline values before they
-      reach runtime or remote calls.
-- [x] **RC-08:** Require formatting, lint, type checking, the complete test suite, and synchronized
-      package/CLI metadata before publishing the candidate.
-
-The `v1.0.0-rc.1` freeze was lifted for the rc.2 audit remediation below. rc.2 is superseded by the
-rc.3 lifecycle correctness candidate; its completed work and verification record remain below.
-
-## v1.0.0-rc.2 — Audit remediation
-
-**Goal:** fix the runtime, security, documentation, and CI gaps found in the rc.1 audit and deliver
-the remaining v1.0 release artifacts. Pre-1.0 policy applies: superseded APIs are removed in the
-same change, with migration notes only.
-
-- [x] **RC2-01:** Versions, license, and publishability: `1.0.0-rc.2` metadata, MIT `LICENSE`,
-      package `license`/`publish.exclude`, and a non-publishable example app.
-- [x] **RC2-02:** Deadline trust boundary: one `x-hyapi-deadline` parser that accepts only 1-15
-      digit values.
-- [x] **RC2-03:** Resilience engine: abortable guards, timer-safe retry delays, a generation-based
-      half-open circuit breaker, abortable bulkhead waiters, and a wider breaker exclusion list.
-- [x] **RC2-04:** HTTP contract client: correct request methods, base URL path prefixes, a single
-      retry loop, idempotency that `retryOn` cannot bypass, `deadline`/`aborted` reasons, and
-      removal of the legacy `retry` option.
-- [x] **RC2-05:** Provider lifecycle and versions: `ContractVersion`-only ports and contracts,
-      parallel application health checks with timeouts, and reverse-order provider shutdown.
-- [x] **RC2-06:** Request pipeline: `bodyLimitBytes` (413), `requestTimeoutMs` (503), upstream
-      deadlines (504), request-id validation, immutable-response handling, response field stripping,
-      and route registration validation.
-- [x] **RC2-07:** Hooks and groups: onion-ordered response hooks, error responses through group
-      hooks, auth scope union without downgrade, and registration locked after start.
-- [x] **RC2-08:** Services and ports: singletons cannot resolve request services, failed services
-      are rebuilt, and `module.use` requires a `requires` declaration.
-- [x] **RC2-09:** Application composition: `PlatformApi`-only plugins, startup rollback, and removal
-      of Hono `raw` and the separate test-application factory.
-- [x] **RC2-10:** JWT: byte-length secrets, malformed-token and `crit` rejection, strict `exp`/`nbf`
-      checks, and clock-skew validation.
-- [x] **RC2-11:** OpenAPI: 401 on every protected route, 413/415 on body routes, document caching,
-      and `openapi.enabled`.
-- [x] **RC2-12:** Test helpers tolerate empty response bodies.
-- [x] **RC2-13:** CLI: nested file generation, name validation, shared-contract-aware inspection,
-      and a doctor-clean starter template.
-- [x] **RC2-14:** Example app restructured into `src/modules` with health, users, and orders
-      modules.
-- [x] **RC2-15:** CI and release automation: Windows matrix, publish dry-run, starter verification,
-      tag-based publishing, and performance benchmarks.
-- [x] **RC2-16:** v1.0 documentation: versioning policy, `SECURITY.md`, operations guide,
-      performance baseline, and the rc.2 migration guide.
-
-The `v1.0.0-rc.2` freeze was reopened for the rc.3 lifecycle correctness changes. See the candidate
-milestone below; rc.2's work and verification record remain historical.
-
-## v1.0.0-rc.3 — Lifecycle correctness candidate
-
-**Goal:** ship the lifecycle and request-scope correctness changes recorded in the rc.3 changelog
-with an explicit migration path and a release gate that cannot publish mismatched package versions.
-
-- [x] Verify the generated starter's actual listener response and graceful shutdown, in addition to
-      its `verify` task and CLI `doctor` report.
-- [x] Require the publish workflow's tag to match both package versions.
-- [x] Run `deno task verify` in the working checkout before the final CLI doctor regression fix, and
-      `deno publish --dry-run --allow-dirty` as a non-publishing preflight.
-- [x] On an isolated clean checkout, `deno task verify` passed (201 tests, 0 failed, including the
-      starter listener and shutdown); `deno task publish:check` completed a dry-run for
-      `@hyapi/core@1.0.0-rc.3` and `@hyapi/cli@1.0.0-rc.3`; `git diff --check` reported no errors.
-      No JSR package was published.
-
-## v1.0.0-rc.4 — Public-contract and documentation candidate
-
-**Goal:** establish a maintainable, package-consumer test boundary and an English usage guide before
-the first JSR publication.
-
-- [x] Separate public Core and CLI facade tests from source-coupled internal tests.
-- [x] Add public coverage for Port composition, problem responses, multiple OpenAPI documents, HTTP
-      contracts/providers, JWT, resilience, and CLI starter creation.
-- [x] Correct pre-publication installation guidance and the Composition example.
-- [ ] Run the full verification and package dry runs on the final candidate, then verify a starter
-      against published Core and CLI packages.
-
-## v1.0.0-rc.5 — Composition and authentication candidate
-
-**Goal:** settle the public module, configuration, request-state, and authentication APIs before
-v1.0.0, while breaking changes are still cheap.
-
-- [x] **RC5-01:** Typed request state ([RFC 0004](rfcs/0004-typed-request-state.md)).
-- [x] **RC5-02:** Typed module configuration ([RFC 0003](rfcs/0003-typed-module-configuration.md)).
-- [x] **RC5-03:** Module Port providers and liveness/readiness health
-      ([RFC 0002](rfcs/0002-provider-factories-and-module-health.md)).
-- [x] **RC5-04:** Guards replace authentication providers; JWT moves to `@hyapi/plugin-jwt`; OIDC
-      exports a guard ([RFC 0005](rfcs/0005-guards.md)).
-- [x] **RC5-05:** Configurable problem `type` URIs; remove duplicated contract-version helpers and
-      the duplicate internal options type.
-- [x] **RC5-06:** Migration notes, user guide, and CLI `doctor` support for `provides: [...]`.
-- [x] **RC5-07:** Development error diagnostics, `production` default environment, and body-based
-      default status ([RFC 0007](rfcs/0007-error-diagnostics-and-default-status.md)).
-- [x] **RC5-08:** Typed route responses and `defineRoute()`
-      ([RFC 0006](rfcs/0006-typed-route-responses.md)).
-- [x] **RC5-09:** `serve()` for the example, starter, and applications
-      ([RFC 0008](rfcs/0008-serve.md)).
-- [x] **RC5-10:** Guard injection through a Port in the guide and example; route and module typing
-      guidance.
-- [x] Accept RFCs 0002-0008.
-- [ ] Run the full verification and package dry runs on the final candidate, then verify a starter
-      against published packages.
-
-## Post-1.0 candidates
-
-These additions are expected to be additive, so they do not block v1.0.0:
-
-- Typed HTTP contract clients with response validation and a declared error catalog.
-- Observability extension points for tracing and metrics, with exporters as plugins.
-- `Deprecation`/`Sunset` response headers from route metadata.
-- A `@hyapi/testing` package for provider substitution and in-memory contract clients.
-- Recipes for in-process module events with an application-owned outbox, streaming responses, and
-  uploads.
-- `hyapi inspect --graph` output of the module and Port graph.
-- Typed claims for the JWT and OIDC guards from an optional claims schema.
-- Port substitution in tests for applications that keep the providing module installed.
-- A typed `ctx.headers` view for routes that declare a header schema.
-
-## v1.0.0-rc.2 verification record
-
-The release candidate is verified from the repository root with:
-
-```text
-deno task verify
-deno task publish:check
-```
-
-`deno task verify` covers formatting, linting, type checking, the complete test suite, the example
-`doctor` report, and a generated starter checked against local core source (the generated project's
-`verify` task, including formatting, type checking, and tests, plus CLI `doctor`). It does not
-establish that JSR dependencies resolve; after publishing, run
-`deno run --allow-read --allow-write --allow-run --allow-env --allow-net scripts/verify-starter.ts --published`
-to check an unmodified starter. CI runs the gate on Ubuntu and Windows, and a release-checks job
-runs a whole-tree whitespace check and the JSR publish dry-run. Performance results are recorded in
-[`_design/baselines/performance.md`](baselines/performance.md).
-
-## v1.0.0-rc.1 verification record
-
-The release-candidate baseline is verified from the repository root with:
-
-```text
-deno task verify
-git diff --check
-```
-
-The verification gate covers formatting, linting, type checking, and the complete test suite. The
-workspace package metadata and generated CLI dependency are kept on the same `1.0.0-rc.1` line, and
-unused validator dependencies are not part of the published core package. Delivered roadmap issues
-are closed only after their implementation, documentation, and verification evidence are recorded in
-the GitHub issue.
-
-## Deferred and cancelled
-
-- `hyapi generate route` is cancelled as a roadmap commitment; routes remain intentionally explicit
-  through the Module/Route API.
-- Event transports, outbox processing, Saga orchestration, service discovery, Kubernetes generation,
-  and cloud-specific integrations remain optional after v1.0 and are not core commitments.
-
-## v0.8 execution tasks (Implemented)
-
-- [x] **SVC-01:** ContractVersion model and major/minor compatibility validator.
-- [x] **SVC-02:** Provider lifecycle registry and startup/shutdown integration.
-- [x] **SVC-03:** Application health report and health-check diagnostics.
-- [x] **SVC-04:** Local/fake/HTTP provider parity and lifecycle tests.
-- [x] **SVC-05:** Reference example, migration guide, and API documentation.
-- [x] **SVC-06:** Release gate, reliability checks, and package verification.
-
-Every task must include a goal, key results, verification evidence, and migration notes where the
-public API changes.
+Use Web Platform, Node-compatible, and Elysia APIs internally without exposing Elysia to `hyapi` consumers. Keep business storage, transactions, the InferDI root, and externally supplied value cleanup in the application; HyAPI closes only the request scopes it creates. Keep TLS, CORS, WAF, compression, security headers, and global rate limiting at the edge or in an application-owned outer `fetch` wrapper. The former Port behavior has been removed from the active checkout; a streaming response always owns resources needed for its full lifetime, not the handler's disposed scope. Old CLI/plugin/Deno documents remain historical, not a promise to restore their APIs.

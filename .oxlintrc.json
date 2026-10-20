@@ -4,5 +4,5 @@
     "suspicious": "warn"
   },
   "plugins": ["typescript", "oxc"],
-  "ignorePatterns": ["deno.lock"]
+  "ignorePatterns": ["bun.lock", "**/dist/**"]
 }

@@ -1,43 +1,28 @@
 # HyAPI
 
-HyAPI is a structured, type-safe API framework for Deno. It uses TypeBox route contracts, explicit
-module Ports, native Web APIs, and deterministic lifecycle boundaries.
+HyAPI `hyapi` v0.5.0 composes typed HTTP modules over an application-owned InferDI container. Declare routes with HyAPI's callback API and Standard Schema (Valibot in the example); Elysia is an internal router, not a consumer-facing API. Bun 1.4 manages development; built ESM runs on Node 24 or Bun. Local builds and tarballs do not establish npm publication.
 
-## Documentation
+## Try the ERP example
 
-Read the English [usage guide](docs/index.md) for application setup, routes, composition,
-configuration, HTTP/OpenAPI, optional plugins, and operations.
+The private [Users, Orders, and Inventory example](apps/example/src/app.ts) uses PostgreSQL, HS256 Bearer authentication, owner/admin authorization, and transactional stock deduction. Start PostgreSQL 16 and supply `DATABASE_URL` and a random `JWT_SECRET` of at least 32 UTF-8 bytes:
 
-Architecture decisions, RFCs, migrations, quality rules, benchmarks, and the roadmap are internal
-project records under [`_design/`](_design/).
-
-## Workspace
-
-```text
-packages/core               framework package (@hyapi/core)
-packages/cli                project generator and diagnostics (@hyapi/cli)
-packages/plugin-cors        optional CORS HTTP wrapper
-packages/plugin-csrf        optional signed double-submit CSRF wrapper
-packages/plugin-jwt         optional HS256 JWT Bearer authentication guard
-packages/plugin-oidc        optional OIDC Bearer authentication guard
-packages/plugin-rate-limit  optional local rate-limit HTTP wrapper
-apps/example                example API
-tests/                      workspace tests
-bench/                      workspace benchmarks
-docs/                       VitePress user documentation
-_design/                    architecture and project records
+```sh
+docker run -d --name hyapi-postgres -e POSTGRES_PASSWORD=local -e POSTGRES_DB=hyapi -p 15432:5432 postgres:16
+bun install --frozen-lockfile
+DATABASE_URL=postgresql://postgres:local@127.0.0.1:15432/hyapi JWT_SECRET="<your-random-secret>" bun run dev
 ```
 
-## Development
+The listener defaults to `127.0.0.1:8000`; `HOST` and `PORT` are optional. No implicit `.env` loading: pass values in the process environment, or select a file with `bun --env-file=.env run dev`. On Windows, set both variables in your shell first. After `bun run build`, use `bun run start` (Bun) or `node apps/example/dist/main.js` (Node 24).
 
-```text
-deno task dev         run the example API
-deno task verify      run every quality check and build the docs
-deno task bench       run benchmarks
-deno task docs:dev    preview the documentation locally
-```
+`GET /health/live` does not query the database; `GET /health/ready` does. The explicitly configured `GET /openapi/json` documents public and protected routes. Structured request logs come from an optional application-owned listener wrapper. See [operations](docs/guide/operations.md).
 
-The current candidate is `v1.0.0-rc.5`. No JSR publication has occurred.
+## Public API
+
+Import `createApp`, `reply`, and HTTP errors from `hyapi`. Pass `createApp({ container, modules: ({ module }) => [...] })`; each module has a `routes: (route) => [...]` callback. Protected modules authenticate raw requests before validation, and individual routes authorize validated data. Request scopes are opt-in with `scoped: true`; the caller disposes its InferDI root and resources after `app.close()`. Core does not include PostgreSQL, a CLI, or independently published plugins. See the [guide](docs/index.md) and [migration instructions](docs/guide/migration-to-0.5.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for verification and Core-only packaging commands. A local tarball check does not establish npm publication.
 
 ## License
 

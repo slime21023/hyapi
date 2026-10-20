@@ -1,29 +1,31 @@
 # HTTP and OpenAPI
 
-HyAPI keeps a module Port separate from its HTTP representation. This lets an application replace a
-local provider with an HTTP provider without making the Port itself depend on transport details.
+`app.fetch(request: Request): Promise<Response>` handles requests without binding a listener. `app.listen({ port, hostname?, fetch? })` binds on Bun or Node and returns a listener with `url` and asynchronous `stop()`. HyAPI does not export the old `defineHttpContract()`, `createHttpClient()`, `provideHttp()`, or `withHttpContext()` APIs. Use native `Request`/`Response` for transport and native `Response` with `ReadableStream` for streaming; the stream itself must own resources needed after its handler returns.
 
-1. Define a Port for the capability shared by modules.
-2. Define a versioned HTTP contract for routes that expose that capability.
-3. Adapt `createHttpClient()` and its native `Response` values to the Port interface.
-4. Register the HTTP provider with `provideHttp()`.
+## OpenAPI is explicit
 
-`defineHttpContract()` validates route paths and shares route metadata across the client and server
-boundary. `provideHttp()` checks the contract name and major/minor version before registering a Port
-provider.
+Omit `openapi` to serve no documentation endpoint. To expose JSON at `/openapi/json`, provide `path: "/openapi"`, document info, and security scheme definitions for protected modules:
 
-## Native client behavior
+```ts
+const app = createApp({
+  container,
+  modules: ({ module }) => [
+    module({
+      name: "health",
+      prefix: "/health",
+      routes: (route) => [
+        route.get("/live", {
+          response: v.object({ status: v.literal("ok") }),
+          handler: () => ({ status: "ok" as const }),
+        }),
+      ],
+    }),
+  ],
+  openapi: {
+    path: "/openapi",
+    info: { title: "Service API", version: "0.5.0" },
+  },
+});
+```
 
-`createHttpClient()` is deliberately small: it resolves a path against one base URL and returns the
-native `fetch` response. It does not add retries, status mapping, response validation, or timeouts.
-Make those choices in the adapter that knows the Port's semantics.
-
-Use `withHttpContext()` when forwarding an incoming request. It propagates the request ID,
-`traceparent`, service name, and deadline headers while leaving the rest of `RequestInit` under the
-caller's control.
-
-## OpenAPI output
-
-Route request schemas, response schemas, tags, and guard security metadata form the OpenAPI 3.1
-document. Security schemes come only from the guards on documented routes. The output is available
-at the configured document paths; the example serves its default document at `/openapi.json`.
+Import `createApp` from `hyapi`, `v` from `valibot`, and supply an InferDI `container` as in [Getting Started](/guide/getting-started). Route schemas use Standard Schema. Valibot schemas are converted to JSON Schema by the built-in converter; if OpenAPI is enabled and a route uses another schema vendor, supply `openapi.converters[vendor] = (schema) => jsonSchemaObject` or application construction fails. Unsupported Valibot schema conversion also fails at construction. Protected modules require a `security` name matching a key in `openapi.securitySchemes` when OpenAPI is enabled; public routes remain public. The [ERP example](https://github.com/slime21023/hyapi/blob/main/apps/example/src/app.ts) configures `BearerAuth`. Core projects documented routes from the same module declarations that it serves, without a second route list.

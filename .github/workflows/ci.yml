@@ -13,17 +13,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: v2.9.x
-      - run: deno task verify
-
-  release-checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+          node-version: "24.x"
+      - uses: oven-sh/setup-bun@v2
         with:
-          deno-version: v2.9.x
-      - run: git diff --check 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD
-      - run: deno task publish:check
+          bun-version: "1.4.0"
+      - uses: ikalnytskyi/action-setup-postgres@v8
+        id: postgres
+        with:
+          postgres-version: "16"
+      - run: bun install --frozen-lockfile
+      - run: bun scripts/release.ts hyapi-v0.5.0 --dry-run
+        env:
+          DATABASE_URL: ${{ steps.postgres.outputs.connection-uri }}

@@ -1,0 +1,15 @@
+.env
+.env.*
+!.env.example
+.DS_Store
+findings.md
+progress.md
+task_plan.md
+coverage/
+dist/
+node_modules/
+docs/.vitepress/cache/
+bun.lock
+.agents/
+.claude/
+_design/

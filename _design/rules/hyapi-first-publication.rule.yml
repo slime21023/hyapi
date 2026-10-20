@@ -1,0 +1,36 @@
+goal: "Verify HyAPI 0.5.0 as a single public package without claiming publication before npm acceptance."
+keyresults:
+  - kr-1: "Exactly one npm-publishable package is named hyapi; the example remains a private workspace that imports its public facade."
+  - kr-2: "Internal versions below 0.5.0 cannot trigger publication, and a future public release uses a package-qualified hyapi tag."
+  - kr-3: "The roadmap identifies the implemented HyAPI-only InferDI-backed 0.5.0 checkout and the separate, unverified npm publication gate."
+  - kr-4: "After the public-interface cutover, Bun and Node verification covers InferDI type flow and scope disposal plus an external packed-package consumer without consumer Elysia imports."
+rules:
+  - id: kr-1-one-publishable-package
+    name: hyapi-package-and-private-example
+    apply: "package.json,packages/core/package.json,apps/example/package.json,scripts/packages.ts"
+    level: error
+    desc:
+      - "The package facade is hyapi and only that package is publishable."
+      - "The example is private and depends on hyapi through its public package entry point."
+      - "CLI and plugins have no separately published packages."
+  - id: kr-2-internal-tags-cannot-publish
+    name: block-publication-before-v0-5
+    apply: ".github/workflows/publish.yml,scripts/release.ts"
+    level: error
+    desc:
+      - "Legacy core-v tags and hyapi versions below 0.5.0 cannot publish even when pushed."
+      - "A public release tag is hyapi-v<version> and matches the manifest before npm operations."
+  - id: kr-3-roadmap-reflects-decisions
+    name: single-package-milestones-and-verified-claims
+    apply: "_design/roadmap.md,README.md"
+    level: error
+    desc:
+      - "The roadmap identifies 0.1.x–0.4.x as internal milestones and the current 0.5.0 checkout as HyAPI-only and unpublished."
+      - "PostgreSQL single-tenant transactional stock, route-derived OpenAPI, and operations are described only where implemented and verified; npm publication remains a release gate."
+      - "README describes the implemented public facade and never treats a local tarball as a published package."
+  - id: kr-4-runtime-and-consumer-checks
+    name: bun-node-consumer-evidence
+    apply: "package.json,scripts/verify-consumer.ts,tests/core/public,tests/example"
+    level: error
+    desc:
+      - "After the HyAPI-only public cutover, bun run verify passes, including Bun and Node InferDI graph typing and request-scope lifetime tests plus a packed hyapi consumer type check and HTTP smoke run without Elysia imports."

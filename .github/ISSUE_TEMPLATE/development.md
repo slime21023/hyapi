@@ -38,7 +38,7 @@ rules:
 ## Verification
 
 - [ ] Relevant unit, integration, or end-to-end tests pass.
-- [ ] `deno task verify` passes.
+- [ ] `bun run verify` passes.
 - [ ] `git diff --check` passes.
 - [ ] Documentation and examples reflect the delivered behavior.
 

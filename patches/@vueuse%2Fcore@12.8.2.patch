@@ -1,0 +1,9 @@
+diff --git a/index.d.mts b/index.d.mts
+index d7817ae0a2f2dd7361d06cb4799a79bf033cde87..9cddfb90e8d3196688b631cad42723307de6bb59 100644
+--- a/index.d.mts
++++ b/index.d.mts
+@@ -1,3 +1,4 @@
++/// <reference types="web-bluetooth" />
+ import * as _vueuse_shared from '@vueuse/shared';
+ import { Fn, ShallowOrDeepRef, Awaitable, ConfigurableEventFilter, ConfigurableFlush, RemovableRef, EventHookOn, Pausable, IsAny, Arrayable, ReadonlyRefOrGetter, MaybeRefOrGetter as MaybeRefOrGetter$1, UseIntervalFnOptions, UseTimeoutFnOptions } from '@vueuse/shared';
+ export * from '@vueuse/shared';

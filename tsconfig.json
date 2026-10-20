@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [
+    "packages/core/mod.ts",
+    "packages/core/src/**/*.ts",
+    "apps/example/src/**/*.ts",
+    "tests/core/public/**/*_test.ts",
+    "tests/example/**/*_test.ts",
+    "tests/scripts/internal/**/*_test.ts",
+    "scripts/**/*.ts",
+    "docs/.vitepress/config.ts"
+  ],
+  "exclude": ["node_modules", "**/dist"]
+}

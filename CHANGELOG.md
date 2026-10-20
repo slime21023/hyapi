@@ -1,238 +1,41 @@
 # Changelog
 
-All notable changes to HyAPI are documented in this file.
+All notable changes to HyAPI are documented here. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [1.0.0-rc.5] - Unreleased
+## [0.5.0] - Unreleased (first planned npm release)
 
 ### Added
 
-- Guards ([RFC 0005](_design/rfcs/0005-guards.md)): `defineGuard`, `anyOf`, and `requireScopes`;
-  `guards` on routes and groups run before body parsing and validation. OpenAPI security schemes and
-  requirements are projected from guard metadata.
-- `@hyapi/plugin-jwt`: `jwtBearer()`, an HS256 Bearer guard with the previous Core JWT rules.
-- Module Port providers and module health
-  ([RFC 0002](_design/rfcs/0002-provider-factories-and-module-health.md)): `module.provide()`,
-  `module.healthCheck()`, `module.health()`, `module.liveness()`, and `app.liveness()`. Modules are
-  ordered by the Ports they require and provide.
-- Typed module configuration ([RFC 0003](_design/rfcs/0003-typed-module-configuration.md)):
-  `Module.config` schemas, `createApplication({ moduleConfig })`, `module.config`, and
-  `defineModule()`.
-- Typed request state ([RFC 0004](_design/rfcs/0004-typed-request-state.md)): `defineStateKey()` and
-  `RequestState`.
-- `problemTypeBaseUrl` application setting for problem `type` URIs.
-- Typed route responses ([RFC 0006](_design/rfcs/0006-typed-route-responses.md)): response helpers,
-  bare results, and HTTP contract handlers are checked against declared `responses`; `defineRoute()`
-  keeps inference for routes defined in their own files.
-- Development diagnostics ([RFC 0007](_design/rfcs/0007-error-diagnostics-and-default-status.md)):
-  with `environment: "development"`, problem responses include internal messages and details.
-- `serve()` ([RFC 0008](_design/rfcs/0008-serve.md)): a listener helper that coordinates
-  `app.close()` and graceful listener shutdown; the example and CLI starter use it.
+- Declarative `createApp({ container, modules: ({ module }) => [...] })` with typed route callbacks, module authentication before validation, and route-local authorization after validation.
+- Standard Schema request/response validation, Valibot OpenAPI conversion, optional `openapi: { path, info, ... }` JSON endpoint, and required converters for other schema vendors when OpenAPI is enabled.
+- Lazy, opt-in InferDI scopes via `scoped: true` and `scope.get(...)`; `reply(status, value)` for declared response statuses and native `Response` streaming.
+- Built-in Bun/Node `app.listen(...)`, direct `app.fetch(...)`, and optional application-owned listener fetch wrapper for logging.
+- PostgreSQL-backed single-tenant Users, Inventory, and Orders reference; purchase and stock deduction share a transaction, with missing-stock 404, insufficient-stock 409, and owner/admin authorization.
+- Example `/health/live`, PostgreSQL-backed `/health/ready`, `/health/stream`, explicit `/openapi/json`, and [migration guidance](docs/guide/migration-to-0.5.md).
 
 ### Changed
 
-- **Breaking:** `AuthProvider`, `AuthRequirement`, `PlatformApi.setAuthProvider`, and the `auth`
-  route/group option are removed in favor of guards. `jwtPlugin` and `JwtAuthProvider` moved out of
-  Core; `@hyapi/plugin-oidc` exports `oidcBearer()` instead of `oidcPlugin()`.
-- **Breaking:** `Identity` has a required `claims` field.
-- **Breaking:** 401 responses carry `www-authenticate` only when the thrown `UnauthorizedError` sets
-  a `challenge`; Core no longer hardcodes `Bearer`.
-- **Breaking:** OpenAPI documents no longer include a default `bearerAuth` security scheme.
-- **Breaking:** `Module.provides` lists Ports; implementations move into `module.provide()`.
-- **Breaking:** `RequestContext.state` and `LifecycleContext.state` are `RequestState` instead of
-  `Map<string, unknown>`.
-- **Breaking:** problem `type` is `about:blank` unless `problemTypeBaseUrl` is configured.
-- **Breaking:** handlers whose results disagree with their declared `responses` no longer compile.
-- **Breaking:** `defineConfig()` defaults `environment` to `production`.
-- **Breaking:** a `DELETE` handler that returns a body responds with 200 instead of failing the 204
-  contract.
-- **Breaking:** a service override whose name matches no named service fails startup instead of
-  being ignored.
-- `HealthCheckReport.detail` is typed as an omitted `string` rather than `string | undefined`.
-- The example application provides its guard through an `authPort` Port, so its modules are plain
-  values again.
-- CLI `doctor` recognizes `provides: [...]` declarations as module Port providers.
+- **Breaking package and API cutover:** `hyapi@0.5.0` is the only planned publishable package. Remove `@hyapi/core`, `createApplication`, `defineModule`, Ports/providers, Elysia route plugins, `guarded`, and guard combinators. No compatibility aliases are exported. Historical `core-v*` and versions below 0.5.0 cannot publish.
+- The caller owns the InferDI root and cleanup of `registerValue` resources after `app.close()`; Core drains accepted handlers and stops listeners but does not dispose the root.
+- The example requires explicit `{ jwtSecret, databaseUrl }` configuration and PostgreSQL rather than in-memory stores. No implicit environment loading or edge policy is installed.
+- Removed obsolete CLI/plugin build artifacts and empty source/test scaffolds; Core and example target Node 24 and Bun.
 
-## [1.0.0-rc.4] - Superseded
+`bun run verify` and a matching `hyapi-v0.5.0` dry run check local source and tarballs. This entry remains **unreleased** until npm ownership, credentials, actual publication, and a published-package consumer are verified.
+
+## [0.1.0] - Unreleased
 
 ### Added
 
-- English VitePress usage documentation and a focused `deno task test:public` release-contract
-  suite.
-- `@hyapi/plugin-cors` and `@hyapi/plugin-rate-limit`: optional native HTTP wrappers for explicit
-  CORS rules and bounded in-process fixed-window rate limiting.
-- `@hyapi/plugin-oidc`: optional OIDC Bearer authentication through explicit issuer, audience,
-  algorithms, and remote JWKS settings.
-- `@hyapi/plugin-csrf`: optional signed double-submit CSRF wrapper for cookie-authenticated browser
-  traffic with exact Origin rules.
-- `shutdownTimeoutMs` application setting (default 30000 ms): `app.close()` drains in-flight
-  requests for up to this long, aborts remaining `ctx.signal`s, then uses a separate cleanup budget
-  of the same length for application resources.
-- [ADR 0001](_design/decisions/0001-layered-error-scopes.md) records the error owners,
-  request/stream lifetimes, bounded cleanup, and Deno listener tradeoffs.
+- `@hyapi/core` facade for Elysia-native `createApplication`, `defineModule`, named Ports and providers with application and request lifetimes, and deterministic cleanup.
+- `guarded()` for mount-level authentication before parsing and validation; `authorizeGuard()` for route-local authorization after validation; `identityFor()`, `defineGuard()`, `allOf()`, and `anyOf()` for guard composition.
+- `HttpError`, `UnauthorizedError`, `ForbiddenError`, and `problemHandler()` for `application/problem+json` responses.
+- Users and Orders example with HS256 Bearer authentication, resource ownership checks, and Bun/Node listener adapters.
 
 ### Changed
 
-- The core runs on one lifecycle state machine: application and request resources are released in
-  reverse order by a shared scope, and every error response comes from one request pipeline.
-- **Breaking:** requests received before start or after `close()` return 503
-  `APPLICATION_UNAVAILABLE`, and `app.health()` reports `unhealthy` once the application stops.
-- **Breaking:** `requestTimeoutMs` also bounds global `onRequest` hooks; `ctx.signal` also aborts
-  when the client disconnects.
-- **Breaking:** when an `onResponse` hook throws, the remaining outer hooks still run and see the
-  error response.
-- **Breaking:** resolving a request-scoped service after its request, or a singleton after
-  `close()`, rejects with `SCOPE_CLOSED`; request cleanup failures only reach `onError`.
-- Application cleanup and startup rollback use bounded asynchronous closer deadlines; shutdown gives
-  cooperative aborted requests a short final drain before closing providers. Native `Response`
-  streams remain caller-owned after the request returns.
-- Publishing rejects a release tag unless it matches both package versions; generated starter
-  verification checks the listener's HTTP response and graceful shutdown, not only its project
-  checks and `doctor` report.
+- **Breaking clean cutover:** Core uses Elysia 1.4.30 routes and schemas directly. The previous module route DSL, `defineConfig`, `serve`, HTTP contracts/clients, lifecycle hooks, health APIs, generated OpenAPI, and old plugin integration are not exported in v0.1. Migrate callers to the v0.1 facade and Elysia-native APIs; there are no compatibility shims.
+- The v0.1 workspace contains Core and the example only. The previous CLI and five plugins do not support this API and are not v0.1 publication targets.
+- Bun 1.4 is the development package manager; compiled Core and the example target Node 24 as well as Bun. The example requires an explicitly injected `JWT_SECRET` of at least 32 UTF-8 bytes; no implicit `.env` loading.
+- OpenAPI is not generated by Core. Elysia-native documentation is application-owned; protected child routes mounted through `guarded()` are opaque to a parent Elysia OpenAPI generator.
 
-### Fixed
-
-- `close()` drains cooperative requests before closing providers and singletons; timed-out
-  uncooperative work may still run after resource closure. Requests after `close()` never reuse
-  closed singletons.
-- Request services created after a request timed out are closed instead of leaked.
-- HTTP client retry backoff stops as soon as the caller aborts.
-- Typed HTTP contract clients allow callers to omit `body` when a route declares
-  `bodyRequired: false`; required-body routes still require it.
-- CLI `doctor` reports missing providers even when unrelated modules reuse a Port variable name;
-  same-named references now resolve within their own module.
-- `bodyLimitBytes` also applies to routes without a body schema that read `ctx.request`; an
-  oversized streamed body returns 413 instead of hanging, and a request timeout cancels a stalled
-  body read.
-- Unsupported media types on typed-body routes now best-effort cancel the request source without
-  delaying 415; oversized bodies still take precedence with 413.
-- Resilience timeouts count as circuit-breaker failures and release their half-open probe and
-  bulkhead slot even if the abandoned operation never settles.
-- Error responses that replace a handler response (for example after a failing global `onResponse`
-  hook) no longer inherit its headers such as `Set-Cookie` or `Location`.
-- `createApplication` fills defaults for partial configs that set `requestIdHeader` and
-  `openapi.path`.
-- Unmatched 404s bypass `onError` while retaining global `onResponse`; relative request strings
-  retain the localhost origin, including `//` paths and colon-containing segments.
-- Discarded response stream cancellation cannot block error serialization; nonconstructible
-  responses produce a fresh hidden 500 while immutable redirects retain their status and headers.
-- Body-schema routes can replay bounded content independently to handler and lifecycle hooks, and
-  client aborts no longer change `ctx.signal` after request-scope cleanup.
-- Asynchronous `onError` observers no longer hold failed requests or cleanup notifications past the
-  request deadline or forced shutdown. Group then global hooks each see the original failure even if
-  a preceding hook changed `lifecycle.error`; abandoned observers may continue later.
-- Startup failures flatten nested provider rollback and plugin/module cleanup errors in order, with
-  the original connect exception first and the cause chain preserved.
-- Example and generated Deno listeners avoid legacy successful-response aborts and defer
-  `server.shutdown()` until transmission finishes or the forced-stop deadline expires.
-
-## [1.0.0-rc.2] - 2026-09-23
-
-### Added
-
-- `bodyLimitBytes` (default 10 MiB, 413 `PAYLOAD_TOO_LARGE`) and `requestTimeoutMs` (default 300000
-  ms, 503 `REQUEST_TIMEOUT`) application settings, and `openapi.enabled`.
-- `ctx.signal`, aborted when the request times out, and `ctx.requestIdHeader`.
-- `HttpContractClientError` reasons `"deadline"` and `"aborted"`.
-- 413 and 415 OpenAPI responses on routes with a request body; 401 on every protected route.
-- MIT `LICENSE`, `SECURITY.md`, `docs/guide/operations.md`, and `_design/baselines/performance.md`.
-- Core benchmarks (`deno task bench`), example `doctor` and generated-starter verification in
-  `deno task verify`, a Windows CI matrix, a JSR publish dry-run, and tag-based publishing.
-- CLI `inspect` reads shared ports from `src/contracts/` and `src/app.ts` and lists requirements and
-  providers; `generate module` prints registration instructions.
-
-### Changed
-
-- **Breaking:** auth scopes from groups and routes are merged as a union; inherited authentication
-  cannot be disabled or made optional.
-- **Breaking:** group and global `onResponse` hooks run in onion order, and error responses pass
-  through group hooks.
-- **Breaking:** hooks, routes, and auth providers cannot be registered after startup.
-- **Breaking:** plugins receive a `PlatformApi` with only `addHook` and `setAuthProvider`.
-- **Breaking:** `module.use(port)` requires the port in `requires`; singleton factories cannot
-  resolve request-scoped services.
-- **Breaking:** `ctx.deadline` is always set; an expired upstream `x-hyapi-deadline` returns 504
-  `DEADLINE_EXCEEDED` before the handler runs.
-- **Breaking:** response bodies are cleaned of fields not declared in the response schema.
-- **Breaking:** JWT secrets are measured in bytes; `crit` headers, missing `exp`, and non-numeric
-  `nbf` are rejected.
-- Deadline headers accept only 1-15 digit values; incoming request IDs must match
-  `^[A-Za-z0-9._:-]{1,128}$`.
-- Circuit breakers use a generation-based half-open state; bulkhead waiters and resilience guards
-  are abortable.
-- `app.health()` checks providers in parallel with a 5-second timeout; providers close in reverse
-  order; startup failures roll back set-up modules and plugins.
-- The example app uses the `src/modules` layout and is no longer a publishable package.
-
-### Removed
-
-- **Breaking:** Hono `raw` on request and lifecycle contexts.
-- **Breaking:** `createTestApplication`; use `createApplication({ overrides })`.
-- **Breaking:** HTTP client `retry` option and `HttpRetryOptions`; use `resilience.retry`.
-- **Breaking:** numeric port/contract versions, `PortVersion`, and `normalizeContractVersion`.
-
-### Fixed
-
-- HTTP contract clients send the contract's HTTP method instead of always `GET`, and preserve
-  `baseUrl` path prefixes.
-- Non-idempotent requests are never retried, even with a custom `retryOn`.
-- Deadline-bound, aborted, and client/contract failures no longer open circuit breakers.
-- Malformed JWTs return 401 instead of 500.
-- `Response.redirect()` and forwarded fetch responses no longer fail with 500.
-- A request-service cleanup failure no longer replaces a successful response.
-- A handler that throws `SyntaxError` returns 500 instead of 400.
-- Failed singleton and request services are rebuilt on the next resolution.
-- CLI module generation creates nested directories and rejects names that do not start with a
-  letter.
-
-## [1.0.0-rc.1] - 2026-09-09
-
-### Changed
-
-- HTTP clients honor propagated absolute deadlines across fetches and retries, and clean up timeout
-  resources after completion.
-- Bulkhead admission is FIFO with reserved concurrency slots.
-- HTTP resilience guards retain circuit-breaker and bulkhead state across calls to a client.
-- Circuit breakers ignore client and contract failures when calculating their threshold.
-- Resilience policy and deadline inputs fail early when invalid.
-
-### Compatibility
-
-- No public API names, signatures, or error reason values changed from v0.9.0.
-
-## [0.2.0 – 0.9.0] - undated
-
-### Added
-
-- Repository roadmap, contribution workflow, and development issue template.
-- Function-first application composition with Modules, Plugins, and scoped services.
-- A v0.2 migration guide.
-- `@hyapi/cli` project/module generation, inspection, and boundary diagnostics.
-- Typed Ports, provider registration, and reusable provider contract-test helpers.
-- Users + Orders reference composition using a local User Directory port.
-- Shared HTTP contracts, typed clients, remote Port providers, and a service-extraction guide.
-- `defineConfig()` defaults, structured boundary diagnostics, JSON CLI output, and framework-neutral
-  request/provider test helpers.
-- Provider connect/health/close lifecycle, health reports, and major/minor contract compatibility.
-- Explicit resilience policies for retry/backoff, timeout budgets, circuit breakers, and bulkheads.
-
-### Changed
-
-- Text-file checkout rules are standardized on LF for deterministic Deno formatting.
-- Release documentation now records the v1.0.0-rc.1 verification baseline and issue evidence
-  requirements.
-- The core package no longer declares the unused AJV validator dependency.
-- **Breaking:** `createApp`, registration plugins, decorations, and root route registration are
-  replaced by `createApplication`, Modules, Plugins, and service references.
-- **Breaking (v0.7):** module startup `imports` is renamed to `dependencies`; `doctor()` now returns
-  structured diagnostics.
-- **v0.8:** provider versions accept major/minor compatibility and `HyApplication` exposes health;
-  HTTP providers may configure `healthPath`.
-
-## [0.1.0] - 2026-08-28
-
-### Added
-
-- Initial HyAPI framework and example application.
+The previous rc.5 release candidate and earlier releases describe historical APIs and are not compatible with v0.1. Local build and pack checks do not establish npm publication.

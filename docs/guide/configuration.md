@@ -1,56 +1,16 @@
 # Configuration
 
-`defineConfig()` validates application settings once and supplies safe defaults.
+`createApp({ container, modules, openapi? })` accepts an InferDI root, module builder callback, and optional explicit OpenAPI settings. It has no `defineConfig()`, implicit environment loader, built-in timeout/body limit, or default edge policy. Inject application settings through your composition root. `app.listen({ port, hostname?, fetch? })` configures the listener; the optional `fetch` is an application-owned outer wrapper, for example for logging.
 
-```ts
-import { defineConfig } from "@hyapi/core";
+The [example entry point](https://github.com/slime21023/hyapi/blob/main/apps/example/src/main.ts) reads:
 
-const config = defineConfig({
-  name: "items-api",
-  bodyLimitBytes: 1_048_576,
-  requestTimeoutMs: 30_000,
-  shutdownTimeoutMs: 10_000,
-  openapi: {
-    defaultDocument: "public",
-    documents: [
-      { id: "public", path: "/openapi.json", title: "Items API" },
-      { id: "internal", path: "/openapi-internal.json", title: "Items Internal API" },
-    ],
-  },
-});
-```
+| Variable       | Required | Effect                                               |
+| -------------- | -------- | ---------------------------------------------------- |
+| `JWT_SECRET`   | Yes      | HS256 secret of at least 32 UTF-8 bytes              |
+| `DATABASE_URL` | Yes      | PostgreSQL connection URI; database must be writable |
+| `HOST`         | No       | Listener hostname; defaults to `127.0.0.1`           |
+| `PORT`         | No       | TCP port; defaults to `8000`                         |
 
-## Environment
+The example verifies JWT signatures with `jose`, requires a `sub` claim, and uses `role: "admin"` for inventory writes. It does not configure issuer or audience policy; supply your own checks if needed. Use a dedicated database/account and restrict network access. Never use the placeholder in `.env.example` as a production key.
 
-`environment` defaults to `production`. Set it to `development` locally to include internal error
-messages and details in problem responses: a thrown error's message and stack, or the issues behind
-a response contract or validation failure. `test` and `production` keep internal errors hidden.
-Never use `development` where clients are untrusted.
-
-## Request and shutdown limits
-
-`bodyLimitBytes` applies even when a client streams a body without `Content-Length`. A request that
-outlives `requestTimeoutMs` receives a timeout response and its `AbortSignal` is aborted. During
-`app.close()`, `shutdownTimeoutMs` bounds request draining and resource cleanup.
-
-## Problem types
-
-Error responses are RFC 9457 `application/problem+json` documents. Their `type` is `about:blank`
-unless `problemTypeBaseUrl` is set, in which case it is `<base>/<lowercase code>`, for example
-`https://errors.example.com/not_found`.
-
-## Module configuration
-
-Module settings are not part of `defineConfig()`. Each module declares its own schema and receives
-values through `createApplication({ moduleConfig })`; see
-[Composition](/guide/composition#module-configuration).
-
-## Multiple OpenAPI documents
-
-Every route is eligible for the `defaultDocument` unless it declares `metadata.documentIds`.
-
-- Omit `documentIds` to include the route only in `defaultDocument`.
-- Provide document IDs to include the route only in those named documents.
-- Provide an empty array to exclude the route from every document.
-
-Set `openapi.enabled` to `false` when the application should not serve OpenAPI documents.
+Environment variables come from the invoking process. No implicit `.env` loading: explicitly opt in with `bun --env-file=.env run dev` or `node --env-file=.env apps/example/dist/main.js`. Do not commit secret-bearing files. For dependency registrations and ownership see [composition](/guide/composition); for listener settings see [operations](/guide/operations).
