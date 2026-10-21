@@ -19,6 +19,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - The caller owns the InferDI root and cleanup of `registerValue` resources after `app.close()`; Core drains accepted handlers and stops listeners but does not dispose the root.
 - The example requires explicit `{ jwtSecret, databaseUrl }` configuration and PostgreSQL rather than in-memory stores. No implicit environment loading or edge policy is installed.
 - Removed obsolete CLI/plugin build artifacts and empty source/test scaffolds; Core and example target Node 24 and Bun.
+- Store the `hyapi` version in `packages/core/package.json`; keep implementation files directly under version-independent `packages/core/src/`.
 
 `bun run verify` and a matching `hyapi-v0.5.0` dry run check local source and tarballs. This entry remains **unreleased** until npm ownership, credentials, actual publication, and a published-package consumer are verified.
 
