@@ -22,13 +22,10 @@
     "test:node": "node --test --test-concurrency=1 --test-timeout=30000 \"tests/core/public/*_test.ts\" \"tests/example/*_test.ts\" \"tests/scripts/internal/*_test.ts\"",
     "verify:consumer": "bun scripts/verify-consumer.ts",
     "publish:check": "bun scripts/packages.ts --check",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "lint": "oxlint .",
-    "verify": "bun run build && bun run fmt:check && bun run lint && bun run check && bun run test && bun run test:node && bun run verify:consumer && bun run publish:check && bun run docs:build"
+    "verify": "bun run build && bun run fmt:check && bun run lint && bun run check && bun run test && bun run test:node && bun run verify:consumer && bun run publish:check"
   },
   "devDependencies": {
     "@inferdi/inferdi": "6.1.0",
@@ -40,9 +37,7 @@
     "postgres": "3.4.9",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
-    "valibot": "1.5.0",
-    "vitepress": "1.6.4",
-    "vue": "3.5.43"
+    "valibot": "1.5.0"
   },
   "prettier": {
     "printWidth": 100,
@@ -51,10 +46,5 @@
     "semi": true,
     "singleQuote": false,
     "endOfLine": "lf"
-  },
-  "patchedDependencies": {
-    "vite@5.4.21": "patches/vite@5.4.21.patch",
-    "vitepress@1.6.4": "patches/vitepress@1.6.4.patch",
-    "@vueuse/core@12.8.2": "patches/@vueuse%2Fcore@12.8.2.patch"
   }
 }

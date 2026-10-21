@@ -9,15 +9,15 @@ bun install --frozen-lockfile
 bun run verify
 ```
 
-`verify` runs build, format/lint/type checks, Bun and Node tests, a local packed consumer, package checks, and documentation build. Tests require a reachable PostgreSQL 16 database via `DATABASE_URL` (for example, the Docker command in [README](README.md)); tests create and clean unique fixtures. CI provisions PostgreSQL on Linux and Windows. Local packed checks cannot prove registry publication.
+`verify` runs build, format/lint/type checks, Bun and Node tests, a local packed consumer, and package checks. Tests require a reachable PostgreSQL 16 database via `DATABASE_URL`; tests create and clean unique fixtures. CI provisions PostgreSQL on Linux and Windows. Local packed checks cannot prove registry publication.
 
 For local development, supply `DATABASE_URL` and a cryptographically random `JWT_SECRET` of at least 32 UTF-8 bytes, then run `bun run dev`. To run built ESM, use `bun run build` followed by `bun run start` or `node apps/example/dist/main.js`. `HOST` and `PORT` are optional; the example does not implicitly load `.env`. To opt in, use `bun --env-file=.env run dev` or `node --env-file=.env apps/example/dist/main.js`.
 
-`bun run docs:dev` previews the guides. Text files use LF line endings on Windows and Unix checkouts. `patches/` contains declaration fixes for the pinned documentation toolchain; remove one only when its upstream fix is selected and verified.
+Text files use LF line endings on Windows and Unix checkouts.
 
 ## Changes and releases
 
-Keep changes focused and update user documentation and behavior tests alongside public API changes. A module returns Elysia plugins and declares dependencies through Ports; do not restore an old route DSL or publish the old CLI/plugins as compatible. `_design/` migrations remain historical.
+Keep changes focused and update retained project notes and behavior tests alongside public API changes. Modules declare routes through a `routes: (route) => [...]` callback in `createApp({ container, modules: ({ module }) => [...] })`; do not restore the old Ports/Elysia plugin API or publish the old CLI/plugins as compatible. `_design/` migrations remain historical.
 
 Before a release, run `bun install --frozen-lockfile` and `bun run verify` with `DATABASE_URL`, inspect the single-package tarball, then run `bun scripts/release.ts hyapi-v0.5.0 --dry-run`. Publication uses only a matching stable `hyapi-v<version>` tag at or above 0.5.0, an available npm name, and `NPM_CONFIG_TOKEN`; old `core-v*` tags cannot publish. After publication, install the actual npm version in an external consumer and exercise declarations and HTTP on Bun and Node 24. Never commit credentials.
 

@@ -11,7 +11,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - Lazy, opt-in InferDI scopes via `scoped: true` and `scope.get(...)`; `reply(status, value)` for declared response statuses and native `Response` streaming.
 - Built-in Bun/Node `app.listen(...)`, direct `app.fetch(...)`, and optional application-owned listener fetch wrapper for logging.
 - PostgreSQL-backed single-tenant Users, Inventory, and Orders reference; purchase and stock deduction share a transaction, with missing-stock 404, insufficient-stock 409, and owner/admin authorization.
-- Example `/health/live`, PostgreSQL-backed `/health/ready`, `/health/stream`, explicit `/openapi/json`, and [migration guidance](docs/guide/migration-to-0.5.md).
+- Example `/health/live`, PostgreSQL-backed `/health/ready`, `/health/stream`, and explicit `/openapi/json`.
 
 ### Changed
 
@@ -20,6 +20,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - The example requires explicit `{ jwtSecret, databaseUrl }` configuration and PostgreSQL rather than in-memory stores. No implicit environment loading or edge policy is installed.
 - Removed obsolete CLI/plugin build artifacts and empty source/test scaffolds; Core and example target Node 24 and Bun.
 - Store the `hyapi` version in `packages/core/package.json`; keep implementation files directly under version-independent `packages/core/src/`.
+- Removed the old user guides, VitePress site, and documentation-only toolchain.
 
 `bun run verify` and a matching `hyapi-v0.5.0` dry run check local source and tarballs. This entry remains **unreleased** until npm ownership, credentials, actual publication, and a published-package consumer are verified.
 

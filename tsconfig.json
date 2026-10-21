@@ -10,8 +10,7 @@
     "tests/core/public/**/*_test.ts",
     "tests/example/**/*_test.ts",
     "tests/scripts/internal/**/*_test.ts",
-    "scripts/**/*.ts",
-    "docs/.vitepress/config.ts"
+    "scripts/**/*.ts"
   ],
   "exclude": ["node_modules", "**/dist"]
 }
