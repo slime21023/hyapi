@@ -14,4 +14,4 @@ The maintainer coordinates triage, a fix, and disclosure with the reporter.
 
 ## Security boundary
 
-Applications choose module `authenticate` behavior and their own authorization policy. Core maps internal errors to safe Problem JSON responses. Network access, request body limits, and timeout policies are external to Core and must be configured by the application or its infrastructure. The private [ERP example](apps/example/src/app.ts) implements its own Bearer authentication; its choices are not Core defaults.
+Applications choose module `authenticate` behavior and their own authorization policy. Core maps internal errors to safe Problem JSON responses. Network access, request body limits, and timeout policies are external to Core and must be configured by the application or its infrastructure. The private [ERP example](apps/example/src/auth.ts) implements its own Bearer authentication; its choices are not Core defaults.

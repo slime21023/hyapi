@@ -3,7 +3,9 @@ import { test } from "node:test";
 import { SignJWT } from "jose";
 import postgres from "postgres";
 import { buildExampleApp, type ExampleApp } from "../../apps/example/src/app.ts";
-import type { InventoryItem, Order, User } from "../../apps/example/src/db.ts";
+import type { InventoryItem } from "../../apps/example/src/modules/inventory/store.ts";
+import type { Order } from "../../apps/example/src/modules/orders/store.ts";
+import type { User } from "../../apps/example/src/modules/users/store.ts";
 
 function requireDatabaseUrl(): string {
   const url = process.env.DATABASE_URL;

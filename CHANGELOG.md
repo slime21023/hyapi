@@ -21,6 +21,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - Removed obsolete CLI/plugin build artifacts and empty source/test scaffolds; Core and example target Node 24 and Bun.
 - Store the `hyapi` version in `packages/core/package.json`; keep implementation files directly under version-independent `packages/core/src/`.
 - Removed the old user guides, VitePress site, and documentation-only toolchain.
+- Restructured the private ERP example into explicit authentication and business modules; Orders composes Inventory stock reservation and order creation within one PostgreSQL transaction.
 
 `bun run verify` and a matching `hyapi-v0.5.0` dry run check local source and tarballs. This entry remains **unreleased** until npm ownership, credentials, actual publication, and a published-package consumer are verified.
 
