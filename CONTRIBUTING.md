@@ -15,6 +15,18 @@ For local development, supply `DATABASE_URL` and a cryptographically random `JWT
 
 Text files use LF line endings on Windows and Unix checkouts.
 
+## Documentation
+
+The English official website lives in `docs/` and uses VitePress:
+
+```sh
+bun run docs:dev
+bun run docs:build
+bun run docs:preview
+```
+
+The README Quickstart is included into the site from a single source; import existing example code rather than copying it into separate guides. Version 0.5.0 is unreleased: examples must work from this checkout, not assume an npm install. When a public behavior changes, recheck the affected snippets and build the site before handing off.
+
 ## Changes and releases
 
 Keep changes focused and update retained project notes and behavior tests alongside public API changes. Modules declare routes through a `routes: (route) => [...]` callback in `createApp({ container, modules: ({ module }) => [...] })`; do not restore the old Ports/Elysia plugin API or publish the old CLI/plugins as compatible. `_design/` migrations remain historical.

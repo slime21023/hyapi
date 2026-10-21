@@ -17,6 +17,9 @@
     "dev:packages": "bun run --filter hyapi dev",
     "dev:example": "bun --watch apps/example/src/main.ts",
     "start": "bun apps/example/dist/main.js",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "bun test --timeout 30000 tests/core/public tests/example tests/scripts/internal",
     "test:node": "node --test --test-concurrency=1 --test-timeout=30000 \"tests/core/public/*_test.ts\" \"tests/example/*_test.ts\" \"tests/scripts/internal/*_test.ts\"",
@@ -37,7 +40,8 @@
     "postgres": "3.4.9",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
-    "valibot": "1.5.0"
+    "valibot": "1.5.0",
+    "vitepress": "1.6.4"
   },
   "prettier": {
     "printWidth": 100,
