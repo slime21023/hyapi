@@ -277,3 +277,79 @@ test("parse, response, and asynchronous validation failures carry no issue list"
     await close();
   }
 });
+
+test("a schema that throws while issues are listed still yields a plain 400", async () => {
+  let calls = 0;
+  const flaky: Schema = {
+    "~standard": {
+      version: 1,
+      vendor: "flaky",
+      validate() {
+        if (++calls > 1) throw new Error("validator crashed");
+        return { issues: [{ message: "invalid" }] };
+      },
+    },
+  };
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "flaky",
+        prefix: "/flaky",
+        routes: (route) => [route.post("/", { body: flaky, handler: () => "ok" })],
+      }),
+    ],
+  });
+  try {
+    const response = await app.fetch(
+      new Request(`${origin}/flaky/`, { method: "POST", headers: json, body: "{}" }),
+    );
+    const body = await response.json();
+    assert.deepEqual(
+      [response.status, body.code, body.errors],
+      [400, "VALIDATION_ERROR", undefined],
+    );
+  } finally {
+    await app.close();
+    await root.dispose();
+  }
+});
+
+test("issue paths may mix property keys and path segment objects", async () => {
+  const custom: Schema = {
+    "~standard": {
+      version: 1,
+      vendor: "custom",
+      validate: () => ({
+        issues: [
+          { message: "bad item", path: ["items", 0, { key: "name" }] },
+          { message: "bad root" },
+        ],
+      }),
+    },
+  };
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "custom",
+        prefix: "/custom",
+        routes: (route) => [route.post("/", { body: custom, handler: () => "ok" })],
+      }),
+    ],
+  });
+  try {
+    const response = await app.fetch(
+      new Request(`${origin}/custom/`, { method: "POST", headers: json, body: "{}" }),
+    );
+    assert.deepEqual((await response.json()).errors, [
+      { in: "body", pointer: "/items/0/name", message: "bad item" },
+      { in: "body", pointer: "", message: "bad root" },
+    ]);
+  } finally {
+    await app.close();
+    await root.dispose();
+  }
+});
