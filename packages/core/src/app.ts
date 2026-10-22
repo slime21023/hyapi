@@ -19,6 +19,7 @@ import type {
 } from "./contract.ts";
 import { createListener } from "./listener.ts";
 import { installOpenApi } from "./openapi.ts";
+import { overlappingPaths, routePattern } from "./paths.ts";
 
 /** Select a non-default success status declared in the route response map. */
 export function reply<const Status extends number, Value>(
@@ -28,34 +29,6 @@ export function reply<const Status extends number, Value>(
   if (!Number.isInteger(status) || status < 200 || status >= 400)
     throw new RangeError("Reply status must be a 2xx or 3xx HTTP status.");
   return { status, value, [replyBrand]: true };
-}
-
-/** Match only declared route syntax before Elysia parses a protected body. */
-function routePattern(prefix: string, path: string): RegExp {
-  const full = `${prefix === "/" ? "" : prefix}${path}`;
-  const segments = full.split("/").map((segment) => {
-    if (/^:[A-Za-z_]\w*$/.test(segment)) return "[^/]+";
-    if (segment && !/^[-A-Za-z0-9._~%]+$/.test(segment))
-      throw new Error(`Unsupported route segment '${segment}' in '${full}'.`);
-    return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  });
-  return new RegExp(`^${segments.join("/").replace(/\/$/, "")}/?$`);
-}
-
-function overlappingPaths(left: string, right: string): boolean {
-  const first = left.replace(/\/$/, "").split("/");
-  const second = right.replace(/\/$/, "").split("/");
-  return (
-    first.length === second.length &&
-    first.every((segment, index) => {
-      const other = second[index]!;
-      return (
-        segment.startsWith(":") ||
-        other.startsWith(":") ||
-        segment.toLowerCase() === other.toLowerCase()
-      );
-    })
-  );
 }
 
 function routes<C extends RootContainer, I>(): RouteApi<C, I> {
