@@ -1,6 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { packPackage, readPackages } from "./packages.ts";
 import { runProcess } from "./process.ts";
@@ -142,7 +142,7 @@ try {
   assert.deepEqual(document.paths["/private/echo"].post.security, [{ BearerAuth: [] }]);
 } finally {
   try {
-    await app?.close();
+    await app?.close({ timeoutMs: 5000 });
   } finally {
     await root.dispose();
   }
@@ -234,6 +234,10 @@ export const app = createApp({
     }),
   ],
 });
+
+export const shutdown = (): Promise<void> => app.close({ timeoutMs: 1000 });
+// @ts-expect-error The close timeout is a number of milliseconds.
+void app.close({ timeoutMs: "1000" });
 `,
   );
   await writeFile(
@@ -245,6 +249,22 @@ export const app = createApp({
     }),
   );
   await runProcess("bun", ["install"], temp);
+  // Walk only declarations reachable from the facade; private Core files may still use Elysia.
+  const dist = join(temp, "node_modules", "hyapi", "dist");
+  const pending = [join(dist, "mod.d.ts")];
+  const visited = new Set<string>();
+  for (let file = pending.pop(); file; file = pending.pop()) {
+    if (visited.has(file)) continue;
+    visited.add(file);
+    const source = await readFile(file, "utf8");
+    for (const [, specifier] of source.matchAll(/(?:from|import\()\s*["']([^"']+)["']/g)) {
+      if (/^(?:elysia|@elysia\/)/.test(specifier!))
+        throw new Error(`Public declarations expose Elysia through ${file}: ${specifier}`);
+      if (specifier!.startsWith("."))
+        pending.push(join(dirname(file), specifier!.replace(/\.[cm]?[jt]s$/, ".d.ts")));
+    }
+  }
+  if (visited.size < 2) throw new Error("Public declaration graph was not traversed.");
   await runProcess(
     "node",
     [join(root, "node_modules", "typescript", "bin", "tsc"), "-p", temp],
