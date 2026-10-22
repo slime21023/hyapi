@@ -22,6 +22,9 @@ export async function createListener(app: AnyElysia, options: ListenOptions): Pr
     {
       port: options.port,
       ...(options.hostname === undefined ? {} : { hostname: options.hostname }),
+      // Elysia's Bun adapter defaults to SO_REUSEPORT, which lets a second process silently
+      // share an occupied port; fail the bind instead, as Node does.
+      reusePort: false,
     },
     (server) => {
       binding.server = server;
