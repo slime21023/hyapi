@@ -243,3 +243,21 @@ test("a schema transform that JSON Schema cannot represent rejects documented st
   );
   assert.doesNotThrow(() => createApp({ container: new Container(), modules }).close());
 });
+
+test("root-prefixed routes are documented without a doubled slash", async () => {
+  const document = await documentOf(
+    ({ module }) => [
+      module({
+        name: "root",
+        prefix: "/",
+        routes: (route) => [
+          route.get("/", { handler: () => "index" }),
+          route.get("/health", { handler: () => "ok" }),
+        ],
+      }),
+    ],
+    { path: "/openapi", info },
+  );
+  const paths = Object.keys(document.paths).filter((path) => !path.startsWith("/openapi"));
+  assert.deepEqual(paths.sort(), ["/", "/health"]);
+});

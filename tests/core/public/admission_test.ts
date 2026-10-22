@@ -172,3 +172,41 @@ test("interleaved asynchronous authentication keeps each identity with its own r
     await close();
   }
 });
+
+test("a root-prefixed module routes single-slash paths and guards every spelling", async () => {
+  let authenticated = 0;
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "admin",
+        prefix: "/",
+        authenticate(request) {
+          authenticated++;
+          if (request.headers.get("authorization") !== "ok") throw new UnauthorizedError();
+          return { subject: "root" };
+        },
+        routes: (route) => [
+          route.get("/", { handler: () => "index" }),
+          route.get("/admin", { handler: ({ identity }) => identity.subject }),
+          route.get("/users/:id", { handler: ({ params }) => params.id }),
+        ],
+      }),
+    ],
+  });
+  const send = (path: string, authorization?: string) =>
+    app.fetch(new Request(`${origin}${path}`, authorization ? { headers: { authorization } } : {}));
+  try {
+    assert.equal(await (await send("/", "ok")).text(), "index");
+    assert.equal(await (await send("/admin", "ok")).text(), "root");
+    assert.equal(await (await send("/users/7", "ok")).text(), "7");
+    for (const path of ["/admin", "/users/7"]) assert.equal((await send(path)).status, 401, path);
+    authenticated = 0;
+    for (const path of ["//admin", "//users/7"]) assert.equal((await send(path)).status, 404, path);
+    assert.equal(authenticated, 0);
+  } finally {
+    await app.close();
+    await root.dispose();
+  }
+});

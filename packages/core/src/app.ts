@@ -182,7 +182,8 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     });
 
   for (const entry of modules) {
-    app.group(entry.prefix, (group) => {
+    // Elysia joins a "/" group with "/health" as "//health"; a root module has no prefix to add.
+    app.group(entry.prefix === "/" ? "" : entry.prefix, (group) => {
       for (const route of entry.routes) {
         const config = route.options;
         // Elysia validates only declared statuses, so an undeclared reply would bypass its schema.

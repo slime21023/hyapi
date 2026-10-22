@@ -19,6 +19,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 ### Security
 
 - Requests whose host is shorter than the internal router's fixed path offset (for example `Host: l`) now fail with 400 `UNROUTABLE_REQUEST`. Previously the router matched a suffix of the real path, so a client-controlled `Host` header could reach a protected handler without authentication on Bun and Node.
+- Modules with prefix `/` now register `/health` instead of `//health`. Previously their non-root routes answered only on a doubled slash, which also skipped a protected root module's authentication (`GET //admin` reached the handler) and documented `//`-prefixed OpenAPI paths.
 
 ### Changed
 
