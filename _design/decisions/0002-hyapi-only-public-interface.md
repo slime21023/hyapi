@@ -116,6 +116,8 @@ routes in `routes: (route) => [...]`, and uses `app.fetch`, `app.listen`, and `a
   own issue paths stringify Standard Schema path segments. Response validation stays private.
 - 2026-10-22: `reply` accepts `{ headers }` so explicit-status responses can carry headers without
   becoming opaque native `Response` objects; a failed response discards those headers.
+- 2026-10-22: Routes may declare `operationId` and `documented: false`. An undocumented route is
+  excluded rather than partially described, keeping the no-incomplete-document rule intact.
 
 ## InferDI lifecycle references
 

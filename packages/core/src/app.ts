@@ -248,6 +248,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
           ...(config.description ? { description: config.description } : {}),
           ...(config.tags ? { tags: [...config.tags] } : {}),
           ...(config.operationId ? { operationId: config.operationId } : {}),
+          ...(config.documented === false ? { hide: true } : {}),
           ...(entry.security ? { security: [{ [entry.security]: [] }] } : {}),
         };
         group.route(

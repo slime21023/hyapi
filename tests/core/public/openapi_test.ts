@@ -280,3 +280,77 @@ test("explicit operation IDs replace generated ones in the document", async () =
   assert.equal(typeof document.paths["/orders/{id}"].get.operationId, "string");
   assert.notEqual(document.paths["/orders/{id}"].get.operationId, "listOrders");
 });
+
+test("undocumented routes skip schema projection but still validate requests", async () => {
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "uploads",
+        prefix: "/uploads",
+        routes: (route) => [
+          route.post("/", {
+            documented: false,
+            body: v.object({ name: v.string(), file: v.instance(File) }),
+            handler: ({ body }) => ({ name: body.name, size: body.file.size }),
+          }),
+          route.get("/", { handler: () => [] }),
+        ],
+      }),
+    ],
+    openapi: { path: "/openapi", info },
+  });
+  try {
+    const document = await (await app.fetch(new Request("http://localhost/openapi/json"))).json();
+    assert.deepEqual(Object.keys(document.paths["/uploads/"]), ["get"]);
+    const form = new FormData();
+    form.set("name", "notes");
+    form.set("file", new File(["hello"], "notes.txt", { type: "text/plain" }));
+    const uploaded = await app.fetch(
+      new Request("http://localhost/uploads/", { method: "POST", body: form }),
+    );
+    assert.deepEqual(await uploaded.json(), { name: "notes", size: 5 });
+    const missing = new FormData();
+    missing.set("name", "notes");
+    const rejected = await app.fetch(
+      new Request("http://localhost/uploads/", { method: "POST", body: missing }),
+    );
+    assert.equal(rejected.status, 400);
+  } finally {
+    await app.close();
+    await root.dispose();
+  }
+});
+
+test("only protected modules with documented routes need a security scheme", () => {
+  const protectedModule =
+    (documented: boolean): Modules =>
+    ({ module }) => [
+      module({
+        name: "internal",
+        prefix: "/internal",
+        authenticate: () => ({ subject: "ops" }),
+        routes: (route) => [
+          route.get("/hidden", { documented: false, handler: () => "hidden" }),
+          route.get("/shown", { documented, handler: () => "shown" }),
+        ],
+      }),
+    ];
+  assert.doesNotThrow(() =>
+    createApp({
+      container: new Container(),
+      modules: protectedModule(false),
+      openapi: { path: "/openapi", info },
+    }),
+  );
+  assert.throws(
+    () =>
+      createApp({
+        container: new Container(),
+        modules: protectedModule(true),
+        openapi: { path: "/openapi", info },
+      }),
+    /needs a declared OpenAPI security scheme/,
+  );
+});

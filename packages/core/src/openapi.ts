@@ -39,15 +39,17 @@ export function installOpenApi(
   };
 
   for (const module of modules) {
+    const documented = module.routes.filter((route) => route.options.documented !== false);
     if (
       module.authenticate &&
+      documented.length > 0 &&
       (!module.security ||
         !Object.hasOwn(options.securitySchemes ?? {}, module.security) ||
         !options.securitySchemes?.[module.security])
     ) {
       throw new Error(`Protected module "${module.name}" needs a declared OpenAPI security scheme`);
     }
-    for (const route of module.routes) {
+    for (const route of documented) {
       const { params, query, body, response } = route.options;
       for (const schema of [params, query, body]) {
         if (schema) convert(schema);

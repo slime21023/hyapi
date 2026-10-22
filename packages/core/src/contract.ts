@@ -93,6 +93,8 @@ export interface RouteOptions<
   readonly tags?: readonly string[];
   /** Names the OpenAPI operation, e.g. for generated client methods; unique per application. */
   readonly operationId?: string;
+  /** false omits the route from OpenAPI, e.g. when its schemas have no JSON Schema form. */
+  readonly documented?: boolean;
 }
 
 export interface RouteDefinition {

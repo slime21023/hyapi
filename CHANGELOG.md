@@ -12,6 +12,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - Built-in Bun/Node `app.listen(...)`, direct `app.fetch(...)`, and optional application-owned listener fetch wrapper for logging.
 - `app.close({ timeoutMs })` bounds the caller's shutdown wait without cancelling accepted handlers; the example entry point uses a 10-second deadline.
 - A `reply` status missing from a declared `response` contract fails with a private 500 instead of skipping response validation.
+- `documented: false` omits a route from OpenAPI, so routes with schemas that have no JSON Schema form (for example file uploads) no longer block documented startup.
 - Routes accept a unique `operationId` for OpenAPI operations; duplicates or empty IDs reject composition.
 - `reply(status, value, { headers })` sends response headers such as `Location` or multiple `Set-Cookie` values with a schema-validated body; they are dropped when the response fails.
 - Request `VALIDATION_ERROR` responses list each failed rule in `errors` as `{ in, pointer, message }`, using the route's own Standard Schema issues and RFC 6901 JSON Pointers.
