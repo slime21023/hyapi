@@ -17,7 +17,6 @@ import type {
   RootContainer,
   RouteApi,
   RouteDefinition,
-  Schema,
 } from "./contract.ts";
 import { createListener } from "./listener.ts";
 import { installOpenApi } from "./openapi.ts";
@@ -52,7 +51,7 @@ function routes<C extends RootContainer, I>(): RouteApi<C, I> {
         ...(response ? ("~standard" in response ? [response] : Object.values(response)) : []),
       ];
       for (const schema of schemas) {
-        if (schema && (schema as Schema)["~standard"]?.version !== 1) {
+        if (schema && schema["~standard"]?.version !== 1) {
           throw new Error(`Route '${path}' needs a Standard Schema v1 schema.`);
         }
       }
@@ -88,7 +87,7 @@ function observe(
 
 /** Build routes once; the application owns the root container and supplied values. */
 export function createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application {
-  const module: ModuleBuilder<C> = (<I>(definition: PublicModule<C> | ProtectedModule<C, I>) => {
+  const module: ModuleBuilder<C> = <I>(definition: PublicModule<C> | ProtectedModule<C, I>) => {
     if (!definition.name || !definition.prefix.startsWith("/")) {
       throw new Error("Modules need a name and an absolute path prefix.");
     }
@@ -108,7 +107,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
           }
         : {}),
     };
-  }) as ModuleBuilder<C>;
+  };
   const modules = options.modules({ module });
   const names = new Set<string>();
   const methods = new Set<string>();
@@ -122,7 +121,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const authPolicies: Array<{
     method: string;
     pattern: RegExp;
-    authenticate(request: Request): unknown | Promise<unknown>;
+    authenticate(request: Request): unknown;
   }> = [];
   for (const entry of modules) {
     if (names.has(entry.name)) throw new Error(`Module '${entry.name}' is registered twice.`);

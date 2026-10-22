@@ -27,6 +27,8 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 
 ### Changed
 
+- `Application` declares `fetch`, `listen`, and `close` as readonly function properties instead of methods, stating that they can be passed detached; `ModuleDefinition.authenticate` returns `unknown` (it may still return a promise). Both are type-equivalent for callers.
+- Lint enforces the Google TypeScript Style Guide rules oxlint can check, including type-aware `no-floating-promises` via `oxlint-tsgolint`.
 - **Breaking package and API cutover:** `hyapi@0.5.0` is the only planned publishable package. Remove `@hyapi/core`, `createApplication`, `defineModule`, Ports/providers, Elysia route plugins, `guarded`, and guard combinators. No compatibility aliases are exported. Historical `core-v*` and versions below 0.5.0 cannot publish.
 - The caller owns the InferDI root and cleanup of `registerValue` resources after `app.close()`; Core drains accepted handlers and stops listeners but does not dispose the root.
 - The example requires explicit `{ jwtSecret, databaseUrl }` configuration and PostgreSQL rather than in-memory stores. No implicit environment loading or edge policy is installed.

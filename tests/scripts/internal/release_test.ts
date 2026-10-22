@@ -11,7 +11,7 @@ test("only hyapi is selected for packing", async () => {
   const packages = await readPackages();
   assert.equal(packages.length, 1);
   assert.equal(packages[0]?.name, "hyapi");
-  assertReleaseTag(`hyapi-v${packages[0]?.version}`, packages[0]!);
+  assertReleaseTag(`hyapi-v${packages[0]?.version}`, packages[0]);
 });
 
 test("release tags accept matching stable versions from 0.5.0 onwards", () => {

@@ -27,7 +27,7 @@
     "publish:check": "bun scripts/packages.ts --check",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
-    "lint": "oxlint .",
+    "lint": "oxlint --type-aware .",
     "verify": "bun run build && bun run fmt:check && bun run lint && bun run check && bun run test && bun run test:node && bun run verify:consumer && bun run publish:check"
   },
   "devDependencies": {
@@ -37,6 +37,7 @@
     "hyapi": "workspace:*",
     "jose": "6.2.12",
     "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2004",
     "postgres": "3.4.9",
     "prettier": "3.9.10",
     "typescript": "6.0.3",

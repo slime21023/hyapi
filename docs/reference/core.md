@@ -14,7 +14,7 @@ createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application
 
 ### `Application`, `CloseOptions`, `ListenOptions`, and `Listener`
 
-- **`Application`** — `fetch(request: Request): Promise<Response>` handles requests in process; `listen(options: ListenOptions): Promise<Listener>` binds HTTP; `close(options?: CloseOptions): Promise<void>` stops admission/listeners and drains accepted handlers without disposing the root.
+- **`Application`** — `fetch(request: Request): Promise<Response>` handles requests in process; `listen(options: ListenOptions): Promise<Listener>` binds HTTP; `close(options?: CloseOptions): Promise<void>` stops admission/listeners and drains accepted handlers without disposing the root. The members are function properties that do not use `this`, so they can be passed detached, for example `{ fetch: app.fetch }`.
 - **`CloseOptions`** — `timeoutMs?: number` (non-negative, finite) rejects that `close` call with `Application close timed out.` once the deadline passes; accepted handlers are not cancelled and keep draining.
 - **`ListenOptions`** — `port: number` required; `hostname?: string`; `fetch?: (request: Request) => Response | Promise<Response>` is an application-owned outer HTTP wrapper. No implicit middleware or edge policy.
 - **`Listener`** — `url: URL` is the bound address; `stop(): Promise<void>` stops that listener. Binding a port that is already in use rejects on both Bun and Node; HyAPI does not enable port sharing (`SO_REUSEPORT`).

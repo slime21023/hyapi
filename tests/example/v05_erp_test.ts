@@ -46,7 +46,7 @@ async function withDatabaseApp(
     lin: string;
     admin: string;
     sku: string;
-    send(path: string, init?: RequestInit): Promise<Response>;
+    send: (path: string, init?: RequestInit) => Promise<Response>;
   }) => Promise<void>,
 ): Promise<void> {
   const suffix = crypto.randomUUID();

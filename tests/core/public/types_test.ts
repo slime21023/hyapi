@@ -11,6 +11,7 @@ const expectType = <T extends true>(): T | void => undefined;
 function declarations() {
   const root = new Container()
     .declareScopeInputs<{ identity: { subject: string } }>()
+    // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- widens "s" so the graph stores string
     .registerValue("secret", "s" as string);
   return createApp({
     container: root,

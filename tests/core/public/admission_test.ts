@@ -8,7 +8,7 @@ const origin = "http://localhost";
 
 function fixture() {
   const calls: string[] = [];
-  const root = new Container().registerValue("secret", "ok" as string);
+  const root = new Container().registerValue("secret", "ok");
   const app = createApp({
     container: root,
     modules: ({ module }) => [

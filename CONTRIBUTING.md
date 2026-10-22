@@ -9,7 +9,7 @@ bun install --frozen-lockfile
 bun run verify
 ```
 
-`verify` runs build, format/lint/type checks, Bun and Node tests, a local packed consumer, and package checks. Tests require a reachable PostgreSQL 16 database via `DATABASE_URL`; tests create and clean unique fixtures. CI provisions PostgreSQL on Linux and Windows. Local packed checks cannot prove registry publication.
+`verify` runs build, format checks, type-aware oxlint (Google TypeScript Style Guide rules plus `no-floating-promises`; naming is checked in review), type checks, Bun and Node tests, a local packed consumer, and package checks. Tests require a reachable PostgreSQL 16 database via `DATABASE_URL`; tests create and clean unique fixtures. CI provisions PostgreSQL on Linux and Windows. Local packed checks cannot prove registry publication.
 
 For local development, supply `DATABASE_URL` and a cryptographically random `JWT_SECRET` of at least 32 UTF-8 bytes, then run `bun run dev`. To run built ESM, use `bun run build` followed by `bun run start` or `node apps/example/dist/main.js`. `HOST` and `PORT` are optional; the example does not implicitly load `.env`. To opt in, use `bun --env-file=.env run dev` or `node --env-file=.env apps/example/dist/main.js`.
 

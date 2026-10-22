@@ -136,7 +136,8 @@ export interface ModuleDefinition {
   readonly prefix: string;
   readonly routes: readonly RouteDefinition[];
   readonly security?: string;
-  readonly authenticate?: (request: Request) => unknown | Promise<unknown>;
+  /** May return the identity directly or as a promise. */
+  readonly authenticate?: (request: Request) => unknown;
 }
 
 interface ModuleBase<C extends RootContainer, I> {
@@ -200,9 +201,10 @@ export interface CloseOptions {
   /** Rejects this call after the given milliseconds; accepted handlers keep running to completion. */
   readonly timeoutMs?: number;
 }
+/** Members do not use `this`, so they may be passed around detached, e.g. `{ fetch: app.fetch }`. */
 export interface Application {
-  fetch(request: Request): Promise<Response>;
-  listen(options: ListenOptions): Promise<Listener>;
+  readonly fetch: (request: Request) => Promise<Response>;
+  readonly listen: (options: ListenOptions) => Promise<Listener>;
   /** Stops admission and drains accepted handler work. Does not dispose the caller's root container. */
-  close(options?: CloseOptions): Promise<void>;
+  readonly close: (options?: CloseOptions) => Promise<void>;
 }
