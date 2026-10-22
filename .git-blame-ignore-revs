@@ -1,0 +1,5 @@
+# Purely mechanical commits that `git blame` should skip.
+# Enable locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# style: format the repository with gts Prettier options
+ba2469640ed3fc9cf37d016a70b3a0e6b09e7c4d
