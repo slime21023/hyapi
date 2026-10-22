@@ -13,6 +13,7 @@ export type {
   ProtectedModule,
   PublicModule,
   Reply,
+  ReplyOptions,
   RouteApi,
   RouteContext,
   RouteDefinition,

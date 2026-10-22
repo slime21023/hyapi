@@ -47,10 +47,10 @@ Protected `authenticate` runs before parsing/validation and supplies the route's
 - **`Reply<Status, Value>`** — opaque branded successful status/value pair returned by `reply`; do not construct it by hand.
 
 ```ts
-reply<Status extends number, Value>(status: Status, value: Value): Reply<Status, Value>
+reply<Status extends number, Value>(status: Status, value: Value, options?: ReplyOptions): Reply<Status, Value>
 ```
 
-`reply` accepts integer 200–399; a non-default status must be in the route's response map. Errors use exceptions rather than `reply(4xx, ...)`.
+`reply` accepts integer 200–399; a non-default status must be in the route's response map. `ReplyOptions.headers?: HeadersInit` adds response headers (for example `Location` or several `Set-Cookie` values) while the value is still schema-validated; an explicit `content-type` replaces the JSON default. Malformed header names throw `TypeError` when `reply` is called, and reply headers are dropped if the response then fails. Errors use exceptions rather than `reply(4xx, ...)`.
 
 ## OpenAPI
 

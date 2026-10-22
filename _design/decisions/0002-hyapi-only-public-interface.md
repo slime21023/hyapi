@@ -114,6 +114,8 @@ routes in `routes: (route) => [...]`, and uses `app.fetch`, `app.listen`, and `a
 - 2026-10-22: Request validation Problem JSON lists `errors: [{ in, pointer, message }]` by
   default. Issues come from re-running the route's synchronous Standard Schema, because Elysia's
   own issue paths stringify Standard Schema path segments. Response validation stays private.
+- 2026-10-22: `reply` accepts `{ headers }` so explicit-status responses can carry headers without
+  becoming opaque native `Response` objects; a failed response discards those headers.
 
 ## InferDI lifecycle references
 

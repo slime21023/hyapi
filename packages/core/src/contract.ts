@@ -51,7 +51,13 @@ export const replyBrand = Symbol("hyapi.reply");
 export interface Reply<Status extends number, Value> {
   readonly status: Status;
   readonly value: Value;
+  readonly headers?: Headers;
   readonly [replyBrand]: true;
+}
+
+export interface ReplyOptions {
+  /** Sent with the schema-validated value; an explicit content-type replaces the JSON default. */
+  readonly headers?: HeadersInit;
 }
 
 export type HandlerResult<R extends ResponseSchemas | undefined> = R extends Schema

@@ -13,6 +13,7 @@ import type {
   ProtectedModule,
   PublicModule,
   Reply,
+  ReplyOptions,
   RootContainer,
   RouteApi,
   RouteDefinition,
@@ -26,10 +27,13 @@ import { overlappingPaths, routePattern, routerSeesUrlPath } from "./paths.ts";
 export function reply<const Status extends number, Value>(
   status: Status,
   value: Value,
+  options?: ReplyOptions,
 ): Reply<Status, Value> {
   if (!Number.isInteger(status) || status < 200 || status >= 400)
     throw new RangeError("Reply status must be a 2xx or 3xx HTTP status.");
-  return { status, value, [replyBrand]: true };
+  // Parse now so a malformed header fails where it was written, not inside response handling.
+  const headers = options?.headers === undefined ? undefined : new Headers(options.headers);
+  return { status, value, ...(headers ? { headers } : {}), [replyBrand]: true };
 }
 
 function routes<C extends RootContainer, I>(): RouteApi<C, I> {
@@ -58,6 +62,13 @@ function routes<C extends RootContainer, I>(): RouteApi<C, I> {
     patch: method("PATCH"),
     delete: method("DELETE"),
   } as RouteApi<C, I>;
+}
+
+/** Copy reply headers onto Elysia's response, keeping each Set-Cookie as its own header line. */
+function applyHeaders(target: Record<string, unknown>, headers: Headers): void {
+  for (const [name, value] of headers) if (name !== "set-cookie") target[name] = value;
+  const cookies = headers.getSetCookie();
+  if (cookies.length) target["set-cookie"] = cookies;
 }
 
 /** Notify without awaiting: an observer failure must not replace or delay the chosen response. */
@@ -173,6 +184,9 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   let closing: Promise<void> | undefined;
   const app = new Elysia(process.versions.bun ? {} : { adapter: node() })
     .onError((context) => {
+      // Only reply() writes these, and Elysia merges them into error responses: a failed reply
+      // must not leak its Location or Set-Cookie onto the Problem JSON.
+      for (const name of Object.keys(context.set.headers)) delete context.set.headers[name];
       const response = problemHandler(context, validationIssues(context));
       if (response.status === 500 && options.onError) observe(options.onError, context);
       return response;
@@ -257,6 +271,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
                 if (declaredStatuses && !declaredStatuses.has(selected.status))
                   throw new Error(`Route replied with undeclared status ${selected.status}.`);
                 set.status = selected.status;
+                if (selected.headers) applyHeaders(set.headers, selected.headers);
                 return selected.value;
               }
               return result;

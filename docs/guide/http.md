@@ -33,7 +33,7 @@ function helloModule(module: ModuleBuilder<AppContainer>) {
 }
 ```
 
-After composing the same application, `POST /hello/messages` returns 201 and `{"message":"Hello from HyAPI"}`. `reply` rejects statuses outside integer 200–399; non-default success statuses must be declared in the route's response map. When a route declares `response`, replying with a status it does not declare (possible only through a cast or plain JavaScript) fails with a private 500 instead of sending an unvalidated body; a single response schema permits only 200. For fully application-owned output, a handler may return a Web `Response`; do not assume its body is validated by the declared schema.
+After composing the same application, `POST /hello/messages` returns 201 and `{"message":"Hello from HyAPI"}`. `reply` rejects statuses outside integer 200–399; non-default success statuses must be declared in the route's response map. When a route declares `response`, replying with a status it does not declare (possible only through a cast or plain JavaScript) fails with a private 500 instead of sending an unvalidated body; a single response schema permits only 200. To add headers without giving up that validation, pass them as a third argument: `reply(201, order, { headers: { location: `/orders/${order.id}` } })`. Several `Set-Cookie` values are kept as separate header lines, and none of the reply's headers are sent if the response then fails validation. For fully application-owned output, a handler may return a Web `Response`; do not assume its body is validated by the declared schema.
 
 ## Return deliberate failures
 

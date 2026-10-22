@@ -12,6 +12,7 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - Built-in Bun/Node `app.listen(...)`, direct `app.fetch(...)`, and optional application-owned listener fetch wrapper for logging.
 - `app.close({ timeoutMs })` bounds the caller's shutdown wait without cancelling accepted handlers; the example entry point uses a 10-second deadline.
 - A `reply` status missing from a declared `response` contract fails with a private 500 instead of skipping response validation.
+- `reply(status, value, { headers })` sends response headers such as `Location` or multiple `Set-Cookie` values with a schema-validated body; they are dropped when the response fails.
 - Request `VALIDATION_ERROR` responses list each failed rule in `errors` as `{ in, pointer, message }`, using the route's own Standard Schema issues and RFC 6901 JSON Pointers.
 - `createApp({ onError })` observes every private 500 with its original error and request, without awaiting it or letting it change the response.
 - PostgreSQL-backed single-tenant Users, Inventory, and Orders reference; purchase and stock deduction share a transaction, with missing-stock 404, insufficient-stock 409, and owner/admin authorization.

@@ -121,3 +121,82 @@ test("an undeclared method on a declared path is not found", async () => {
     await close();
   }
 });
+
+function headerFixture() {
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "headers",
+        prefix: "/h",
+        routes: (route) => [
+          route.post("/", {
+            response: { 201: item },
+            handler: () => reply(201, { id: "n1" }, { headers: { location: "/h/n1" } }),
+          }),
+          route.get("/cookies", {
+            response: { 200: item },
+            handler: () => {
+              const headers = new Headers();
+              headers.append("set-cookie", "a=1; Path=/");
+              headers.append("set-cookie", "b=2; Path=/");
+              headers.set("cache-control", "no-store");
+              return reply(200, { id: "c" }, { headers });
+            },
+          }),
+          route.get("/invalid", {
+            response: { 201: item },
+            handler: () =>
+              reply(201, { id: 1 } as never, { headers: { location: "/x", "set-cookie": "s=1" } }),
+          }),
+          route.get("/text", {
+            handler: () => reply(200, "plain", { headers: { "content-type": "text/plain" } }),
+          }),
+        ],
+      }),
+    ],
+  });
+  const send = (path: string, init?: RequestInit) =>
+    app.fetch(new Request(`${origin}${path}`, init));
+  const close = async () => {
+    await app.close();
+    await root.dispose();
+  };
+  return { send, close };
+}
+
+test("reply headers accompany a schema-validated body", async () => {
+  const { send, close } = headerFixture();
+  try {
+    const created = await send("/h/", { method: "POST" });
+    assert.equal(created.status, 201);
+    assert.equal(created.headers.get("location"), "/h/n1");
+    assert.deepEqual(await created.json(), { id: "n1" });
+    const cookies = await send("/h/cookies");
+    assert.deepEqual(cookies.headers.getSetCookie(), ["a=1; Path=/", "b=2; Path=/"]);
+    assert.equal(cookies.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await cookies.json(), { id: "c" });
+  } finally {
+    await close();
+  }
+});
+
+test("reply headers neither bypass response validation nor override an explicit type", async () => {
+  const { send, close } = headerFixture();
+  try {
+    const invalid = await send("/h/invalid");
+    assert.equal(invalid.status, 500);
+    assert.equal(invalid.headers.get("location"), null);
+    assert.deepEqual(invalid.headers.getSetCookie(), []);
+    const text = await send("/h/text");
+    assert.equal(text.headers.get("content-type")?.startsWith("text/plain"), true);
+    assert.equal(await text.text(), "plain");
+  } finally {
+    await close();
+  }
+});
+
+test("reply rejects malformed header names when it is called", () => {
+  assert.throws(() => reply(200, null, { headers: { "bad header": "x" } }), TypeError);
+});
