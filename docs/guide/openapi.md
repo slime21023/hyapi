@@ -1,6 +1,6 @@
 # OpenAPI
 
-OpenAPI is optional. Without an `openapi` option, HyAPI does not expose a documentation endpoint. When enabled, it projects registered routes into an OpenAPI JSON document at `${path}/json`; it does not provide a Swagger or Scalar UI.
+OpenAPI is optional. Without an `openapi` option, HyAPI does not expose a documentation endpoint. When enabled, it projects registered routes into an OpenAPI JSON document at `${path}/json`; it does not bundle a Swagger or Scalar UI (see [Serve a documentation UI](#serve-a-documentation-ui)).
 
 ## Configure the JSON document
 
@@ -18,7 +18,50 @@ The document is available at `/openapi/json` (for example, `http://127.0.0.1:800
 
 HyAPI includes registered operations, request `params`, `query`, and `body` schemas, declared response schemas, and route `summary`, `description`, `tags`, and `operationId` when supplied. Set `operationId` when a client generator names its methods after operations; otherwise one is generated, and a duplicate ID rejects composition.
 
-If a route's schemas have no JSON Schema form, such as `v.instance(File)` for multipart uploads or a `transform`, documented startup fails rather than publishing an incomplete document. Mark that route `documented: false` to leave it out of the document; it still validates requests at runtime. A protected module whose routes are all undocumented no longer needs a security scheme. For a protected module, set `security` to the name of an entry in `openapi.securitySchemes`; the resulting operations reference that scheme, while public routes have no such requirement. The scheme only **documents** security: the module's `authenticate(request, root)` and route's `authorize(context)` implement it. See [Authentication and authorization](./auth.md).
+If a route's schemas have no JSON Schema form, such as `v.instance(File)` for multipart uploads or a `transform`, documented startup fails rather than publishing an incomplete document. Mark that route `documented: false` to leave it out of the document; it still validates requests at runtime. A protected module whose routes are all undocumented no longer needs a security scheme.
+
+For a protected module, set `security` to the name of an entry in `openapi.securitySchemes`; the resulting operations reference that scheme, while public routes have no such requirement. The scheme only **documents** security: the module's `authenticate(request, root)` and route's `authorize(context)` implement it. See [Authentication and authorization](./auth.md).
+
+## Serve a documentation UI
+
+HyAPI serves only JSON. To browse it, the application can add its own page; this **application-owned recipe** serves Scalar from a CDN and leaves the page itself out of the document. Pin a Scalar version you have reviewed, and allow the CDN in any Content Security Policy your edge applies:
+
+```ts
+const docsPage = `<!doctype html><title>API reference</title>
+<script id="api-reference" data-url="/openapi/json"></script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@<version>"></script>`;
+
+module({
+  name: "docs",
+  prefix: "/docs",
+  routes: (route) => [
+    route.get("/", {
+      documented: false,
+      handler: () => new Response(docsPage, { headers: { "content-type": "text/html" } }),
+    }),
+  ],
+});
+```
+
+Swagger UI or any other viewer works the same way, because it only needs the `/openapi/json` URL.
+
+## Generate a typed client
+
+HyAPI does not expose Elysia types, so Elysia's Eden client does not apply. Generate client types from the document instead, for example with [`openapi-typescript`](https://openapi-ts.dev/) and its `openapi-fetch` client, from a running application:
+
+```sh
+npx openapi-typescript http://127.0.0.1:8000/openapi/json -o src/api.d.ts
+```
+
+```ts
+import createClient from "openapi-fetch";
+import type { paths } from "./api.d.ts";
+
+const api = createClient<paths>({ baseUrl: "http://127.0.0.1:8000" });
+const { data, error } = await api.GET("/orders/{id}", { params: { path: { id } } });
+```
+
+Give routes an `operationId` when your generator derives method names from it. Regenerate the types whenever route schemas change; a CI check that diffs the generated file catches drift.
 
 ## Schema conversion and composition failures
 

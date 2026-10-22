@@ -29,4 +29,16 @@ A module name must be nonempty and unique within an app. Prefixes must begin wit
 
 The module's `routes` callback constructs route declarations; the individual `handler` functions run only on requests. `createApp` does not register your services: provide an application-owned InferDI root and access it through `context.root`, or opt into a request [scope](./di-lifecycle.md).
 
+## Reading common type errors
+
+Route and module contracts are checked by TypeScript, and the messages print the full container type. Look for the last line of each message:
+
+| The message ends with                                                                                                      | Cause                                                                                  | Fix                                             |
+| :------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------- | :---------------------------------------------- |
+| `No overload matches this call` … `Property 'authenticate' is missing` … `Type 'string' is not assignable to type 'never'` | A public module declares `security`                                                    | Add `authenticate`, or remove `security`        |
+| `Type 'Reply<202, …>' is not assignable to type '… Reply<201, …>'`                                                         | `reply` uses a status the `response` map does not declare                              | Add the status to `response`                    |
+| `Type '{ … }' is not assignable to type 'Response \| Reply<…>'`                                                            | A plain value (status 200) is returned, but the map has no `200`                       | Declare `200`, or return `reply(status, value)` |
+| `Property 'get' does not exist on type 'never'` on `scope`                                                                 | The route did not opt into a scope                                                     | Set `scoped: true`                              |
+| `Argument of type '"name"' is not assignable to parameter of type 'never'`                                                 | The key is not registered in the InferDI container (or is scoped and read from `root`) | Register it, or read it from `scope`            |
+
 Next: [validate inputs and responses](./http.md), or [protect a module](./auth.md). Check the [public API reference](../reference/core.md) for the full options and generic types.
