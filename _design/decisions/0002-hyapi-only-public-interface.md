@@ -109,6 +109,8 @@ routes in `routes: (route) => [...]`, and uses `app.fetch`, `app.listen`, and `a
   wait; HyAPI still cannot cancel accepted handlers, which keep their scopes until they settle.
   A reply with a status missing from a declared response contract now fails with a private 500
   instead of bypassing response validation.
+- 2026-10-22: Add an observational `onError(error, request)` option for private 500 failures. It
+  is not awaited and cannot alter the Problem JSON response; 4xx and 503 are not reported.
 
 ## InferDI lifecycle references
 

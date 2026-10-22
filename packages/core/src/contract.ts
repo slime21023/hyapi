@@ -170,6 +170,11 @@ export interface ApplicationOptions<C extends RootContainer> {
     readonly module: ModuleBuilder<C>;
   }) => readonly ModuleDefinition[];
   readonly openapi?: OpenApiOptions;
+  /**
+   * Observes each failure sent as a private 500, such as an unexpected handler error. It cannot
+   * change the response, is not awaited, and must handle its own failures.
+   */
+  readonly onError?: (error: unknown, request: Request) => void | Promise<void>;
 }
 export interface ListenOptions {
   readonly port: number;

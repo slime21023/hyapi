@@ -10,7 +10,7 @@ Import public values and types from `hyapi`. Use an application-owned `@inferdi/
 createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application
 ```
 
-`ApplicationOptions<C>` requires `container: C` and `modules: ({ module: ModuleBuilder<C> }) => readonly ModuleDefinition[]`; `openapi?: OpenApiOptions` is optional. The application **does not** construct or dispose your root container. Choose your own module boundaries; see [Modules and routes](../guide/modules.md).
+`ApplicationOptions<C>` requires `container: C` and `modules: ({ module: ModuleBuilder<C> }) => readonly ModuleDefinition[]`; `openapi?: OpenApiOptions` is optional. `onError?: (error: unknown, request: Request) => void | Promise<void>` observes every failure sent as a private 500 (handler, authentication, response-validation, undeclared-reply, and scope-cleanup errors); it is not called for 4xx or 503 responses, cannot change the response, is not awaited, and must handle its own failures. The application **does not** construct or dispose your root container. Choose your own module boundaries; see [Modules and routes](../guide/modules.md).
 
 ### `Application`, `CloseOptions`, `ListenOptions`, and `Listener`
 

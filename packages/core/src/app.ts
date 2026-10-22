@@ -60,6 +60,18 @@ function routes<C extends RootContainer, I>(): RouteApi<C, I> {
   } as RouteApi<C, I>;
 }
 
+/** Notify without awaiting: an observer failure must not replace or delay the chosen response. */
+function observe(
+  onError: NonNullable<ApplicationOptions<RootContainer>["onError"]>,
+  { error, request }: { error: unknown; request: Request },
+): void {
+  try {
+    void Promise.resolve(onError(error, request)).catch(() => {});
+  } catch {
+    // Node has no reportError(); the observer is the reporting boundary and owns its failures.
+  }
+}
+
 /** Build routes once; the application owns the root container and supplied values. */
 export function createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application {
   const module: ModuleBuilder<C> = (<I>(definition: PublicModule<C> | ProtectedModule<C, I>) => {
@@ -131,7 +143,11 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const listeners = new Set<Listener>();
   let closing: Promise<void> | undefined;
   const app = new Elysia(process.versions.bun ? {} : { adapter: node() })
-    .onError(problemHandler)
+    .onError((context) => {
+      const response = problemHandler(context);
+      if (response.status === 500 && options.onError) observe(options.onError, context);
+      return response;
+    })
     .onRequest(async ({ request }) => {
       if (closing) throw new HttpError(503, "Application is closing.", "APPLICATION_UNAVAILABLE");
       if (!routerSeesUrlPath(request.url))
