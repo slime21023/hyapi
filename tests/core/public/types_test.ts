@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { Container } from "@inferdi/inferdi";
 import * as v from "valibot";
-import { createApp, reply } from "hyapi";
+import { createApp, reply, type Application } from "hyapi";
 
 // Compile-time contract checks: `bun run check` fails when an expectation no longer holds.
 type Equal<A, B> =
@@ -71,6 +71,14 @@ function declarations() {
   });
 }
 
+async function shutdown(app: Application) {
+  await app.close();
+  await app.close({ timeoutMs: 1000 });
+  // @ts-expect-error The close timeout is a number of milliseconds.
+  await app.close({ timeoutMs: "1000" });
+}
+
 test("public type contracts compile", () => {
   void declarations;
+  void shutdown;
 });

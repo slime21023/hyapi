@@ -71,7 +71,7 @@ await new Promise<void>((resolve, reject) => {
         errors.push(error);
       }
       try {
-        await app.close();
+        await app.close({ timeoutMs: 10_000 });
       } catch (error) {
         errors.push(error);
       }

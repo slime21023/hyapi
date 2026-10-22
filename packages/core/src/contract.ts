@@ -181,9 +181,13 @@ export interface Listener {
   readonly url: URL;
   stop(): Promise<void>;
 }
+export interface CloseOptions {
+  /** Rejects this call after the given milliseconds; accepted handlers keep running to completion. */
+  readonly timeoutMs?: number;
+}
 export interface Application {
   fetch(request: Request): Promise<Response>;
   listen(options: ListenOptions): Promise<Listener>;
   /** Stops admission and drains accepted handler work. Does not dispose the caller's root container. */
-  close(): Promise<void>;
+  close(options?: CloseOptions): Promise<void>;
 }

@@ -1,4 +1,4 @@
-import { createApp, type Application } from "hyapi";
+import { createApp, type Application, type CloseOptions } from "hyapi";
 import { createExampleContainer } from "./container.ts";
 import { openExampleDatabase } from "./db.ts";
 import { healthModule } from "./modules/health.ts";
@@ -44,9 +44,10 @@ export async function buildExampleApp(options: {
   return {
     fetch: app.fetch,
     listen: app.listen,
-    close() {
+    close(settings?: CloseOptions) {
       shutdown ??= (async () => {
-        await app.close();
+        // On timeout, keep the root and database open: abandoned handlers may still use them.
+        await app.close(settings);
         try {
           await containerRoot.dispose();
         } finally {

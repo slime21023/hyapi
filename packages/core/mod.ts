@@ -3,6 +3,7 @@ export { createApp, reply } from "./src/app.ts";
 export type {
   Application,
   ApplicationOptions,
+  CloseOptions,
   HandlerResult,
   ListenOptions,
   Listener,

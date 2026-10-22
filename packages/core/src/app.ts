@@ -5,6 +5,7 @@ import { HttpError, problemHandler, UnauthorizedError } from "./problem.ts";
 import type {
   Application,
   ApplicationOptions,
+  CloseOptions,
   ListenOptions,
   Listener,
   ModuleBuilder,
@@ -251,7 +252,12 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
       listeners.add(listener);
       return listener;
     },
-    close() {
+    close(settings?: CloseOptions) {
+      const timeoutMs = settings?.timeoutMs;
+      if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs >= 0))
+        return Promise.reject(
+          new RangeError("Close timeout must be a non-negative finite number."),
+        );
       closing ??= (async () => {
         const stopped = await Promise.allSettled([...listeners].map((listener) => listener.stop()));
         await Promise.allSettled([...pending]);
@@ -260,7 +266,15 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
         );
         if (failures.length) throw new AggregateError(failures, "Listener shutdown failed.");
       })();
-      return closing;
+      if (timeoutMs === undefined) return closing;
+      // The deadline bounds only this caller's wait; handlers cannot be cancelled from here.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
+        closing,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Application close timed out.")), timeoutMs);
+        }),
+      ]).finally(() => clearTimeout(timer));
     },
   };
 }
