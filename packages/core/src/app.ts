@@ -199,12 +199,15 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const listeners = new Set<Listener>();
   let closing: Promise<void> | undefined;
   const app = new Elysia(process.versions.bun ? {} : { adapter: node() })
-    .onError((context) => {
+    // Destructure every field used: Elysia infers which context fields to populate from the
+    // hook's source text, and on Node it omitted `route` for an undestructured `context =>`.
+    .onError(({ code, error, request, route, set }) => {
       // Only reply() writes these, and Elysia merges them into error responses: a failed reply
       // must not leak its Location or Set-Cookie onto the Problem JSON.
-      for (const name of Object.keys(context.set.headers)) delete context.set.headers[name];
-      const response = problemHandler(context, validationIssues(context));
-      if (response.status === 500 && options.onError) observe(options.onError, context);
+      for (const name of Object.keys(set.headers)) delete set.headers[name];
+      const issues = validationIssues({ code, error, request, route });
+      const response = problemHandler({ code, error }, issues);
+      if (response.status === 500 && options.onError) observe(options.onError, { error, request });
       return response;
     })
     .onRequest(async ({ request }) => {
