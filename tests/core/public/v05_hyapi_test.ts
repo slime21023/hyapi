@@ -95,7 +95,7 @@ test("HyAPI-only auth runs before parsing, validation precedes authorization, an
       );
     }
     const head = await send("/private/who", { method: "HEAD" });
-    assert.ok([401, 404, 405].includes(head.status), `Unexpected unguarded HEAD: ${head.status}`);
+    assert.equal(head.status, 401, "HEAD must pass through the GET authentication policy");
     const headers = { "content-type": "application/json", authorization: "Bearer ok" };
     assert.equal((await send("/private/", { ...invalid, headers })).status, 400);
     assert.equal(
