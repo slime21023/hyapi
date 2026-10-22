@@ -179,3 +179,67 @@ test("a custom documentation path serves JSON only and lists every declared stat
     await root.dispose();
   }
 });
+
+test("operation metadata, query parameters, and single response schemas are projected", async () => {
+  const document = await documentOf(
+    ({ module }) => [
+      module({
+        name: "catalog",
+        prefix: "/catalog",
+        routes: (route) => [
+          route.get("/", {
+            query: v.object({ term: v.string(), limit: v.optional(v.string()) }),
+            response: v.object({ total: v.number() }),
+            summary: "Search the catalog",
+            description: "Matches items by term.",
+            tags: ["Catalog", "Search"],
+            handler: () => ({ total: 0 }),
+          }),
+          route.put("/:id", { body: v.object({ name: v.string() }), handler: () => "ok" }),
+          route.patch("/:id", { body: v.object({ name: v.string() }), handler: () => "ok" }),
+        ],
+      }),
+    ],
+    { path: "/openapi", info },
+  );
+  const search = document.paths["/catalog/"].get;
+  assert.equal(search.summary, "Search the catalog");
+  assert.equal(search.description, "Matches items by term.");
+  assert.deepEqual(search.tags, ["Catalog", "Search"]);
+  assert.deepEqual(
+    search.parameters.map(({ name, in: location, required }: Record<string, unknown>) => ({
+      name,
+      location,
+      required,
+    })),
+    [
+      { name: "term", location: "query", required: true },
+      { name: "limit", location: "query", required: false },
+    ],
+  );
+  assert.equal(
+    search.responses["200"].content["application/json"].schema.properties.total.type,
+    "number",
+  );
+  assert.deepEqual(Object.keys(document.paths["/catalog/{id}"]).sort(), ["patch", "put"]);
+});
+
+test("a schema transform that JSON Schema cannot represent rejects documented startup", () => {
+  const modules: Modules = ({ module }) => [
+    module({
+      name: "paging",
+      prefix: "/paging",
+      routes: (route) => [
+        route.get("/", {
+          query: v.object({ page: v.pipe(v.string(), v.transform(Number)) }),
+          handler: () => "ok",
+        }),
+      ],
+    }),
+  ];
+  assert.throws(
+    () => createApp({ container: new Container(), modules, openapi: { path: "/openapi", info } }),
+    /"transform" action cannot be converted to JSON Schema/,
+  );
+  assert.doesNotThrow(() => createApp({ container: new Container(), modules }).close());
+});

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Container } from "@inferdi/inferdi";
+import * as v from "valibot";
 import { createApp, ForbiddenError, UnauthorizedError } from "hyapi";
 
 const origin = "http://localhost";
@@ -35,6 +36,12 @@ function fixture() {
         },
         routes: (route) => [
           route.get("/who", { handler: ({ identity }) => ({ subject: identity.subject }) }),
+          ...(["put", "patch", "delete"] as const).map((method) =>
+            route[method]("/items/:id", {
+              body: v.object({ name: v.string() }),
+              handler: ({ identity }) => ({ method, subject: identity.subject }),
+            }),
+          ),
         ],
       }),
     ],
@@ -77,6 +84,32 @@ test("path and method variants never reach a protected handler without authentic
     assert.equal((await send("//priv/who")).status, 404);
     assert.equal((await send("/priv/who", { method: "POST" })).status, 404);
     assert.deepEqual(calls, []);
+  } finally {
+    await close();
+  }
+});
+
+test("PUT, PATCH, and DELETE authenticate before parsing a malformed body", async () => {
+  const { calls, send, close } = fixture();
+  const malformed = { headers: { "content-type": "application/json" }, body: "{" };
+  try {
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      const denied = await send("/priv/items/1", { method, ...malformed });
+      assert.equal(denied.status, 401, method);
+      const parsed = await send("/priv/items/1", {
+        method,
+        ...malformed,
+        headers: { ...malformed.headers, authorization: "Bearer ok" },
+      });
+      assert.equal((await parsed.json()).code, "PARSE_ERROR", method);
+      const accepted = await send("/priv/items/1", {
+        method,
+        headers: { ...malformed.headers, authorization: "Bearer ok", "x-subject": "ada" },
+        body: '{"name":"bolt"}',
+      });
+      assert.deepEqual(await accepted.json(), { method: method.toLowerCase(), subject: "ada" });
+    }
+    assert.equal(calls.length, 9);
   } finally {
     await close();
   }

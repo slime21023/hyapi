@@ -94,3 +94,15 @@ test("closing the application stops every listener it started", async () => {
   }
   for (const url of urls) assert.equal(await refused(url), true, url.href);
 });
+
+test("omitting the hostname binds a loopback-reachable default", async () => {
+  const { app, close } = fixture();
+  try {
+    const listener = await app.listen({ port: 0 });
+    assert.notEqual(listener.url.port, "0");
+    const response = await fetch(new URL("/echo/", listener.url));
+    assert.deepEqual(await response.json(), { path: "/echo/" });
+  } finally {
+    await close();
+  }
+});
