@@ -166,6 +166,12 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     app.group(entry.prefix, (group) => {
       for (const route of entry.routes) {
         const config = route.options;
+        // Elysia validates only declared statuses, so an undeclared reply would bypass its schema.
+        const declaredStatuses = !config.response
+          ? undefined
+          : "~standard" in config.response
+            ? new Set([200])
+            : new Set(Object.keys(config.response).map(Number));
         const detail = {
           ...(config.summary ? { summary: config.summary } : {}),
           ...(config.description ? { description: config.description } : {}),
@@ -199,6 +205,8 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
               const result = await config.handler(context);
               if (result && typeof result === "object" && replyBrand in result) {
                 const selected = result as Reply<number, unknown>;
+                if (declaredStatuses && !declaredStatuses.has(selected.status))
+                  throw new Error(`Route replied with undeclared status ${selected.status}.`);
                 set.status = selected.status;
                 return selected.value;
               }
