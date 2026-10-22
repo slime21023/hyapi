@@ -4,7 +4,7 @@ A route declares its HTTP contract beside its handler. HyAPI accepts Standard Sc
 
 ## Declare inputs and output
 
-Use `params`, `query`, `body`, and **singular** `response`. A response can be one schema for the ordinary result or a map from HTTP status numbers to schemas. `summary`, `description`, and `tags` provide optional operation metadata. This application's user routes demonstrate validated body/path inputs, direct handler returns, and explicit not-found/forbidden errors:
+Use `params`, `query`, `body`, and **singular** `response`. A response can be one schema for the ordinary result or a map from HTTP status numbers to schemas. `summary`, `description`, `tags`, and a unique `operationId` provide optional operation metadata. This application's user routes demonstrate validated body/path inputs, direct handler returns, and explicit not-found/forbidden errors:
 
 <<< ../../apps/example/src/modules/users/routes.ts
 

@@ -148,3 +148,33 @@ test("composition accepts overlaps that share one authentication policy", async 
     await root.dispose();
   }
 });
+
+test("operation IDs must be non-empty and unique across modules", () => {
+  assert.throws(
+    () =>
+      compose(({ module }) => [
+        module({
+          name: "a",
+          prefix: "/a",
+          routes: (r) => [r.get("/", { operationId: "list", handler: () => 1 })],
+        }),
+        module({
+          name: "b",
+          prefix: "/b",
+          routes: (r) => [r.get("/", { operationId: "list", handler: () => 2 })],
+        }),
+      ]),
+    /Operation ID 'list' is used twice/,
+  );
+  assert.throws(
+    () =>
+      compose(({ module }) => [
+        module({
+          name: "a",
+          prefix: "/a",
+          routes: (r) => [r.get("/", { operationId: "", handler: () => 1 })],
+        }),
+      ]),
+    /Operation ID .* must not be empty/,
+  );
+});

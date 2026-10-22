@@ -108,6 +108,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const names = new Set<string>();
   const methods = new Set<string>();
   const requestSchemas = new Map<string, RouteDefinition["options"]>();
+  const operationIds = new Set<string>();
   const declared: {
     method: string;
     path: string;
@@ -129,6 +130,13 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
       if (methods.has(key)) throw new Error(`Route '${key}' is registered twice.`);
       methods.add(key);
       requestSchemas.set(key, route.options);
+      const { operationId } = route.options;
+      if (operationId !== undefined) {
+        if (!operationId) throw new Error(`Operation ID for route '${key}' must not be empty.`);
+        if (operationIds.has(operationId))
+          throw new Error(`Operation ID '${operationId}' is used twice.`);
+        operationIds.add(operationId);
+      }
       const pattern = routePattern(entry.prefix, route.path);
       for (const prior of declared) {
         if (
@@ -239,6 +247,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
           ...(config.summary ? { summary: config.summary } : {}),
           ...(config.description ? { description: config.description } : {}),
           ...(config.tags ? { tags: [...config.tags] } : {}),
+          ...(config.operationId ? { operationId: config.operationId } : {}),
           ...(entry.security ? { security: [{ [entry.security]: [] }] } : {}),
         };
         group.route(

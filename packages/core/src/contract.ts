@@ -91,6 +91,8 @@ export interface RouteOptions<
   readonly summary?: string;
   readonly description?: string;
   readonly tags?: readonly string[];
+  /** Names the OpenAPI operation, e.g. for generated client methods; unique per application. */
+  readonly operationId?: string;
 }
 
 export interface RouteDefinition {

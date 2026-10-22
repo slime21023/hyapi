@@ -16,7 +16,7 @@ openapi: {
 
 The document is available at `/openapi/json` (for example, `http://127.0.0.1:8000/openapi/json` when running the [ERP example](../examples/erp.md)). `info.version` is the version of **your application's API metadata**, not an automatically assigned HyAPI release version. Set `path` and `info.title`/`info.version` yourself; `info.description` is optional.
 
-HyAPI includes registered operations, request `params`, `query`, and `body` schemas, declared response schemas, and route `summary`, `description`, and `tags` when supplied. For a protected module, set `security` to the name of an entry in `openapi.securitySchemes`; the resulting operations reference that scheme, while public routes have no such requirement. The scheme only **documents** security: the module's `authenticate(request, root)` and route's `authorize(context)` implement it. See [Authentication and authorization](./auth.md).
+HyAPI includes registered operations, request `params`, `query`, and `body` schemas, declared response schemas, and route `summary`, `description`, `tags`, and `operationId` when supplied. Set `operationId` when a client generator names its methods after operations; otherwise one is generated, and a duplicate ID rejects composition. For a protected module, set `security` to the name of an entry in `openapi.securitySchemes`; the resulting operations reference that scheme, while public routes have no such requirement. The scheme only **documents** security: the module's `authenticate(request, root)` and route's `authorize(context)` implement it. See [Authentication and authorization](./auth.md).
 
 ## Schema conversion and composition failures
 

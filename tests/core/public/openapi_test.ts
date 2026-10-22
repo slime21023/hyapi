@@ -261,3 +261,22 @@ test("root-prefixed routes are documented without a doubled slash", async () => 
   const paths = Object.keys(document.paths).filter((path) => !path.startsWith("/openapi"));
   assert.deepEqual(paths.sort(), ["/", "/health"]);
 });
+
+test("explicit operation IDs replace generated ones in the document", async () => {
+  const document = await documentOf(
+    ({ module }) => [
+      module({
+        name: "orders",
+        prefix: "/orders",
+        routes: (route) => [
+          route.get("/", { operationId: "listOrders", handler: () => [] }),
+          route.get("/:id", { handler: () => "one" }),
+        ],
+      }),
+    ],
+    { path: "/openapi", info },
+  );
+  assert.equal(document.paths["/orders/"].get.operationId, "listOrders");
+  assert.equal(typeof document.paths["/orders/{id}"].get.operationId, "string");
+  assert.notEqual(document.paths["/orders/{id}"].get.operationId, "listOrders");
+});
