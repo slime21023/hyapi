@@ -41,8 +41,9 @@ function fixture() {
         prefix: "/private",
         security: "BearerAuth",
         authenticate(request, container) {
-          if (request.headers.get("authorization") !== `Bearer ${container.get("secret")}`)
+          if (request.headers.get("authorization") !== `Bearer ${container.get("secret")}`) {
             throw new UnauthorizedError();
+          }
           return { subject: request.headers.get("x-subject") ?? "anonymous" };
         },
         routes: (route) => [
@@ -122,8 +123,8 @@ test("HyAPI-only auth runs before parsing, validation precedes authorization, an
       { subject: "lin", value: 2 },
     ]);
     assert.deepEqual(
-      events.slice(-4).sort(),
-      ["open:ada", "open:lin", "close:ada", "close:lin"].sort(),
+      events.slice(-4).toSorted(),
+      ["open:ada", "open:lin", "close:ada", "close:lin"].toSorted(),
     );
     const document = await (await send("/openapi/json")).json();
     assert.deepEqual(document.paths["/private/"].post.security, [{ BearerAuth: [] }]);

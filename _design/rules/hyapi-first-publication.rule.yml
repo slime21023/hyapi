@@ -30,7 +30,7 @@ rules:
       - "README describes the implemented public facade and never treats a local tarball as a published package."
   - id: kr-4-runtime-and-consumer-checks
     name: bun-node-consumer-evidence
-    apply: "package.json,scripts/verify-consumer.ts,tests/core/public,tests/example"
+    apply: "package.json,scripts/verify_consumer.ts,tests/core/public,tests/example"
     level: error
     desc:
       - "After the HyAPI-only public cutover, bun run verify passes, including Bun and Node InferDI graph typing and request-scope lifetime tests plus a packed hyapi consumer type check and HTTP smoke run without Elysia imports."

@@ -60,8 +60,9 @@ function fixture(onError: NonNullable<ApplicationOptions<Container>["onError"]>)
         name: "private",
         prefix: "/p",
         authenticate(request) {
-          if (request.headers.get("authorization") === "boom")
+          if (request.headers.get("authorization") === "boom") {
             throw new Error("authenticate failed");
+          }
           throw new UnauthorizedError();
         },
         routes: (route) => [route.get("/", { handler: () => "never" })],
@@ -78,7 +79,7 @@ function fixture(onError: NonNullable<ApplicationOptions<Container>["onError"]>)
 }
 
 test("every private 500 is reported with its original error and request", async () => {
-  const reported: { message: string; path: string }[] = [];
+  const reported: Array<{ message: string; path: string }> = [];
   const { send, close } = fixture((error, request) => {
     reported.push({
       message: error instanceof Error ? error.message : String(error),
@@ -86,7 +87,7 @@ test("every private 500 is reported with its original error and request", async 
     });
   });
   try {
-    const failures: [path: string, init?: RequestInit][] = [
+    const failures: Array<[path: string, init?: RequestInit]> = [
       ["/f/handler"],
       ["/p/", { headers: { authorization: "boom" } }],
       ["/f/response"],
@@ -140,7 +141,7 @@ test("a failing or pending observer cannot change or delay the response", async 
   const unhandled: unknown[] = [];
   const onUnhandled = (reason: unknown) => void unhandled.push(reason);
   process.on("unhandledRejection", onUnhandled);
-  const observers: NonNullable<ApplicationOptions<Container>["onError"]>[] = [
+  const observers: Array<NonNullable<ApplicationOptions<Container>["onError"]>> = [
     () => {
       throw new Error("observer threw");
     },

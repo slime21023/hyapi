@@ -3,8 +3,9 @@ export function routePattern(prefix: string, path: string): RegExp {
   const full = `${prefix === "/" ? "" : prefix}${path}`;
   const segments = full.split("/").map((segment) => {
     if (/^:[A-Za-z_]\w*$/.test(segment)) return "[^/]+";
-    if (segment && !/^[-A-Za-z0-9._~%]+$/.test(segment))
+    if (segment && !/^[-A-Za-z0-9._~%]+$/.test(segment)) {
       throw new Error(`Unsupported route segment '${segment}' in '${full}'.`);
+    }
     return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   });
   return new RegExp(`^${segments.join("/").replace(/\/$/, "")}/?$`);

@@ -36,8 +36,9 @@ async function listenerProcess(root: string, name: string): Promise<ListenerProc
     try {
       return JSON.parse(await readFile(join(root, `${name}.json`), "utf8")) as ListenerProcess;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadlineMs)
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadlineMs) {
         throw error;
+      }
     }
     await delay(10);
   }

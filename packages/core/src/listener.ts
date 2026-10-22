@@ -2,13 +2,13 @@ import { node } from "@elysia/node";
 import { Elysia, type AnyElysia } from "elysia";
 import type { ListenOptions, Listener } from "./contract.ts";
 
-type NodeBinding = {
+interface NodeBinding {
   raw: {
     ready(): Promise<unknown>;
     readonly url?: string | URL;
   };
   stop(): Promise<void> | void;
-};
+}
 
 export async function createListener(app: AnyElysia, options: ListenOptions): Promise<Listener> {
   const isNode = typeof Bun === "undefined";

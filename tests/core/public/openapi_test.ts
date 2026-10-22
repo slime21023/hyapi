@@ -171,7 +171,7 @@ test("a custom documentation path serves JSON only and lists every declared stat
     const json = await app.fetch(new Request("http://localhost/docs/json"));
     assert.equal(json.status, 200);
     const responses = (await json.json()).paths["/items/"].post.responses;
-    assert.deepEqual(Object.keys(responses).sort(), ["200", "201", "202"]);
+    assert.deepEqual(Object.keys(responses).toSorted(), ["200", "201", "202"]);
     assert.equal((await app.fetch(new Request("http://localhost/docs"))).status, 404);
     assert.equal((await app.fetch(new Request("http://localhost/openapi/json"))).status, 404);
   } finally {
@@ -221,7 +221,7 @@ test("operation metadata, query parameters, and single response schemas are proj
     search.responses["200"].content["application/json"].schema.properties.total.type,
     "number",
   );
-  assert.deepEqual(Object.keys(document.paths["/catalog/{id}"]).sort(), ["patch", "put"]);
+  assert.deepEqual(Object.keys(document.paths["/catalog/{id}"]).toSorted(), ["patch", "put"]);
 });
 
 test("a schema transform that JSON Schema cannot represent rejects documented startup", () => {
@@ -259,7 +259,7 @@ test("root-prefixed routes are documented without a doubled slash", async () => 
     { path: "/openapi", info },
   );
   const paths = Object.keys(document.paths).filter((path) => !path.startsWith("/openapi"));
-  assert.deepEqual(paths.sort(), ["/", "/health"]);
+  assert.deepEqual(paths.toSorted(), ["/", "/health"]);
 });
 
 test("explicit operation IDs replace generated ones in the document", async () => {

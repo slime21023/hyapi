@@ -13,7 +13,7 @@ function compose(modules: Modules) {
 const authenticate = () => ({ subject: "owner" });
 
 test("composition rejects invalid module declarations before accepting traffic", () => {
-  const cases: [label: string, modules: Modules, message: RegExp][] = [
+  const cases: Array<[label: string, modules: Modules, message: RegExp]> = [
     [
       "duplicate module name",
       ({ module }) => [
@@ -54,7 +54,7 @@ test("composition rejects invalid route declarations", () => {
   const route =
     (declare: Parameters<Parameters<Modules>[0]["module"]>[0]["routes"]): Modules =>
     ({ module }) => [module({ name: "a", prefix: "/a", routes: declare })];
-  const cases: [label: string, modules: Modules, message: RegExp][] = [
+  const cases: Array<[label: string, modules: Modules, message: RegExp]> = [
     ["relative path", route((r) => [r.get("x", { handler: () => 1 })]), /must start with '\/'/],
     ["missing handler", route((r) => [r.get("/", {} as never)]), /Route '\/' needs a handler/],
     [

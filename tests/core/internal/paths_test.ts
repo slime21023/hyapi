@@ -7,7 +7,7 @@ import {
 } from "../../../packages/core/src/paths.ts";
 
 test("the router sees the URL path only when the host reaches its fixed scan offset", () => {
-  const cases: [url: string, agrees: boolean][] = [
+  const cases: Array<[url: string, agrees: boolean]> = [
     ["http://localhost/a", true],
     ["http://abcd/a/b", true],
     ["https://abc/a/b", true],
@@ -22,7 +22,7 @@ test("the router sees the URL path only when the host reaches its fixed scan off
 });
 
 test("route patterns match declared segments with an optional trailing slash", () => {
-  const cases: [prefix: string, path: string, matches: string[], misses: string[]][] = [
+  const cases: Array<[prefix: string, path: string, matches: string[], misses: string[]]> = [
     ["/users", "/:id", ["/users/a", "/users/a/"], ["/users", "/users/", "/users/a/b"]],
     ["/", "/", ["/"], ["/x"]],
     ["/", "/health", ["/health", "/health/"], ["/", "/healthz"]],
@@ -33,10 +33,12 @@ test("route patterns match declared segments with an optional trailing slash", (
   ];
   for (const [prefix, path, matches, misses] of cases) {
     const pattern = routePattern(prefix, path);
-    for (const candidate of matches)
+    for (const candidate of matches) {
       assert.ok(pattern.test(candidate), `${prefix}${path} should match ${candidate}`);
-    for (const candidate of misses)
+    }
+    for (const candidate of misses) {
       assert.ok(!pattern.test(candidate), `${prefix}${path} should not match ${candidate}`);
+    }
   }
 });
 
@@ -47,7 +49,7 @@ test("route patterns reject syntax the authentication matcher cannot mirror", ()
 });
 
 test("overlap detection treats parameters as wildcards and ignores case and trailing slashes", () => {
-  const cases: [left: string, right: string, overlaps: boolean][] = [
+  const cases: Array<[left: string, right: string, overlaps: boolean]> = [
     ["/a/b", "/a/b", true],
     ["/a/:id", "/a/me", true],
     ["/a/me", "/a/:id", true],

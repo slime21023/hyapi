@@ -23,7 +23,7 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "bun test --timeout 30000 tests/core/internal tests/core/public tests/example tests/scripts/internal",
     "test:node": "node --test --test-concurrency=1 --test-timeout=30000 \"tests/core/internal/*_test.ts\" \"tests/core/public/*_test.ts\" \"tests/example/*_test.ts\" \"tests/scripts/internal/*_test.ts\"",
-    "verify:consumer": "bun scripts/verify-consumer.ts",
+    "verify:consumer": "bun scripts/verify_consumer.ts",
     "publish:check": "bun scripts/packages.ts --check",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",

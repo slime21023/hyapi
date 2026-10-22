@@ -29,8 +29,9 @@ export function reply<const Status extends number, Value>(
   value: Value,
   options?: ReplyOptions,
 ): Reply<Status, Value> {
-  if (!Number.isInteger(status) || status < 200 || status >= 400)
+  if (!Number.isInteger(status) || status < 200 || status >= 400) {
     throw new RangeError("Reply status must be a 2xx or 3xx HTTP status.");
+  }
   // Parse now so a malformed header fails where it was written, not inside response handling.
   const headers = options?.headers === undefined ? undefined : new Headers(options.headers);
   return { status, value, ...(headers ? { headers } : {}), [replyBrand]: true };
@@ -40,8 +41,9 @@ function routes<C extends RootContainer, I>(): RouteApi<C, I> {
   const method =
     (verb: RouteDefinition["method"]) => (path: string, options: RouteDefinition["options"]) => {
       if (!path.startsWith("/")) throw new Error(`Route path '${path}' must start with '/'.`);
-      if (typeof options.handler !== "function")
+      if (typeof options.handler !== "function") {
         throw new Error(`Route '${path}' needs a handler.`);
+      }
       const response = options.response;
       const schemas = [
         options.params,
@@ -50,8 +52,9 @@ function routes<C extends RootContainer, I>(): RouteApi<C, I> {
         ...(response ? ("~standard" in response ? [response] : Object.values(response)) : []),
       ];
       for (const schema of schemas) {
-        if (schema && (schema as Schema)["~standard"]?.version !== 1)
+        if (schema && (schema as Schema)["~standard"]?.version !== 1) {
           throw new Error(`Route '${path}' needs a Standard Schema v1 schema.`);
+        }
       }
       return { method: verb, path, options };
     };
@@ -86,12 +89,14 @@ function observe(
 /** Build routes once; the application owns the root container and supplied values. */
 export function createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application {
   const module: ModuleBuilder<C> = (<I>(definition: PublicModule<C> | ProtectedModule<C, I>) => {
-    if (!definition.name || !definition.prefix.startsWith("/"))
+    if (!definition.name || !definition.prefix.startsWith("/")) {
       throw new Error("Modules need a name and an absolute path prefix.");
+    }
     const protectedModule =
       "authenticate" in definition && typeof definition.authenticate === "function";
-    if (!protectedModule && "security" in definition)
+    if (!protectedModule && "security" in definition) {
       throw new Error(`Public module '${definition.name}' cannot declare security.`);
+    }
     return {
       name: definition.name,
       prefix: definition.prefix,
@@ -109,21 +114,22 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const methods = new Set<string>();
   const requestSchemas = new Map<string, RouteDefinition["options"]>();
   const operationIds = new Set<string>();
-  const declared: {
+  const declared: Array<{
     method: string;
     path: string;
     authenticate?: ModuleDefinition["authenticate"];
-  }[] = [];
-  const authPolicies: {
+  }> = [];
+  const authPolicies: Array<{
     method: string;
     pattern: RegExp;
     authenticate(request: Request): unknown | Promise<unknown>;
-  }[] = [];
+  }> = [];
   for (const entry of modules) {
     if (names.has(entry.name)) throw new Error(`Module '${entry.name}' is registered twice.`);
     names.add(entry.name);
-    if (entry.prefix !== "/" && entry.prefix.endsWith("/"))
+    if (entry.prefix !== "/" && entry.prefix.endsWith("/")) {
       throw new Error(`Module '${entry.name}' prefix cannot end in '/'.`);
+    }
     for (const route of entry.routes) {
       const path = `${entry.prefix === "/" ? "" : entry.prefix}${route.path}`;
       const key = `${route.method} ${path}`;
@@ -133,8 +139,9 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
       const { operationId } = route.options;
       if (operationId !== undefined) {
         if (!operationId) throw new Error(`Operation ID for route '${key}' must not be empty.`);
-        if (operationIds.has(operationId))
+        if (operationIds.has(operationId)) {
           throw new Error(`Operation ID '${operationId}' is used twice.`);
+        }
         operationIds.add(operationId);
       }
       const pattern = routePattern(entry.prefix, route.path);
@@ -143,14 +150,16 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
           prior.method === route.method &&
           prior.authenticate !== entry.authenticate &&
           overlappingPaths(prior.path, path)
-        )
+        ) {
           throw new Error(
             `Overlapping routes '${prior.path}' and '${path}' have different authentication policies.`,
           );
+        }
       }
       declared.push({ method: route.method, path, authenticate: entry.authenticate });
-      if (entry.authenticate)
+      if (entry.authenticate) {
         authPolicies.push({ method: route.method, pattern, authenticate: entry.authenticate });
+      }
     }
   }
 
@@ -201,8 +210,9 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     })
     .onRequest(async ({ request }) => {
       if (closing) throw new HttpError(503, "Application is closing.", "APPLICATION_UNAVAILABLE");
-      if (!routerSeesUrlPath(request.url))
+      if (!routerSeesUrlPath(request.url)) {
         throw new HttpError(400, "Request URL cannot be routed.", "UNROUTABLE_REQUEST");
+      }
       let finish!: () => void;
       const done = new Promise<void>((resolve) => {
         finish = resolve;
@@ -218,8 +228,9 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
           (request.method !== policy.method &&
             !(request.method === "HEAD" && policy.method === "GET")) ||
           !policy.pattern.test(path)
-        )
+        ) {
           continue;
+        }
         const identity = await policy.authenticate(request);
         if (identity == null) throw new UnauthorizedError();
         identities.set(request, identity);
@@ -278,8 +289,9 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
               const result = await config.handler(context);
               if (result && typeof result === "object" && replyBrand in result) {
                 const selected = result as Reply<number, unknown>;
-                if (declaredStatuses && !declaredStatuses.has(selected.status))
+                if (declaredStatuses && !declaredStatuses.has(selected.status)) {
                   throw new Error(`Route replied with undeclared status ${selected.status}.`);
+                }
                 set.status = selected.status;
                 if (selected.headers) applyHeaders(set.headers, selected.headers);
                 return selected.value;
@@ -304,13 +316,14 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   if (options.openapi) installOpenApi(app, options.openapi, modules);
 
   const fetch = (request: Request): Promise<Response> => {
-    if (closing)
+    if (closing) {
       return Promise.resolve(
         problemHandler({
           error: new HttpError(503, "Application is closing.", "APPLICATION_UNAVAILABLE"),
           code: "APPLICATION_UNAVAILABLE",
         }),
       );
+    }
     return app.handle(request);
   };
   return {
@@ -327,13 +340,14 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     },
     close(settings?: CloseOptions) {
       const timeoutMs = settings?.timeoutMs;
-      if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs >= 0))
+      if (timeoutMs !== undefined && !(Number.isFinite(timeoutMs) && timeoutMs >= 0)) {
         return Promise.reject(
           new RangeError("Close timeout must be a non-negative finite number."),
         );
+      }
       closing ??= (async () => {
         const stopped = await Promise.allSettled([...listeners].map((listener) => listener.stop()));
-        await Promise.allSettled([...pending]);
+        await Promise.allSettled(pending);
         const failures = stopped.flatMap((result) =>
           result.status === "rejected" ? [result.reason] : [],
         );

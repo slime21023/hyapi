@@ -1,8 +1,39 @@
 {
+  "plugins": ["typescript", "unicorn", "import", "oxc"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn"
   },
-  "plugins": ["typescript", "oxc"],
+  "rules": {
+    "block-scoped-var": "error",
+    "curly": ["error", "multi-line"],
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-restricted-properties": [
+      "error",
+      { "object": "describe", "property": "only" },
+      { "object": "it", "property": "only" },
+      { "object": "test", "property": "only" }
+    ],
+    "no-throw-literal": "error",
+    "no-var": "error",
+    "prefer-arrow-callback": "error",
+    "prefer-const": "error",
+    "import/no-default-export": "error",
+    "typescript/array-type": ["error", { "default": "array-simple" }],
+    "typescript/ban-ts-comment": "error",
+    "typescript/consistent-type-definitions": ["error", "interface"],
+    "typescript/explicit-member-accessibility": ["error", { "accessibility": "no-public" }],
+    "typescript/no-explicit-any": "error",
+    "typescript/no-inferrable-types": "error",
+    "typescript/no-namespace": "error",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/filename-case": ["error", { "case": "snakeCase" }]
+  },
+  "overrides": [
+    {
+      "files": ["docs/.vitepress/config.mts"],
+      "rules": { "import/no-default-export": "off" }
+    }
+  ],
   "ignorePatterns": ["bun.lock", "**/dist/**"]
 }

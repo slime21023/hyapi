@@ -72,12 +72,13 @@ async function withDatabaseApp(
   } finally {
     try {
       await app?.close();
-      if (app)
+      if (app) {
         await problem(
           await app.fetch(new Request(`${base}/health/live`)),
           503,
           "APPLICATION_UNAVAILABLE",
         );
+      }
     } finally {
       try {
         await cleanup`DELETE FROM hyapi_example_orders WHERE owner IN (${adaSubject}, ${linSubject}, ${adminSubject})`;
@@ -218,7 +219,7 @@ test("purchases persist, reject insufficient stock, and leave orders and invento
     const sql = postgres(databaseUrl);
     try {
       const [count] = await sql<
-        { count: number }[]
+        Array<{ count: number }>
       >`SELECT count(*)::integer AS count FROM hyapi_example_orders WHERE user_id = ${user.id}`;
       assert.equal(count?.count, 1, "rejected purchase cannot persist a partial order");
     } finally {
@@ -261,7 +262,7 @@ test("concurrent purchases never oversell a single inventory row", async () => {
     const sql = postgres(databaseUrl);
     try {
       const [count] = await sql<
-        { count: number }[]
+        Array<{ count: number }>
       >`SELECT count(*)::integer AS count FROM hyapi_example_orders WHERE user_id = ${user.id}`;
       assert.equal(count?.count, 1);
     } finally {

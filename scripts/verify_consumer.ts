@@ -258,10 +258,12 @@ void app.close({ timeoutMs: "1000" });
     visited.add(file);
     const source = await readFile(file, "utf8");
     for (const [, specifier] of source.matchAll(/(?:from|import\()\s*["']([^"']+)["']/g)) {
-      if (/^(?:elysia|@elysia\/)/.test(specifier!))
+      if (/^(?:elysia|@elysia\/)/.test(specifier!)) {
         throw new Error(`Public declarations expose Elysia through ${file}: ${specifier}`);
-      if (specifier!.startsWith("."))
+      }
+      if (specifier!.startsWith(".")) {
         pending.push(join(dirname(file), specifier!.replace(/\.[cm]?[jt]s$/, ".d.ts")));
+      }
     }
   }
   if (visited.size < 2) throw new Error("Public declaration graph was not traversed.");
