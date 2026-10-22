@@ -12,9 +12,10 @@ createApp<C extends RootContainer>(options: ApplicationOptions<C>): Application
 
 `ApplicationOptions<C>` requires `container: C` and `modules: ({ module: ModuleBuilder<C> }) => readonly ModuleDefinition[]`; `openapi?: OpenApiOptions` is optional. The application **does not** construct or dispose your root container. Choose your own module boundaries; see [Modules and routes](../guide/modules.md).
 
-### `Application`, `ListenOptions`, and `Listener`
+### `Application`, `CloseOptions`, `ListenOptions`, and `Listener`
 
-- **`Application`** — `fetch(request: Request): Promise<Response>` handles requests in process; `listen(options: ListenOptions): Promise<Listener>` binds HTTP; `close(): Promise<void>` stops admission/listeners and drains accepted handlers without disposing the root.
+- **`Application`** — `fetch(request: Request): Promise<Response>` handles requests in process; `listen(options: ListenOptions): Promise<Listener>` binds HTTP; `close(options?: CloseOptions): Promise<void>` stops admission/listeners and drains accepted handlers without disposing the root.
+- **`CloseOptions`** — `timeoutMs?: number` (non-negative, finite) rejects that `close` call with `Application close timed out.` once the deadline passes; accepted handlers are not cancelled and keep draining.
 - **`ListenOptions`** — `port: number` required; `hostname?: string`; `fetch?: (request: Request) => Response | Promise<Response>` is an application-owned outer HTTP wrapper. No implicit middleware or edge policy.
 - **`Listener`** — `url: URL` is the bound address; `stop(): Promise<void>` stops that listener.
 

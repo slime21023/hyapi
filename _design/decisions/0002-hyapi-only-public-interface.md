@@ -105,6 +105,10 @@ routes in `routes: (route) => [...]`, and uses `app.fetch`, `app.listen`, and `a
   and HyAPI-owned request scopes.
 - 2026-10-20: Implement the clean HyAPI-only cutover in the 0.5.0 checkout; publishing and the
   published-package consumer are still release gates.
+- 2026-10-22: Add an explicit `close({ timeoutMs })` caller deadline. It bounds only the caller's
+  wait; HyAPI still cannot cancel accepted handlers, which keep their scopes until they settle.
+  A reply with a status missing from a declared response contract now fails with a private 500
+  instead of bypassing response validation.
 
 ## InferDI lifecycle references
 

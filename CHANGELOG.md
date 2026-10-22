@@ -10,6 +10,8 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - Standard Schema request/response validation, Valibot OpenAPI conversion, optional `openapi: { path, info, ... }` JSON endpoint, and required converters for other schema vendors when OpenAPI is enabled.
 - Lazy, opt-in InferDI scopes via `scoped: true` and `scope.get(...)`; `reply(status, value)` for declared response statuses and native `Response` streaming.
 - Built-in Bun/Node `app.listen(...)`, direct `app.fetch(...)`, and optional application-owned listener fetch wrapper for logging.
+- `app.close({ timeoutMs })` bounds the caller's shutdown wait without cancelling accepted handlers; the example entry point uses a 10-second deadline.
+- A `reply` status missing from a declared `response` contract fails with a private 500 instead of skipping response validation.
 - PostgreSQL-backed single-tenant Users, Inventory, and Orders reference; purchase and stock deduction share a transaction, with missing-stock 404, insufficient-stock 409, and owner/admin authorization.
 - Example `/health/live`, PostgreSQL-backed `/health/ready`, `/health/stream`, and explicit `/openapi/json`.
 
