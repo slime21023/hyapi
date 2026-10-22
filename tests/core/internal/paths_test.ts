@@ -1,6 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { overlappingPaths, routePattern } from "../../../packages/core/src/paths.ts";
+import {
+  overlappingPaths,
+  routePattern,
+  routerSeesUrlPath,
+} from "../../../packages/core/src/paths.ts";
+
+test("the router sees the URL path only when the host reaches its fixed scan offset", () => {
+  const cases: [url: string, agrees: boolean][] = [
+    ["http://localhost/a", true],
+    ["http://abcd/a/b", true],
+    ["https://abc/a/b", true],
+    ["http://[::1]/a", true],
+    ["http://127.0.0.1:8000/a?b=/c", true],
+    ["http://abc/a/b", false],
+    ["http://l/xx/priv/who", false],
+    ["https://ab/a/b", false],
+    ["http://l/a", false],
+  ];
+  for (const [url, agrees] of cases) assert.equal(routerSeesUrlPath(url), agrees, url);
+});
 
 test("route patterns match declared segments with an optional trailing slash", () => {
   const cases: [prefix: string, path: string, matches: string[], misses: string[]][] = [

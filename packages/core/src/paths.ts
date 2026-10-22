@@ -10,6 +10,15 @@ export function routePattern(prefix: string, path: string): RegExp {
   return new RegExp(`^${segments.join("/").replace(/\/$/, "")}/?$`);
 }
 
+/**
+ * Elysia locates the routed path with `url.indexOf("/", 11)`, assuming a host long enough to
+ * push the path past that offset. A shorter host makes it route a suffix of the real path while
+ * authentication matches the full URL pathname, so both must start at the same index.
+ */
+export function routerSeesUrlPath(url: string): boolean {
+  return url.indexOf("/", 11) === url.indexOf("/", url.indexOf("://") + 3);
+}
+
 export function overlappingPaths(left: string, right: string): boolean {
   const first = left.replace(/\/$/, "").split("/");
   const second = right.replace(/\/$/, "").split("/");

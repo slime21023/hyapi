@@ -52,7 +52,7 @@ function fixture() {
     await app.close();
     await root.dispose();
   };
-  return { calls, send, close };
+  return { app, calls, send, close };
 }
 
 test("authenticate results other than an identity fail closed", async () => {
@@ -84,6 +84,30 @@ test("path and method variants never reach a protected handler without authentic
     assert.equal((await send("//priv/who")).status, 404);
     assert.equal((await send("/priv/who", { method: "POST" })).status, 404);
     assert.deepEqual(calls, []);
+  } finally {
+    await close();
+  }
+});
+
+// Elysia locates the routed path by scanning from a fixed URL offset, so a short Host shifts it
+// away from the URL pathname that authentication matches. Such requests must fail closed.
+test("a host too short for the router never reaches a protected handler", async () => {
+  const { app, calls, close } = fixture();
+  try {
+    for (const url of [
+      "http://l/xx/priv/who",
+      "http://ab/x/priv/who",
+      "https://ab/priv/who",
+      "http://l/priv/who",
+    ]) {
+      const response = await app.fetch(new Request(url));
+      assert.equal(response.status, 400, url);
+      assert.equal((await response.json()).code, "UNROUTABLE_REQUEST", url);
+    }
+    assert.deepEqual(calls, []);
+    for (const url of ["http://abcd/priv/who", "https://abc/priv/who", "http://[::1]/priv/who"]) {
+      assert.equal((await app.fetch(new Request(url))).status, 401, url);
+    }
   } finally {
     await close();
   }

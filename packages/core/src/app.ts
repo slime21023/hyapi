@@ -20,7 +20,7 @@ import type {
 } from "./contract.ts";
 import { createListener } from "./listener.ts";
 import { installOpenApi } from "./openapi.ts";
-import { overlappingPaths, routePattern } from "./paths.ts";
+import { overlappingPaths, routePattern, routerSeesUrlPath } from "./paths.ts";
 
 /** Select a non-default success status declared in the route response map. */
 export function reply<const Status extends number, Value>(
@@ -134,6 +134,8 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     .onError(problemHandler)
     .onRequest(async ({ request }) => {
       if (closing) throw new HttpError(503, "Application is closing.", "APPLICATION_UNAVAILABLE");
+      if (!routerSeesUrlPath(request.url))
+        throw new HttpError(400, "Request URL cannot be routed.", "UNROUTABLE_REQUEST");
       let finish!: () => void;
       const done = new Promise<void>((resolve) => {
         finish = resolve;

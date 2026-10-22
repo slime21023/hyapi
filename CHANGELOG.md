@@ -15,6 +15,10 @@ All notable changes to HyAPI are documented here. Versions follow [Semantic Vers
 - PostgreSQL-backed single-tenant Users, Inventory, and Orders reference; purchase and stock deduction share a transaction, with missing-stock 404, insufficient-stock 409, and owner/admin authorization.
 - Example `/health/live`, PostgreSQL-backed `/health/ready`, `/health/stream`, and explicit `/openapi/json`.
 
+### Security
+
+- Requests whose host is shorter than the internal router's fixed path offset (for example `Host: l`) now fail with 400 `UNROUTABLE_REQUEST`. Previously the router matched a suffix of the real path, so a client-controlled `Host` header could reach a protected handler without authentication on Bun and Node.
+
 ### Changed
 
 - **Breaking package and API cutover:** `hyapi@0.5.0` is the only planned publishable package. Remove `@hyapi/core`, `createApplication`, `defineModule`, Ports/providers, Elysia route plugins, `guarded`, and guard combinators. No compatibility aliases are exported. Historical `core-v*` and versions below 0.5.0 cannot publish.

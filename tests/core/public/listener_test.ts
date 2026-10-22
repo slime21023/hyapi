@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 import { test } from "node:test";
 import { Container } from "@inferdi/inferdi";
 import { createApp, type ListenOptions } from "hyapi";
@@ -104,5 +105,53 @@ test("omitting the hostname binds a loopback-reachable default", async () => {
     assert.deepEqual(await response.json(), { path: "/echo/" });
   } finally {
     await close();
+  }
+});
+
+test("a client-supplied short Host header cannot shift the routed path over HTTP", async () => {
+  let authenticated = 0;
+  const root = new Container();
+  const app = createApp({
+    container: root,
+    modules: ({ module }) => [
+      module({
+        name: "private",
+        prefix: "/priv",
+        authenticate() {
+          authenticated++;
+          return null as never;
+        },
+        routes: (route) => [route.get("/who", { handler: () => "protected" })],
+      }),
+    ],
+  });
+  try {
+    const listener = await app.listen({ hostname: "127.0.0.1", port: 0 });
+    const response = await new Promise<{ status: number | undefined; body: string }>(
+      (resolve, reject) => {
+        const outgoing = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: Number(listener.url.port),
+            path: "/xx/priv/who",
+            headers: { host: "l" },
+          },
+          (incoming) => {
+            let body = "";
+            incoming.setEncoding("utf8");
+            incoming.on("data", (chunk: string) => (body += chunk));
+            incoming.on("end", () => resolve({ status: incoming.statusCode, body }));
+          },
+        );
+        outgoing.on("error", reject);
+        outgoing.end();
+      },
+    );
+    assert.equal(response.status, 400);
+    assert.equal(JSON.parse(response.body).code, "UNROUTABLE_REQUEST");
+    assert.equal(authenticated, 0);
+  } finally {
+    await app.close();
+    await root.dispose();
   }
 });
