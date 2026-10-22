@@ -1,3 +1,5 @@
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+
 /** A deliberately public HTTP failure. Other errors must not expose their message to clients. */
 export class HttpError extends Error {
   constructor(
@@ -27,12 +29,43 @@ export class ForbiddenError extends HttpError {
   }
 }
 
+/** One failed request-validation rule; `pointer` is an RFC 6901 JSON Pointer into `in`. */
+export interface ProblemIssue {
+  readonly in: "params" | "query" | "body";
+  readonly pointer: string;
+  readonly message: string;
+}
+
 export interface Problem {
   readonly type: string;
   readonly title: string;
   readonly status: number;
   readonly detail: string;
   readonly code: string;
+  /** Present only on 400 VALIDATION_ERROR responses whose issues could be listed. */
+  readonly errors?: readonly ProblemIssue[];
+}
+
+type IssuePath = StandardSchemaV1.Issue["path"];
+
+function jsonPointer(path: IssuePath): string {
+  return (path ?? [])
+    .map((segment) => {
+      const key = typeof segment === "object" ? segment.key : segment;
+      return `/${String(key).replaceAll("~", "~0").replaceAll("/", "~1")}`;
+    })
+    .join("");
+}
+
+export function problemIssues(
+  location: ProblemIssue["in"],
+  issues: readonly StandardSchemaV1.Issue[],
+): ProblemIssue[] {
+  return issues.map((issue) => ({
+    in: location,
+    pointer: jsonPointer(issue.path),
+    message: issue.message,
+  }));
 }
 
 const titles: Record<number, string> = {
@@ -45,13 +78,16 @@ const titles: Record<number, string> = {
 };
 
 /** Internal Elysia error mapping; callers receive only safe Problem JSON. */
-export function problemHandler({
-  error,
-  code,
-}: {
-  error: unknown;
-  code: string | number;
-}): Response {
+export function problemHandler(
+  {
+    error,
+    code,
+  }: {
+    error: unknown;
+    code: string | number;
+  },
+  issues?: readonly ProblemIssue[],
+): Response {
   let status: number;
   let detail: string;
   let problemCode: string;
@@ -87,6 +123,7 @@ export function problemHandler({
     status,
     detail,
     code: problemCode,
+    ...(issues?.length && problemCode === "VALIDATION_ERROR" ? { errors: issues } : {}),
   };
   return new Response(JSON.stringify(problem), {
     status,

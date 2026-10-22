@@ -111,6 +111,9 @@ routes in `routes: (route) => [...]`, and uses `app.fetch`, `app.listen`, and `a
   instead of bypassing response validation.
 - 2026-10-22: Add an observational `onError(error, request)` option for private 500 failures. It
   is not awaited and cannot alter the Problem JSON response; 4xx and 503 are not reported.
+- 2026-10-22: Request validation Problem JSON lists `errors: [{ in, pointer, message }]` by
+  default. Issues come from re-running the route's synchronous Standard Schema, because Elysia's
+  own issue paths stringify Standard Schema path segments. Response validation stays private.
 
 ## InferDI lifecycle references
 

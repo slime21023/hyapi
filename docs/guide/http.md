@@ -49,6 +49,25 @@ Throw `HttpError(status, message, code?)` for an intentional 400–599 error; it
 }
 ```
 
-The user route above throws that specific 404 when the requested user is absent. HyAPI uses `PARSE_ERROR` or `VALIDATION_ERROR` for malformed or invalid requests (400), `NOT_FOUND` for unmatched routes (404), `UNROUTABLE_REQUEST` (400) when the request's host is too short for the internal router to locate the same path that authentication checks (for example `Host: api` behind a proxy; send a full host name instead), and `APPLICATION_UNAVAILABLE` for requests after closing starts (503). Unexpected failures and response-validation failures become a 500 `INTERNAL_SERVER_ERROR` with a generic detail; internal exception messages are not exposed to HTTP clients. To see them, pass `createApp({ ..., onError(error, request) { logger.error({ error, url: request.url }) } })`: HyAPI calls it for each private 500 without awaiting it, so a slow or failing logger cannot delay or alter the response. Application-owned `HttpError` messages and codes are deliberate public information.
+The user route above throws that specific 404 when the requested user is absent. HyAPI uses `PARSE_ERROR` or `VALIDATION_ERROR` for malformed or invalid requests (400). A `VALIDATION_ERROR` also lists each failed rule in `errors`, naming its location and an RFC 6901 JSON Pointer into it; the messages come from your schema and may echo values the client sent:
+
+```json
+{
+  "type": "about:blank",
+  "title": "Bad Request",
+  "status": 400,
+  "detail": "Request validation failed.",
+  "code": "VALIDATION_ERROR",
+  "errors": [
+    {
+      "in": "body",
+      "pointer": "/user/qty",
+      "message": "Invalid value: Expected >=1 but received 0"
+    }
+  ]
+}
+```
+
+`errors` is omitted for parse failures, response-validation failures, and asynchronous schemas. Beyond those, HyAPI uses `NOT_FOUND` for unmatched routes (404), `UNROUTABLE_REQUEST` (400) when the request's host is too short for the internal router to locate the same path that authentication checks (for example `Host: api` behind a proxy; send a full host name instead), and `APPLICATION_UNAVAILABLE` for requests after closing starts (503). Unexpected failures and response-validation failures become a 500 `INTERNAL_SERVER_ERROR` with a generic detail; internal exception messages are not exposed to HTTP clients. To see them, pass `createApp({ ..., onError(error, request) { logger.error({ error, url: request.url }) } })`: HyAPI calls it for each private 500 without awaiting it, so a slow or failing logger cannot delay or alter the response. Application-owned `HttpError` messages and codes are deliberate public information.
 
 Next: [authenticate and authorize](./auth.md), or inspect [public route and error types](../reference/core.md).

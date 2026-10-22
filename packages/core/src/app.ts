@@ -1,7 +1,7 @@
 import { node } from "@elysia/node";
 import { Elysia } from "elysia";
 import { replyBrand } from "./contract.ts";
-import { HttpError, problemHandler, UnauthorizedError } from "./problem.ts";
+import { HttpError, problemHandler, problemIssues, UnauthorizedError } from "./problem.ts";
 import type {
   Application,
   ApplicationOptions,
@@ -96,6 +96,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   const modules = options.modules({ module });
   const names = new Set<string>();
   const methods = new Set<string>();
+  const requestSchemas = new Map<string, RouteDefinition["options"]>();
   const declared: {
     method: string;
     path: string;
@@ -116,6 +117,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
       const key = `${route.method} ${path}`;
       if (methods.has(key)) throw new Error(`Route '${key}' is registered twice.`);
       methods.add(key);
+      requestSchemas.set(key, route.options);
       const pattern = routePattern(entry.prefix, route.path);
       for (const prior of declared) {
         if (
@@ -133,6 +135,33 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
     }
   }
 
+  /** Re-run the route's own schema: Elysia stringifies Standard Schema issue path segments. */
+  const validationIssues = ({
+    code,
+    error,
+    request,
+    route,
+  }: {
+    code: string | number;
+    error: unknown;
+    request: Request;
+    route: string;
+  }) => {
+    if (code !== "VALIDATION" || !error || typeof error !== "object") return undefined;
+    if (!("type" in error) || !("value" in error)) return undefined;
+    const location = error.type;
+    if (location !== "params" && location !== "query" && location !== "body") return undefined;
+    const schema = requestSchemas.get(`${request.method} ${route}`)?.[location];
+    if (!schema) return undefined;
+    try {
+      const result = schema["~standard"].validate(error.value);
+      if (result instanceof Promise || !result.issues) return undefined;
+      return problemIssues(location, result.issues);
+    } catch {
+      return undefined;
+    }
+  };
+
   const identities = new WeakMap<Request, unknown>();
   // InferDI's generic input overload cannot express a dynamically authenticated module here.
   const scopedRoot = options.container as unknown as {
@@ -144,7 +173,7 @@ export function createApp<C extends RootContainer>(options: ApplicationOptions<C
   let closing: Promise<void> | undefined;
   const app = new Elysia(process.versions.bun ? {} : { adapter: node() })
     .onError((context) => {
-      const response = problemHandler(context);
+      const response = problemHandler(context, validationIssues(context));
       if (response.status === 500 && options.onError) observe(options.onError, context);
       return response;
     })

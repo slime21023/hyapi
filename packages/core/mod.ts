@@ -21,4 +21,4 @@ export type {
   SchemaOutput,
 } from "./src/contract.ts";
 export { ForbiddenError, HttpError, UnauthorizedError } from "./src/problem.ts";
-export type { Problem } from "./src/problem.ts";
+export type { Problem, ProblemIssue } from "./src/problem.ts";
