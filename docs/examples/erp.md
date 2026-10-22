@@ -59,67 +59,94 @@ Protected routes require `Authorization: Bearer <token>` signed with the configu
 Save the following as `erp-walkthrough.ts` **in the repository root**. It uses this repository's `jose` dependency to sign demonstration tokens with the same secret as the running application. The distinct subject and SKU on every run prevent the walkthrough from overwriting its earlier inventory; the created rows still persist.
 
 ```ts
-import assert from "node:assert/strict";
-import { SignJWT } from "jose";
+import assert from 'node:assert/strict';
+import {SignJWT} from 'jose';
 
 const secret = process.env.JWT_SECRET;
 if (!secret || new TextEncoder().encode(secret).byteLength < 32) {
-  throw new Error("Set JWT_SECRET to the same 32-byte-or-longer secret as the server.");
+  throw new Error(
+    'Set JWT_SECRET to the same 32-byte-or-longer secret as the server.',
+  );
 }
 const key = new TextEncoder().encode(secret);
-const origin = "http://127.0.0.1:8000";
+const origin = 'http://127.0.0.1:8000';
 const suffix = crypto.randomUUID();
 const subject = `ada-${suffix}`;
 const sku = `ITEM-${suffix}`;
 
 async function token(tokenSubject: string, role?: string): Promise<string> {
-  return new SignJWT(role ? { role } : {})
+  return new SignJWT(role ? {role} : {})
     .setSubject(tokenSubject)
-    .setProtectedHeader({ alg: "HS256" })
+    .setProtectedHeader({alg: 'HS256'})
     .sign(key);
 }
 
-async function post(path: string, value: unknown, bearer: string): Promise<Response> {
+async function post(
+  path: string,
+  value: unknown,
+  bearer: string,
+): Promise<Response> {
   return fetch(`${origin}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${bearer}` },
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${bearer}`,
+    },
     body: JSON.stringify(value),
   });
 }
 
-async function stock(bearer: string): Promise<{ sku: string; quantity: number }> {
+async function stock(bearer: string): Promise<{sku: string; quantity: number}> {
   const response = await fetch(`${origin}/v1/inventory/${sku}`, {
-    headers: { authorization: `Bearer ${bearer}` },
+    headers: {authorization: `Bearer ${bearer}`},
   });
   assert.equal(response.status, 200);
-  return (await response.json()) as { sku: string; quantity: number };
+  return (await response.json()) as {sku: string; quantity: number};
 }
 
 const owner = await token(subject);
-const admin = await token(`admin-${suffix}`, "admin");
-const created = await post("/v1/users/", { name: "Ada" }, owner);
+const admin = await token(`admin-${suffix}`, 'admin');
+const created = await post('/v1/users/', {name: 'Ada'}, owner);
 assert.equal(created.status, 200);
-const user = (await created.json()) as { id: string; owner: string };
+const user = (await created.json()) as {id: string; owner: string};
 assert.equal(user.owner, subject);
 
-const stocked = await post("/v1/inventory/", { sku, quantity: 3 }, admin);
+const stocked = await post('/v1/inventory/', {sku, quantity: 3}, admin);
 assert.equal(stocked.status, 200);
-const purchased = await post("/v1/orders/", { userId: user.id, sku, quantity: 2 }, owner);
+const purchased = await post(
+  '/v1/orders/',
+  {userId: user.id, sku, quantity: 2},
+  owner,
+);
 assert.equal(purchased.status, 200);
-const order = (await purchased.json()) as { userId: string; quantity: number; owner: string };
+const order = (await purchased.json()) as {
+  userId: string;
+  quantity: number;
+  owner: string;
+};
 assert.equal(order.userId, user.id);
 assert.equal(order.owner, subject);
 assert.equal(order.quantity, 2);
-assert.deepEqual(await stock(owner), { sku, quantity: 1 });
+assert.deepEqual(await stock(owner), {sku, quantity: 1});
 
-const rejected = await post("/v1/orders/", { userId: user.id, sku, quantity: 2 }, owner);
+const rejected = await post(
+  '/v1/orders/',
+  {userId: user.id, sku, quantity: 2},
+  owner,
+);
 assert.equal(rejected.status, 409);
-assert.equal(rejected.headers.get("content-type"), "application/problem+json");
-const problem = (await rejected.json()) as { status: number; code: string };
+assert.equal(rejected.headers.get('content-type'), 'application/problem+json');
+const problem = (await rejected.json()) as {status: number; code: string};
 assert.equal(problem.status, 409);
-assert.equal(problem.code, "INSUFFICIENT_STOCK");
-assert.deepEqual(await stock(owner), { sku, quantity: 1 });
-console.log(JSON.stringify({ purchased: order.quantity, remaining: 1, rejected: problem.code }));
+assert.equal(problem.code, 'INSUFFICIENT_STOCK');
+assert.deepEqual(await stock(owner), {sku, quantity: 1});
+console.log(
+  JSON.stringify({
+    purchased: order.quantity,
+    remaining: 1,
+    rejected: problem.code,
+  }),
+);
 ```
 
 In another terminal, run:

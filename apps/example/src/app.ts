@@ -1,10 +1,10 @@
-import { createApp, type Application, type CloseOptions } from "hyapi";
-import { createExampleContainer } from "./container.ts";
-import { openExampleDatabase } from "./db.ts";
-import { healthModule } from "./modules/health.ts";
-import { inventoryModule } from "./modules/inventory/routes.ts";
-import { ordersModule } from "./modules/orders/routes.ts";
-import { usersModule } from "./modules/users/routes.ts";
+import {createApp, type Application, type CloseOptions} from 'hyapi';
+import {createExampleContainer} from './container.ts';
+import {openExampleDatabase} from './db.ts';
+import {healthModule} from './modules/health.ts';
+import {inventoryModule} from './modules/inventory/routes.ts';
+import {ordersModule} from './modules/orders/routes.ts';
+import {usersModule} from './modules/users/routes.ts';
 
 export type ExampleApp = Application;
 
@@ -14,8 +14,10 @@ export async function buildExampleApp(options: {
   databaseUrl: string;
 }): Promise<ExampleApp> {
   const bytes = new TextEncoder().encode(options.jwtSecret);
-  if (bytes.byteLength < 32) throw new Error("JWT_SECRET requires at least 32 bytes.");
-  if (!options.databaseUrl) throw new Error("DATABASE_URL must be set.");
+  if (bytes.byteLength < 32) {
+    throw new Error('JWT_SECRET requires at least 32 bytes.');
+  }
+  if (!options.databaseUrl) throw new Error('DATABASE_URL must be set.');
 
   const database = await openExampleDatabase(options.databaseUrl);
   const containerRoot = createExampleContainer(database, bytes);
@@ -23,16 +25,18 @@ export async function buildExampleApp(options: {
   try {
     app = createApp({
       container: containerRoot,
-      modules: ({ module }) => [
+      modules: ({module}) => [
         healthModule(module),
         usersModule(module),
         inventoryModule(module),
         ordersModule(module),
       ],
       openapi: {
-        path: "/openapi",
-        info: { title: "HyAPI ERP example", version: "0.5.0" },
-        securitySchemes: { BearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
+        path: '/openapi',
+        info: {title: 'HyAPI ERP example', version: '0.5.0'},
+        securitySchemes: {
+          BearerAuth: {type: 'http', scheme: 'bearer', bearerFormat: 'JWT'},
+        },
       },
     });
   } catch (error) {

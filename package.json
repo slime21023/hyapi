@@ -45,11 +45,9 @@
     "vitepress": "1.6.4"
   },
   "prettier": {
-    "printWidth": 100,
-    "tabWidth": 2,
-    "useTabs": false,
-    "semi": true,
-    "singleQuote": false,
-    "endOfLine": "lf"
+    "bracketSpacing": false,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "arrowParens": "avoid"
   }
 }

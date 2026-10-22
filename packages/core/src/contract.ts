@@ -4,28 +4,36 @@ import type {
   Lifetime,
   Spec,
   WithRequirements,
-} from "@inferdi/inferdi";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
+} from '@inferdi/inferdi';
+import type {StandardSchemaV1} from '@standard-schema/spec';
 
 export type Schema = StandardSchemaV1;
-export type SchemaOutput<S> = S extends Schema ? StandardSchemaV1.InferOutput<S> : unknown;
+export type SchemaOutput<S> = S extends Schema
+  ? StandardSchemaV1.InferOutput<S>
+  : unknown;
 type OptionalSchema = Schema | undefined;
 type ResponseSchemas = Schema | Readonly<Record<number, Schema>>;
 
 /** A narrow bound that retains each InferDI graph instead of widening its generic registry. */
 export interface RootContainer {
-  createScope(): { dispose(): Promise<void> };
+  createScope(): {dispose(): Promise<void>};
   dispose(): Promise<void>;
 }
 
-type RequiredBy<S> = S extends WithRequirements<Spec<unknown, Lifetime>, infer Keys> ? Keys : never;
+type RequiredBy<S> =
+  S extends WithRequirements<Spec<unknown, Lifetime>, infer Keys>
+    ? Keys
+    : never;
 type WithIdentity<T extends DependenciesMap> = {
-  [Key in keyof T]: WithRequirements<T[Key], Exclude<RequiredBy<T[Key]>, "identity">>;
+  [Key in keyof T]: WithRequirements<
+    T[Key],
+    Exclude<RequiredBy<T[Key]>, 'identity'>
+  >;
 };
 type Scope<C extends RootContainer, I> =
   C extends Container<infer Graph>
     ? Container<I extends undefined ? Graph : WithIdentity<Graph>>
-    : ReturnType<C["createScope"]>;
+    : ReturnType<C['createScope']>;
 
 /** Validation has already completed before either authorize or handler runs. */
 export interface RouteContext<
@@ -39,13 +47,17 @@ export interface RouteContext<
   readonly request: Request;
   readonly root: C;
   readonly identity: I;
-  readonly params: Params extends Schema ? SchemaOutput<Params> : Record<string, string>;
-  readonly query: Query extends Schema ? SchemaOutput<Query> : Record<string, string>;
+  readonly params: Params extends Schema
+    ? SchemaOutput<Params>
+    : Record<string, string>;
+  readonly query: Query extends Schema
+    ? SchemaOutput<Query>
+    : Record<string, string>;
   readonly body: SchemaOutput<Body>;
   readonly scope: Scoped extends true ? Scope<C, I> : never;
 }
 
-export const replyBrand = Symbol("hyapi.reply");
+export const replyBrand = Symbol('hyapi.reply');
 
 /** Non-default statuses must be declared by the route's response schemas. */
 export interface Reply<Status extends number, Value> {
@@ -60,13 +72,15 @@ export interface ReplyOptions {
   readonly headers?: HeadersInit;
 }
 
-export type HandlerResult<R extends ResponseSchemas | undefined> = R extends Schema
-  ? SchemaOutput<R> | Response
-  : R extends Readonly<Record<number, Schema>>
-    ? | { [K in keyof R & number]: Reply<K, SchemaOutput<R[K]>> }[keyof R & number]
-      | (200 extends keyof R ? SchemaOutput<R[200]> : never)
-      | Response
-    : unknown;
+export type HandlerResult<R extends ResponseSchemas | undefined> =
+  R extends Schema
+    ? SchemaOutput<R> | Response
+    : R extends Readonly<Record<number, Schema>>
+      ? | {[K in keyof R & number]: Reply<K, SchemaOutput<R[K]>>}[keyof R &
+            number]
+        | (200 extends keyof R ? SchemaOutput<R[200]> : never)
+        | Response
+      : unknown;
 
 export interface RouteOptions<
   C extends RootContainer,
@@ -98,7 +112,7 @@ export interface RouteOptions<
 }
 
 export interface RouteDefinition {
-  readonly method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  readonly method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   readonly path: string;
   readonly options: RouteOptions<
     RootContainer,
@@ -145,11 +159,17 @@ interface ModuleBase<C extends RootContainer, I> {
   readonly prefix: string;
   readonly routes: (route: RouteApi<C, I>) => readonly RouteDefinition[];
 }
-export interface PublicModule<C extends RootContainer> extends ModuleBase<C, undefined> {
+export interface PublicModule<C extends RootContainer> extends ModuleBase<
+  C,
+  undefined
+> {
   readonly authenticate?: never;
   readonly security?: never;
 }
-export interface ProtectedModule<C extends RootContainer, I> extends ModuleBase<C, I> {
+export interface ProtectedModule<C extends RootContainer, I> extends ModuleBase<
+  C,
+  I
+> {
   readonly authenticate: (request: Request, root: C) => I | Promise<I>;
   readonly security?: string;
 }
@@ -169,7 +189,11 @@ export interface OpenApiOptions {
   readonly securitySchemes?: Readonly<
     Record<
       string,
-      { readonly type: string; readonly scheme?: string; readonly bearerFormat?: string }
+      {
+        readonly type: string;
+        readonly scheme?: string;
+        readonly bearerFormat?: string;
+      }
     >
   >;
   /** Convert non-Valibot vendors into JSON Schema or reject them at startup. */

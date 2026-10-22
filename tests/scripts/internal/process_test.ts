@@ -1,16 +1,16 @@
-import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
-import { once } from "node:events";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createConnection, createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
-import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { runProcess } from "../../../scripts/process.ts";
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {once} from 'node:events';
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {createConnection, createServer} from 'node:net';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {setTimeout as delay} from 'node:timers/promises';
+import {test} from 'node:test';
+import {fileURLToPath} from 'node:url';
+import {runProcess} from '../../../scripts/process.ts';
 
-const repository = fileURLToPath(new URL("../../../", import.meta.url));
+const repository = fileURLToPath(new URL('../../../', import.meta.url));
 
 interface ListenerProcess {
   readonly pid: number;
@@ -20,7 +20,7 @@ interface ListenerProcess {
 async function bounded<T>(operation: Promise<T>, ms = 10_000): Promise<T> {
   const deadline = Promise.withResolvers<never>();
   const timer = setTimeout(
-    () => deadline.reject(new Error("Process fixture watchdog expired.")),
+    () => deadline.reject(new Error('Process fixture watchdog expired.')),
     ms,
   );
   try {
@@ -30,13 +30,21 @@ async function bounded<T>(operation: Promise<T>, ms = 10_000): Promise<T> {
   }
 }
 
-async function listenerProcess(root: string, name: string): Promise<ListenerProcess> {
+async function listenerProcess(
+  root: string,
+  name: string,
+): Promise<ListenerProcess> {
   const deadlineMs = Date.now() + 10_000;
   for (;;) {
     try {
-      return JSON.parse(await readFile(join(root, `${name}.json`), "utf8")) as ListenerProcess;
+      return JSON.parse(
+        await readFile(join(root, `${name}.json`), 'utf8'),
+      ) as ListenerProcess;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || Date.now() >= deadlineMs) {
+      if (
+        (error as NodeJS.ErrnoException).code !== 'ENOENT' ||
+        Date.now() >= deadlineMs
+      ) {
         throw error;
       }
     }
@@ -47,12 +55,12 @@ async function listenerProcess(root: string, name: string): Promise<ListenerProc
 async function assertReleased(port: number): Promise<void> {
   const listener = createServer();
   try {
-    const listening = once(listener, "listening");
-    listener.listen({ host: "127.0.0.1", port });
+    const listening = once(listener, 'listening');
+    listener.listen({host: '127.0.0.1', port});
     await bounded(listening);
   } finally {
     if (listener.listening) {
-      const closed = once(listener, "close");
+      const closed = once(listener, 'close');
       listener.close();
       await bounded(closed);
     }
@@ -61,19 +69,19 @@ async function assertReleased(port: number): Promise<void> {
 
 // A fixture-only control socket cleans up its own process independently of runProcess.
 async function stopFixture(port: number, token: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  const socket = createConnection({ host: "127.0.0.1", port });
+  const {promise, resolve, reject} = Promise.withResolvers<void>();
+  const socket = createConnection({host: '127.0.0.1', port});
   socket.setTimeout(2_000, () => {
     socket.destroy();
-    reject(new Error("Process fixture cleanup timed out."));
+    reject(new Error('Process fixture cleanup timed out.'));
   });
   socket.resume();
-  socket.once("connect", () => socket.end(token));
-  socket.once("error", (error: NodeJS.ErrnoException) => {
-    if (error.code === "ECONNREFUSED") resolve();
+  socket.once('connect', () => socket.end(token));
+  socket.once('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ECONNREFUSED') resolve();
     else reject(error);
   });
-  socket.once("close", () => resolve());
+  socket.once('close', () => resolve());
   await promise;
 }
 
@@ -124,41 +132,49 @@ if (mode !== "descendant") {
 }
 `;
 
-test("runProcess rejects nonzero exits", async () => {
+test('runProcess rejects nonzero exits', async () => {
   await assert.rejects(
-    () => runProcess(process.execPath, ["--eval", "process.exitCode = 17"], repository),
+    () =>
+      runProcess(
+        process.execPath,
+        ['--eval', 'process.exitCode = 17'],
+        repository,
+      ),
     /failed \(17\)/,
   );
 });
 
-test("runProcess retains native spawn errors", async () => {
-  await assert.rejects(() => runProcess(`hyapi-missing-${randomUUID()}`, [], repository), {
-    code: "ENOENT",
-  });
+test('runProcess retains native spawn errors', async () => {
+  await assert.rejects(
+    () => runProcess(`hyapi-missing-${randomUUID()}`, [], repository),
+    {
+      code: 'ENOENT',
+    },
+  );
 });
 
-test("runProcess terminates a timed-out parent and descendant before rejecting", async () => {
-  const root = await mkdtemp(join(tmpdir(), "hyapi-process-tree-"));
+test('runProcess terminates a timed-out parent and descendant before rejecting', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'hyapi-process-tree-'));
   const token = randomUUID();
   let parent: ListenerProcess | undefined;
   let descendant: ListenerProcess | undefined;
   try {
-    const script = join(root, "tree.mjs");
+    const script = join(root, 'tree.mjs');
     await writeFile(script, treeFixture);
     const outcome = runProcess(
       process.execPath,
-      [script, root, "parent", token],
+      [script, root, 'parent', token],
       repository,
       3_000,
     ).catch((error: unknown) => error);
-    parent = await listenerProcess(root, "parent");
-    descendant = await listenerProcess(root, "descendant");
+    parent = await listenerProcess(root, 'parent');
+    descendant = await listenerProcess(root, 'descendant');
     assert.ok((await bounded(outcome)) instanceof Error);
     await assertReleased(parent.port);
     await assertReleased(descendant.port);
   } finally {
     if (descendant) await stopFixture(descendant.port, token);
     if (parent) await stopFixture(parent.port, token);
-    await rm(root, { recursive: true, force: true });
+    await rm(root, {recursive: true, force: true});
   }
 });

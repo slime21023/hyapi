@@ -1,12 +1,14 @@
-import type postgres from "postgres";
-import { HttpError } from "hyapi";
+import type postgres from 'postgres';
+import {HttpError} from 'hyapi';
 
 export interface InventoryItem {
   sku: string;
   quantity: number;
 }
 
-export async function initInventory(tx: postgres.TransactionSql): Promise<void> {
+export async function initInventory(
+  tx: postgres.TransactionSql,
+): Promise<void> {
   await tx`
     CREATE TABLE IF NOT EXISTS hyapi_example_inventory (
       sku text PRIMARY KEY,
@@ -29,7 +31,10 @@ export async function putInventory(
   return item!;
 }
 
-export async function findInventory(sql: postgres.Sql, sku: string): Promise<InventoryItem | null> {
+export async function findInventory(
+  sql: postgres.Sql,
+  sku: string,
+): Promise<InventoryItem | null> {
   const [item] = await sql<InventoryItem[]>`
     SELECT sku, quantity FROM hyapi_example_inventory WHERE sku = ${sku}
   `;
@@ -48,8 +53,15 @@ export async function reserveStock(
     RETURNING sku
   `;
   if (!stock) {
-    const [item] = await tx`SELECT sku FROM hyapi_example_inventory WHERE sku = ${sku}`;
-    if (!item) throw new HttpError(404, "Inventory item not found.", "INVENTORY_NOT_FOUND");
-    throw new HttpError(409, "Insufficient stock.", "INSUFFICIENT_STOCK");
+    const [item] =
+      await tx`SELECT sku FROM hyapi_example_inventory WHERE sku = ${sku}`;
+    if (!item) {
+      throw new HttpError(
+        404,
+        'Inventory item not found.',
+        'INVENTORY_NOT_FOUND',
+      );
+    }
+    throw new HttpError(409, 'Insufficient stock.', 'INSUFFICIENT_STOCK');
   }
 }

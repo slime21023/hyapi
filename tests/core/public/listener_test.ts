@@ -1,19 +1,21 @@
-import assert from "node:assert/strict";
-import { request as httpRequest } from "node:http";
-import { test } from "node:test";
-import { Container } from "@inferdi/inferdi";
-import { createApp, type ListenOptions } from "hyapi";
+import assert from 'node:assert/strict';
+import {request as httpRequest} from 'node:http';
+import {test} from 'node:test';
+import {Container} from '@inferdi/inferdi';
+import {createApp, type ListenOptions} from 'hyapi';
 
 function fixture() {
   const root = new Container();
   const app = createApp({
     container: root,
-    modules: ({ module }) => [
+    modules: ({module}) => [
       module({
-        name: "echo",
-        prefix: "/echo",
-        routes: (route) => [
-          route.get("/", { handler: ({ request }) => ({ path: new URL(request.url).pathname }) }),
+        name: 'echo',
+        prefix: '/echo',
+        routes: route => [
+          route.get('/', {
+            handler: ({request}) => ({path: new URL(request.url).pathname}),
+          }),
         ],
       }),
     ],
@@ -22,72 +24,76 @@ function fixture() {
     await app.close();
     await root.dispose();
   };
-  return { app, close };
+  return {app, close};
 }
 
 async function refused(url: URL): Promise<boolean> {
   try {
-    await fetch(url, { signal: AbortSignal.timeout(2000) });
+    await fetch(url, {signal: AbortSignal.timeout(2000)});
     return false;
   } catch {
     return true;
   }
 }
 
-test("binding an occupied port fails and leaves the application closable", async () => {
+test('binding an occupied port fails and leaves the application closable', async () => {
   const first = fixture();
   const second = fixture();
   try {
-    const listener = await first.app.listen({ hostname: "127.0.0.1", port: 0 });
+    const listener = await first.app.listen({hostname: '127.0.0.1', port: 0});
     const port = Number(listener.url.port);
-    await assert.rejects(second.app.listen({ hostname: "127.0.0.1", port }));
+    await assert.rejects(second.app.listen({hostname: '127.0.0.1', port}));
     await second.close();
   } finally {
     await first.close();
   }
 });
 
-test("a wildcard bind reports a loopback URL that fetch can reach", async () => {
-  const { app, close } = fixture();
+test('a wildcard bind reports a loopback URL that fetch can reach', async () => {
+  const {app, close} = fixture();
   try {
-    const listener = await app.listen({ hostname: "0.0.0.0", port: 0 });
-    assert.equal(listener.url.hostname, "127.0.0.1");
-    const response = await fetch(new URL("/echo/", listener.url));
-    assert.deepEqual(await response.json(), { path: "/echo/" });
+    const listener = await app.listen({hostname: '0.0.0.0', port: 0});
+    assert.equal(listener.url.hostname, '127.0.0.1');
+    const response = await fetch(new URL('/echo/', listener.url));
+    assert.deepEqual(await response.json(), {path: '/echo/'});
   } finally {
     await close();
   }
 });
 
-test("an outer fetch wrapper sees each request and may rewrite the response", async () => {
-  const { app, close } = fixture();
+test('an outer fetch wrapper sees each request and may rewrite the response', async () => {
+  const {app, close} = fixture();
   const seen: string[] = [];
-  const wrapper: ListenOptions["fetch"] = async (request) => {
+  const wrapper: ListenOptions['fetch'] = async request => {
     seen.push(new URL(request.url).pathname);
     const response = await app.fetch(request);
     const headers = new Headers(response.headers);
-    headers.set("x-wrapped", "yes");
-    return new Response(response.body, { status: response.status, headers });
+    headers.set('x-wrapped', 'yes');
+    return new Response(response.body, {status: response.status, headers});
   };
   try {
-    const listener = await app.listen({ hostname: "127.0.0.1", port: 0, fetch: wrapper });
-    const response = await fetch(new URL("/echo/", listener.url));
-    assert.equal(response.headers.get("x-wrapped"), "yes");
-    assert.deepEqual(await response.json(), { path: "/echo/" });
-    assert.equal((await fetch(new URL("/missing", listener.url))).status, 404);
-    assert.deepEqual(seen, ["/echo/", "/missing"]);
+    const listener = await app.listen({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: wrapper,
+    });
+    const response = await fetch(new URL('/echo/', listener.url));
+    assert.equal(response.headers.get('x-wrapped'), 'yes');
+    assert.deepEqual(await response.json(), {path: '/echo/'});
+    assert.equal((await fetch(new URL('/missing', listener.url))).status, 404);
+    assert.deepEqual(seen, ['/echo/', '/missing']);
   } finally {
     await close();
   }
 });
 
-test("closing the application stops every listener it started", async () => {
-  const { app, close } = fixture();
+test('closing the application stops every listener it started', async () => {
+  const {app, close} = fixture();
   const urls: URL[] = [];
   try {
     for (let index = 0; index < 2; index++) {
-      const listener = await app.listen({ hostname: "127.0.0.1", port: 0 });
-      urls.push(new URL("/echo/", listener.url));
+      const listener = await app.listen({hostname: '127.0.0.1', port: 0});
+      urls.push(new URL('/echo/', listener.url));
       assert.equal((await fetch(urls[index]!)).status, 200);
     }
   } finally {
@@ -96,59 +102,62 @@ test("closing the application stops every listener it started", async () => {
   for (const url of urls) assert.equal(await refused(url), true, url.href);
 });
 
-test("omitting the hostname binds a loopback-reachable default", async () => {
-  const { app, close } = fixture();
+test('omitting the hostname binds a loopback-reachable default', async () => {
+  const {app, close} = fixture();
   try {
-    const listener = await app.listen({ port: 0 });
-    assert.notEqual(listener.url.port, "0");
-    const response = await fetch(new URL("/echo/", listener.url));
-    assert.deepEqual(await response.json(), { path: "/echo/" });
+    const listener = await app.listen({port: 0});
+    assert.notEqual(listener.url.port, '0');
+    const response = await fetch(new URL('/echo/', listener.url));
+    assert.deepEqual(await response.json(), {path: '/echo/'});
   } finally {
     await close();
   }
 });
 
-test("a client-supplied short Host header cannot shift the routed path over HTTP", async () => {
+test('a client-supplied short Host header cannot shift the routed path over HTTP', async () => {
   let authenticated = 0;
   const root = new Container();
   const app = createApp({
     container: root,
-    modules: ({ module }) => [
+    modules: ({module}) => [
       module({
-        name: "private",
-        prefix: "/priv",
+        name: 'private',
+        prefix: '/priv',
         authenticate() {
           authenticated++;
           return null as never;
         },
-        routes: (route) => [route.get("/who", { handler: () => "protected" })],
+        routes: route => [route.get('/who', {handler: () => 'protected'})],
       }),
     ],
   });
   try {
-    const listener = await app.listen({ hostname: "127.0.0.1", port: 0 });
-    const response = await new Promise<{ status: number | undefined; body: string }>(
-      (resolve, reject) => {
-        const outgoing = httpRequest(
-          {
-            host: "127.0.0.1",
-            port: Number(listener.url.port),
-            path: "/xx/priv/who",
-            headers: { host: "l" },
-          },
-          (incoming) => {
-            let body = "";
-            incoming.setEncoding("utf8");
-            incoming.on("data", (chunk: string) => (body += chunk));
-            incoming.on("end", () => resolve({ status: incoming.statusCode, body }));
-          },
-        );
-        outgoing.on("error", reject);
-        outgoing.end();
-      },
-    );
+    const listener = await app.listen({hostname: '127.0.0.1', port: 0});
+    const response = await new Promise<{
+      status: number | undefined;
+      body: string;
+    }>((resolve, reject) => {
+      const outgoing = httpRequest(
+        {
+          host: '127.0.0.1',
+          port: Number(listener.url.port),
+          path: '/xx/priv/who',
+          headers: {host: 'l'},
+        },
+        incoming => {
+          let body = '';
+          incoming.setEncoding('utf8');
+          incoming.on('data', (chunk: string) => (body += chunk));
+          incoming.on('end', () =>
+            resolve({status: incoming.statusCode, body}),
+          );
+        },
+      );
+      outgoing.on('error', reject);
+      outgoing.end();
+    });
     assert.equal(response.status, 400);
-    assert.equal(JSON.parse(response.body).code, "UNROUTABLE_REQUEST");
+    assert.equal(JSON.parse(response.body).code, 'UNROUTABLE_REQUEST');
     assert.equal(authenticated, 0);
   } finally {
     await app.close();

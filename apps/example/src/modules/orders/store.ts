@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import type postgres from 'postgres';
 
 export interface Order {
   id: string;
@@ -35,7 +35,10 @@ export async function insertOrder(
   return order!;
 }
 
-export async function findOrder(sql: postgres.Sql, id: string): Promise<Order | null> {
+export async function findOrder(
+  sql: postgres.Sql,
+  id: string,
+): Promise<Order | null> {
   const [order] = await sql<Order[]>`
     SELECT id, user_id AS "userId", sku, quantity, owner
     FROM hyapi_example_orders WHERE id = ${id}

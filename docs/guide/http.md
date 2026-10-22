@@ -15,20 +15,20 @@ Request parsing and validation finish before the route's `authorize` and `handle
 A plain value is the ordinary 200 result. To return another 2xx or 3xx status, declare the status in `response` and return `reply(status, value)` from the handler. This **addition to the Quickstart application** reuses its `AppContainer`, `responseSchema`, `container`, and `helloRoute`:
 
 ```ts
-import { reply, type ModuleBuilder, type RouteApi } from "hyapi";
+import {reply, type ModuleBuilder, type RouteApi} from 'hyapi';
 
 function createMessageRoute(route: RouteApi<AppContainer, undefined>) {
-  return route.post("/messages", {
-    response: { 201: responseSchema },
-    handler: ({ root }) => reply(201, { message: root.get("message") }),
+  return route.post('/messages', {
+    response: {201: responseSchema},
+    handler: ({root}) => reply(201, {message: root.get('message')}),
   });
 }
 
 function helloModule(module: ModuleBuilder<AppContainer>) {
   return module({
-    name: "hello",
-    prefix: "/hello",
-    routes: (route) => [helloRoute(route), createMessageRoute(route)],
+    name: 'hello',
+    prefix: '/hello',
+    routes: route => [helloRoute(route), createMessageRoute(route)],
   });
 }
 ```

@@ -1,7 +1,7 @@
 ---
 name: Development task
 about: Deliver a verified HyAPI roadmap task
-title: "<area>: <short description>"
+title: '<area>: <short description>'
 labels: []
 assignees: []
 ---
@@ -22,17 +22,17 @@ assignees: []
 ## rule.yml
 
 ```yaml
-goal: ""
+goal: ''
 keyresults:
-  - kr-1: ""
-  - kr-2: ""
+  - kr-1: ''
+  - kr-2: ''
 rules:
-  - id: ""
-    name: ""
-    apply: ""
+  - id: ''
+    name: ''
+    apply: ''
     level: error
     desc:
-      - ""
+      - ''
 ```
 
 ## Verification

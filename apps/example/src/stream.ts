@@ -10,7 +10,9 @@ export function streamResponse(): Response {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       timer = setInterval(() => {
-        controller.enqueue(encoder.encode(`${JSON.stringify({ sequence: ++sequence })}\n`));
+        controller.enqueue(
+          encoder.encode(`${JSON.stringify({sequence: ++sequence})}\n`),
+        );
         if (sequence === 3) {
           dispose();
           controller.close();
@@ -19,5 +21,7 @@ export function streamResponse(): Response {
     },
     cancel: dispose,
   });
-  return new Response(body, { headers: { "content-type": "application/x-ndjson" } });
+  return new Response(body, {
+    headers: {'content-type': 'application/x-ndjson'},
+  });
 }

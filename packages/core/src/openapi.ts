@@ -1,7 +1,7 @@
-import { openapi } from "@elysia/openapi";
-import { toJsonSchema } from "@valibot/to-json-schema";
-import type { AnyElysia } from "elysia";
-import type { ModuleDefinition, OpenApiOptions, Schema } from "./contract.ts";
+import {openapi} from '@elysia/openapi';
+import {toJsonSchema} from '@valibot/to-json-schema';
+import type {AnyElysia} from 'elysia';
+import type {ModuleDefinition, OpenApiOptions, Schema} from './contract.ts';
 
 /** Register JSON documentation for routes already compiled onto this application. */
 export function installOpenApi(
@@ -12,24 +12,32 @@ export function installOpenApi(
   const converted = new Map<Schema, object>();
   const convertValibot = (schema: Schema): object =>
     toJsonSchema(schema as Parameters<typeof toJsonSchema>[0], {
-      target: "draft-2020-12",
-      errorMode: "throw",
+      target: 'draft-2020-12',
+      errorMode: 'throw',
     });
   const convert = (schema: Schema): object => {
     const cached = converted.get(schema);
     if (cached) return cached;
 
-    const vendor = schema["~standard"].vendor;
+    const vendor = schema['~standard'].vendor;
     const converter =
-      vendor === "valibot"
+      vendor === 'valibot'
         ? convertValibot
         : Object.hasOwn(options.converters ?? {}, vendor)
           ? options.converters?.[vendor]
           : undefined;
-    if (!converter) throw new Error(`No OpenAPI JSON Schema converter for vendor "${vendor}"`);
+    if (!converter) {
+      throw new Error(
+        `No OpenAPI JSON Schema converter for vendor "${vendor}"`,
+      );
+    }
 
     const jsonSchema = converter(schema);
-    if (!jsonSchema || typeof jsonSchema !== "object" || Array.isArray(jsonSchema)) {
+    if (
+      !jsonSchema ||
+      typeof jsonSchema !== 'object' ||
+      Array.isArray(jsonSchema)
+    ) {
       throw new Error(
         `OpenAPI converter for vendor "${vendor}" did not return a JSON Schema object`,
       );
@@ -39,7 +47,9 @@ export function installOpenApi(
   };
 
   for (const module of modules) {
-    const documented = module.routes.filter((route) => route.options.documented !== false);
+    const documented = module.routes.filter(
+      route => route.options.documented !== false,
+    );
     if (
       module.authenticate &&
       documented.length > 0 &&
@@ -47,15 +57,17 @@ export function installOpenApi(
         !Object.hasOwn(options.securitySchemes ?? {}, module.security) ||
         !options.securitySchemes?.[module.security])
     ) {
-      throw new Error(`Protected module "${module.name}" needs a declared OpenAPI security scheme`);
+      throw new Error(
+        `Protected module "${module.name}" needs a declared OpenAPI security scheme`,
+      );
     }
     for (const route of documented) {
-      const { params, query, body, response } = route.options;
+      const {params, query, body, response} = route.options;
       for (const schema of [params, query, body]) {
         if (schema) convert(schema);
       }
       if (response) {
-        if ("~standard" in response) {
+        if ('~standard' in response) {
           convert(response);
         } else {
           for (const schema of Object.values(response)) convert(schema);
@@ -64,10 +76,11 @@ export function installOpenApi(
     }
   }
 
-  const mapJsonSchema: Record<string, (schema: Schema) => object> = Object.create(null);
+  const mapJsonSchema: Record<string, (schema: Schema) => object> =
+    Object.create(null);
   mapJsonSchema.valibot = convert;
   for (const vendor of Object.keys(options.converters ?? {})) {
-    if (vendor !== "valibot") mapJsonSchema[vendor] = convert;
+    if (vendor !== 'valibot') mapJsonSchema[vendor] = convert;
   }
 
   app.use(
@@ -75,11 +88,13 @@ export function installOpenApi(
       path: options.path,
       specPath: `${options.path}/json`,
       provider: null,
-      exclude: { staticFile: false },
+      exclude: {staticFile: false},
       documentation: {
         info: options.info,
-        components: { securitySchemes: options.securitySchemes },
-      } as NonNullable<NonNullable<Parameters<typeof openapi>[0]>["documentation"]>,
+        components: {securitySchemes: options.securitySchemes},
+      } as NonNullable<
+        NonNullable<Parameters<typeof openapi>[0]>['documentation']
+      >,
       mapJsonSchema,
     }),
   );

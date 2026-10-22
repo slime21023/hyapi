@@ -32,12 +32,13 @@ const docsPage = `<!doctype html><title>API reference</title>
 <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@<version>"></script>`;
 
 module({
-  name: "docs",
-  prefix: "/docs",
-  routes: (route) => [
-    route.get("/", {
+  name: 'docs',
+  prefix: '/docs',
+  routes: route => [
+    route.get('/', {
       documented: false,
-      handler: () => new Response(docsPage, { headers: { "content-type": "text/html" } }),
+      handler: () =>
+        new Response(docsPage, {headers: {'content-type': 'text/html'}}),
     }),
   ],
 });
@@ -54,11 +55,11 @@ npx openapi-typescript http://127.0.0.1:8000/openapi/json -o src/api.d.ts
 ```
 
 ```ts
-import createClient from "openapi-fetch";
-import type { paths } from "./api.d.ts";
+import createClient from 'openapi-fetch';
+import type {paths} from './api.d.ts';
 
-const api = createClient<paths>({ baseUrl: "http://127.0.0.1:8000" });
-const { data, error } = await api.GET("/orders/{id}", { params: { path: { id } } });
+const api = createClient<paths>({baseUrl: 'http://127.0.0.1:8000'});
+const {data, error} = await api.GET('/orders/{id}', {params: {path: {id}}});
 ```
 
 Give routes an `operationId` when your generator derives method names from it. Regenerate the types whenever route schemas change; a CI check that diffs the generated file catches drift.

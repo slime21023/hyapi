@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import type postgres from 'postgres';
 
 export interface User {
   id: string;
@@ -16,7 +16,11 @@ export async function initUsers(tx: postgres.TransactionSql): Promise<void> {
   `;
 }
 
-export async function createUser(sql: postgres.Sql, name: string, owner: string): Promise<User> {
+export async function createUser(
+  sql: postgres.Sql,
+  name: string,
+  owner: string,
+): Promise<User> {
   const [user] = await sql<User[]>`
     INSERT INTO hyapi_example_users (id, name, owner)
     VALUES (${crypto.randomUUID()}, ${name}, ${owner})

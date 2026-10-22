@@ -1,31 +1,31 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { packPackage, readPackages } from "./packages.ts";
-import { runProcess } from "./process.ts";
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {dirname, join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {packPackage, readPackages} from './packages.ts';
+import {runProcess} from './process.ts';
 
-const root = fileURLToPath(new URL("../", import.meta.url));
+const root = fileURLToPath(new URL('../', import.meta.url));
 
-const temp = await mkdtemp(join(tmpdir(), "hyapi-consumer-"));
+const temp = await mkdtemp(join(tmpdir(), 'hyapi-consumer-'));
 try {
   const [pkg] = await readPackages();
-  if (!pkg) throw new Error("hyapi package is missing.");
+  if (!pkg) throw new Error('hyapi package is missing.');
   const archive = await packPackage(pkg, temp);
   await writeFile(
-    join(temp, "package.json"),
+    join(temp, 'package.json'),
     JSON.stringify({
       private: true,
-      type: "module",
+      type: 'module',
       dependencies: {
         hyapi: `file:${archive}`,
-        "@inferdi/inferdi": "6.1.0",
-        valibot: "1.5.0",
+        '@inferdi/inferdi': '6.1.0',
+        valibot: '1.5.0',
       },
     }),
   );
   await writeFile(
-    join(temp, "consumer.mjs"),
+    join(temp, 'consumer.mjs'),
     `
 import assert from "node:assert/strict";
 import { Container } from "@inferdi/inferdi";
@@ -152,7 +152,7 @@ console.log("Packed hyapi consumer passed");
 `,
   );
   await writeFile(
-    join(temp, "consumer.ts"),
+    join(temp, 'consumer.ts'),
     `
 import { Container } from "@inferdi/inferdi";
 import * as v from "valibot";
@@ -241,39 +241,50 @@ void app.close({ timeoutMs: "1000" });
 `,
   );
   await writeFile(
-    join(temp, "tsconfig.json"),
+    join(temp, 'tsconfig.json'),
     JSON.stringify({
-      extends: join(root, "tsconfig.base.json"),
-      compilerOptions: { noEmit: true, typeRoots: [join(root, "node_modules", "@types")] },
-      include: ["consumer.ts"],
+      extends: join(root, 'tsconfig.base.json'),
+      compilerOptions: {
+        noEmit: true,
+        typeRoots: [join(root, 'node_modules', '@types')],
+      },
+      include: ['consumer.ts'],
     }),
   );
-  await runProcess("bun", ["install"], temp);
+  await runProcess('bun', ['install'], temp);
   // Walk only declarations reachable from the facade; private Core files may still use Elysia.
-  const dist = join(temp, "node_modules", "hyapi", "dist");
-  const pending = [join(dist, "mod.d.ts")];
+  const dist = join(temp, 'node_modules', 'hyapi', 'dist');
+  const pending = [join(dist, 'mod.d.ts')];
   const visited = new Set<string>();
   for (let file = pending.pop(); file; file = pending.pop()) {
     if (visited.has(file)) continue;
     visited.add(file);
-    const source = await readFile(file, "utf8");
-    for (const [, specifier] of source.matchAll(/(?:from|import\()\s*["']([^"']+)["']/g)) {
+    const source = await readFile(file, 'utf8');
+    for (const [, specifier] of source.matchAll(
+      /(?:from|import\()\s*["']([^"']+)["']/g,
+    )) {
       if (/^(?:elysia|@elysia\/)/.test(specifier!)) {
-        throw new Error(`Public declarations expose Elysia through ${file}: ${specifier}`);
+        throw new Error(
+          `Public declarations expose Elysia through ${file}: ${specifier}`,
+        );
       }
-      if (specifier!.startsWith(".")) {
-        pending.push(join(dirname(file), specifier!.replace(/\.[cm]?[jt]s$/, ".d.ts")));
+      if (specifier!.startsWith('.')) {
+        pending.push(
+          join(dirname(file), specifier!.replace(/\.[cm]?[jt]s$/, '.d.ts')),
+        );
       }
     }
   }
-  if (visited.size < 2) throw new Error("Public declaration graph was not traversed.");
+  if (visited.size < 2) {
+    throw new Error('Public declaration graph was not traversed.');
+  }
   await runProcess(
-    "node",
-    [join(root, "node_modules", "typescript", "bin", "tsc"), "-p", temp],
+    'node',
+    [join(root, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', temp],
     temp,
   );
-  await runProcess("bun", ["consumer.mjs"], temp);
-  await runProcess("node", ["consumer.mjs"], temp);
+  await runProcess('bun', ['consumer.mjs'], temp);
+  await runProcess('node', ['consumer.mjs'], temp);
 } finally {
-  await rm(temp, { recursive: true, force: true });
+  await rm(temp, {recursive: true, force: true});
 }

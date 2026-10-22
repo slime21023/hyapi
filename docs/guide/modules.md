@@ -9,7 +9,7 @@ The [Quickstart](./quickstart.md) starts with a Valibot response schema, a typed
 ```ts
 const app = createApp({
   container,
-  modules: ({ module }) => [helloModule(module)],
+  modules: ({module}) => [helloModule(module)],
 });
 ```
 

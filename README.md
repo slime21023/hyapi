@@ -18,37 +18,37 @@ bun run --filter hyapi build
 Create `hello.ts` in the repository root. Define the response schema and route first, then compose the module and application:
 
 ```ts
-import { Container } from "@inferdi/inferdi";
-import * as v from "valibot";
-import { createApp, type ModuleBuilder, type RouteApi } from "hyapi";
+import {Container} from '@inferdi/inferdi';
+import * as v from 'valibot';
+import {createApp, type ModuleBuilder, type RouteApi} from 'hyapi';
 
-const container = new Container().registerValue("message", "Hello from HyAPI");
+const container = new Container().registerValue('message', 'Hello from HyAPI');
 type AppContainer = typeof container;
-const responseSchema = v.object({ message: v.string() });
+const responseSchema = v.object({message: v.string()});
 
 function helloRoute(route: RouteApi<AppContainer, undefined>) {
-  return route.get("/", {
+  return route.get('/', {
     response: responseSchema,
-    handler: ({ root }) => ({ message: root.get("message") }),
+    handler: ({root}) => ({message: root.get('message')}),
   });
 }
 
 function helloModule(module: ModuleBuilder<AppContainer>) {
   return module({
-    name: "hello",
-    prefix: "/hello",
-    routes: (route) => [helloRoute(route)],
+    name: 'hello',
+    prefix: '/hello',
+    routes: route => [helloRoute(route)],
   });
 }
 
 const app = createApp({
   container,
-  modules: ({ module }) => [helloModule(module)],
+  modules: ({module}) => [helloModule(module)],
 });
 
-const listener = await app.listen({ hostname: "127.0.0.1", port: 3000 });
+const listener = await app.listen({hostname: '127.0.0.1', port: 3000});
 console.log(`Listening at ${listener.url}`);
-process.once("SIGINT", () => {
+process.once('SIGINT', () => {
   void (async () => {
     try {
       await app.close();
